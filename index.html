@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fazenda | Gestão de Fazendas</title>
+<style>
+  :root {
+    --green: #2f7d3c;
+    --green-dark: #235c2c;
+    --bg: #f4f6f2;
+    --card: #ffffff;
+    --border: #dfe3dc;
+    --text: #22281f;
+    --muted: #6b7266;
+    --danger: #b3382c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: var(--green);
+    color: #fff;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 1.2rem; margin: 0; }
+  header button {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.4);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  header button:hover { background: rgba(255,255,255,0.25); }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px 16px 80px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .hidden { display: none !important; }
+  label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 4px;
+    margin-top: 12px;
+  }
+  input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 1rem;
+  }
+  input:focus { outline: 2px solid var(--green); border-color: var(--green); }
+  .btn {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 10px 16px;
+    background: var(--green);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--green-dark); }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--green-dark);
+    cursor: pointer;
+    padding: 0;
+    font-size: 0.9rem;
+    text-decoration: underline;
+  }
+  .error {
+    color: var(--danger);
+    font-size: 0.9rem;
+    margin-top: 10px;
+    min-height: 1.2em;
+  }
+  .farm-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+  }
+  .farm-item:last-child { border-bottom: none; }
+  .farm-info strong { display: block; font-size: 1.05rem; }
+  .farm-info span { color: var(--muted); font-size: 0.9rem; }
+  .farm-actions button {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    color: var(--danger);
+  }
+  .farm-actions button:hover { background: #fbeceb; }
+  .empty-state {
+    color: var(--muted);
+    text-align: center;
+    padding: 24px 0;
+  }
+  .config-warning {
+    background: #fff4e5;
+    border: 1px solid #e8b566;
+    color: #6b4a0f;
+    padding: 14px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .config-warning code {
+    background: rgba(0,0,0,0.06);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .toggle-row { margin-top: 14px; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🌱 Fazenda</h1>
+  <button id="logout-btn" class="hidden">Sair</button>
+</header>
+
+<main>
+  <div id="config-warning" class="config-warning hidden">
+    ⚠️ O app ainda não está conectado a um projeto Firebase.
+    Preencha o objeto <code>firebaseConfig</code> no início do arquivo
+    <code>index.html</code> com as credenciais do seu projeto
+    (Console do Firebase → Configurações do projeto → Seus apps → SDK).
+    Depois disso, habilite o provedor <code>Email/senha</code> em
+    <code>Authentication → Sign-in method</code> e publique o arquivo
+    <code>firestore.rules</code> em <code>Firestore → Regras</code>.
+  </div>
+
+  <!-- Auth screen -->
+  <section id="auth-section" class="card hidden">
+    <h2 id="auth-title">Entrar</h2>
+    <form id="auth-form">
+      <label for="email">Email</label>
+      <input type="email" id="email" required autocomplete="email">
+
+      <label for="password">Senha</label>
+      <input type="password" id="password" required autocomplete="current-password" minlength="6">
+
+      <button type="submit" class="btn" id="auth-submit-btn">Entrar</button>
+      <div class="error" id="auth-error"></div>
+    </form>
+    <div class="toggle-row">
+      <span id="toggle-text">Ainda não tem conta?</span>
+      <button type="button" class="btn-link" id="toggle-auth-mode">Criar conta</button>
+    </div>
+  </section>
+
+  <!-- App screen (visible when logged in) -->
+  <section id="app-section" class="hidden">
+    <div class="card">
+      <h2>Nova fazenda</h2>
+      <form id="farm-form">
+        <label for="farm-name">Nome da fazenda</label>
+        <input type="text" id="farm-name" required placeholder="Ex: Fazenda Boa Vista">
+
+        <label for="farm-location">Localização</label>
+        <input type="text" id="farm-location" placeholder="Ex: Ribeirão Preto, SP">
+
+        <label for="farm-area">Área (hectares)</label>
+        <input type="number" id="farm-area" min="0" step="0.01" placeholder="Ex: 120.5">
+
+        <button type="submit" class="btn" id="farm-submit-btn">Adicionar fazenda</button>
+        <div class="error" id="farm-error"></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Minhas fazendas</h2>
+      <div id="farm-list"></div>
+      <div id="farm-empty" class="empty-state hidden">Você ainda não cadastrou nenhuma fazenda.</div>
+    </div>
+  </section>
+</main>
+
+<!-- Firebase SDK (compat build, no bundler required) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+<script>
+  // ---------------------------------------------------------------------
+  // 1) Cole aqui as credenciais do SEU projeto Firebase.
+  //    Console do Firebase → Configurações do projeto → Seus apps → SDK.
+  // ---------------------------------------------------------------------
+  const firebaseConfig = {
+    apiKey: "COLE_SUA_API_KEY_AQUI",
+    authDomain: "SEU-PROJETO.firebaseapp.com",
+    projectId: "SEU-PROJETO",
+    storageBucket: "SEU-PROJETO.appspot.com",
+    messagingSenderId: "SEU_SENDER_ID",
+    appId: "SEU_APP_ID"
+  };
+
+  const isConfigured = !firebaseConfig.apiKey.startsWith("COLE_");
+
+  const configWarning = document.getElementById('config-warning');
+  const authSection = document.getElementById('auth-section');
+  const appSection = document.getElementById('app-section');
+  const logoutBtn = document.getElementById('logout-btn');
+
+  if (!isConfigured) {
+    configWarning.classList.remove('hidden');
+  } else {
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // --- Auth UI state ---
+    let isSignUpMode = false;
+    const authForm = document.getElementById('auth-form');
+    const authTitle = document.getElementById('auth-title');
+    const authSubmitBtn = document.getElementById('auth-submit-btn');
+    const authError = document.getElementById('auth-error');
+    const toggleAuthModeBtn = document.getElementById('toggle-auth-mode');
+    const toggleText = document.getElementById('toggle-text');
+
+    function setAuthMode(signUp) {
+      isSignUpMode = signUp;
+      authTitle.textContent = signUp ? 'Criar conta' : 'Entrar';
+      authSubmitBtn.textContent = signUp ? 'Criar conta' : 'Entrar';
+      toggleText.textContent = signUp ? 'Já tem uma conta?' : 'Ainda não tem conta?';
+      toggleAuthModeBtn.textContent = signUp ? 'Entrar' : 'Criar conta';
+      authError.textContent = '';
+    }
+
+    toggleAuthModeBtn.addEventListener('click', () => setAuthMode(!isSignUpMode));
+    setAuthMode(false);
+
+    authForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      authError.textContent = '';
+      authSubmitBtn.disabled = true;
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      try {
+        if (isSignUpMode) {
+          await auth.createUserWithEmailAndPassword(email, password);
+        } else {
+          await auth.signInWithEmailAndPassword(email, password);
+        }
+        authForm.reset();
+      } catch (err) {
+        authError.textContent = traduzErroAuth(err);
+      } finally {
+        authSubmitBtn.disabled = false;
+      }
+    });
+
+    logoutBtn.addEventListener('click', () => auth.signOut());
+
+    function traduzErroAuth(err) {
+      const map = {
+        'auth/email-already-in-use': 'Este email já está cadastrado.',
+        'auth/invalid-email': 'Email inválido.',
+        'auth/weak-password': 'A senha precisa ter pelo menos 6 caracteres.',
+        'auth/user-not-found': 'Email ou senha incorretos.',
+        'auth/wrong-password': 'Email ou senha incorretos.',
+        'auth/invalid-credential': 'Email ou senha incorretos.',
+        'auth/too-many-requests': 'Muitas tentativas. Tente novamente mais tarde.'
+      };
+      return map[err.code] || 'Erro: ' + err.message;
+    }
+
+    // --- Farms CRUD ---
+    const farmForm = document.getElementById('farm-form');
+    const farmSubmitBtn = document.getElementById('farm-submit-btn');
+    const farmError = document.getElementById('farm-error');
+    const farmList = document.getElementById('farm-list');
+    const farmEmpty = document.getElementById('farm-empty');
+
+    let unsubscribeFarms = null;
+
+    farmForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      farmError.textContent = '';
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const name = document.getElementById('farm-name').value.trim();
+      const location = document.getElementById('farm-location').value.trim();
+      const areaRaw = document.getElementById('farm-area').value;
+      const area = areaRaw === '' ? null : Number(areaRaw);
+
+      farmSubmitBtn.disabled = true;
+      try {
+        await db.collection('farms').add({
+          ownerId: user.uid,
+          name,
+          location: location || null,
+          area,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        farmForm.reset();
+      } catch (err) {
+        farmError.textContent = 'Erro ao salvar: ' + err.message;
+      } finally {
+        farmSubmitBtn.disabled = false;
+      }
+    });
+
+    function renderFarms(snapshot) {
+      farmList.innerHTML = '';
+      if (snapshot.empty) {
+        farmEmpty.classList.remove('hidden');
+        return;
+      }
+      farmEmpty.classList.add('hidden');
+
+      snapshot.forEach((doc) => {
+        const farm = doc.data();
+        const item = document.createElement('div');
+        item.className = 'farm-item';
+
+        const info = document.createElement('div');
+        info.className = 'farm-info';
+        const details = [
+          farm.location ? farm.location : null,
+          (farm.area !== null && farm.area !== undefined) ? `${farm.area} ha` : null
+        ].filter(Boolean).join(' · ');
+        info.innerHTML = `<strong>${escapeHtml(farm.name || '(sem nome)')}</strong>` +
+          (details ? `<span>${escapeHtml(details)}</span>` : '');
+
+        const actions = document.createElement('div');
+        actions.className = 'farm-actions';
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Excluir';
+        delBtn.addEventListener('click', () => excluirFazenda(doc.id, farm.name));
+        actions.appendChild(delBtn);
+
+        item.appendChild(info);
+        item.appendChild(actions);
+        farmList.appendChild(item);
+      });
+    }
+
+    async function excluirFazenda(id, name) {
+      if (!confirm(`Excluir a fazenda "${name || ''}"? Esta ação não pode ser desfeita.`)) return;
+      try {
+        await db.collection('farms').doc(id).delete();
+      } catch (err) {
+        alert('Erro ao excluir: ' + err.message);
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // --- Auth state → show/hide screens & (un)subscribe farms listener ---
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        authSection.classList.add('hidden');
+        appSection.classList.remove('hidden');
+        logoutBtn.classList.remove('hidden');
+
+        unsubscribeFarms = db.collection('farms')
+          .where('ownerId', '==', user.uid)
+          .orderBy('createdAt', 'desc')
+          .onSnapshot(renderFarms, (err) => {
+            farmError.textContent = 'Erro ao carregar fazendas: ' + err.message;
+          });
+      } else {
+        appSection.classList.add('hidden');
+        authSection.classList.remove('hidden');
+        logoutBtn.classList.add('hidden');
+        if (unsubscribeFarms) { unsubscribeFarms(); unsubscribeFarms = null; }
+        farmList.innerHTML = '';
+        farmEmpty.classList.add('hidden');
+      }
+    });
+  }
+</script>
+
+</body>
+</html>
