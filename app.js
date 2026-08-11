@@ -460,9 +460,11 @@ $('form-animal').addEventListener('submit', e => {
   const id = $('an-id').value;
   const ident = $('an-ident').value.trim();
   if (!ident) return;
-  const dupe = animals.find(x => x.ident.toLowerCase() === ident.toLowerCase() && x.id !== id);
-  if (dupe) { toast('Já existe animal com essa identificação'); return; }
   const sold = $('an-sold').checked;
+  // Brinco pode ser reutilizado depois da venda: só bloqueia se OUTRO animal
+  // ativo já usa a identificação — e só quando este também ficará ativo.
+  const dupe = !sold && animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase() && x.id !== id);
+  if (dupe) { toast('Já existe animal ativo com essa identificação'); return; }
   const soldPriceRaw = parseFloat($('an-sold-price').value);
   const data = {
     ident, cat: $('an-cat').value.trim(),
@@ -734,7 +736,7 @@ function openWeighMode() {
   setTimeout(() => $('wm-ident').focus(), 100);
 }
 function refreshIdentList() {
-  $('wm-idents').innerHTML = animals.map(a => `<option value="${esc(a.ident)}"></option>`).join('');
+  $('wm-idents').innerHTML = animals.filter(a => !a.sold).map(a => `<option value="${esc(a.ident)}"></option>`).join('');
 }
 $('btn-weigh-mode').addEventListener('click', openWeighMode);
 $('wm-close').addEventListener('click', () => { $('weigh-mode').hidden = true; render(); });
@@ -743,7 +745,7 @@ $('wm-save').addEventListener('click', () => {
   const peso = parseFloat($('wm-peso').value);
   const date = $('wm-date').value;
   if (!ident || !Number.isFinite(peso) || peso <= 0 || !date) { toast('Preencha brinco e peso'); return; }
-  let a = animals.find(x => x.ident.toLowerCase() === ident.toLowerCase());
+  let a = animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase());
   let createdNew = false;
   if (!a) {
     a = { id: uid(), ident, cat: '', entryDate: date, entryWeight: null, notes: '' };
@@ -799,11 +801,11 @@ $('csv-input').addEventListener('change', e => {
       if (!Number.isFinite(peso) || peso <= 0) { errors.push(`Linha ${i + 1}: peso inválido "${cols[2]}"`); return; }
       rows.push({ ident, date, peso });
     });
-    const existingIdents = new Set(animals.map(a => a.ident.toLowerCase()));
+    const existingIdents = new Set(animals.filter(a => !a.sold).map(a => a.ident.toLowerCase()));
     const newIdents = new Set(rows.map(r => r.ident.toLowerCase()).filter(x => !existingIdents.has(x)));
     let dupes = 0;
     rows.forEach(r => {
-      const a = animals.find(x => x.ident.toLowerCase() === r.ident.toLowerCase());
+      const a = animals.find(x => !x.sold && x.ident.toLowerCase() === r.ident.toLowerCase());
       if (a && weighings.some(w => w.animalId === a.id && w.date === r.date)) dupes++;
     });
     pendingRows = rows;
@@ -819,7 +821,7 @@ $('btn-confirm-import').addEventListener('click', async () => {
   let added = 0, dup = 0, newA = 0;
   const ops = [];
   pendingRows.forEach(r => {
-    let a = animals.find(x => x.ident.toLowerCase() === r.ident.toLowerCase());
+    let a = animals.find(x => !x.sold && x.ident.toLowerCase() === r.ident.toLowerCase());
     if (!a) {
       a = { id: uid(), ident: r.ident, cat: '', entryDate: r.date, entryWeight: null, notes: '' };
       animals.push(a); ops.push({ col: 'animals', obj: a }); newA++;
