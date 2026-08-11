@@ -195,7 +195,7 @@ function renderRebanho() {
     return `<div class="list-item" data-animal="${a.id}">
       <div class="item-main">
         <div class="item-title">${esc(a.ident)}</div>
-        <div class="item-subtitle">${esc(a.cat || 'Sem categoria')} · ${ws.length} pesag.</div>
+        <div class="item-subtitle">${esc(a.cat || 'Sem categoria')} · ${ws.length} pesag.${a.manejoData ? ' · manejo ' + fmtBR(a.manejoData) : ''}</div>
       </div>
       <div class="item-side">
         <div class="value">${last ? fmtN(last.weight, 0) + ' kg' : '—'}</div>
@@ -219,6 +219,7 @@ function renderAnimalDetail() {
         <button class="edit-link" id="btn-edit-animal">editar</button>
       </div>
       <div class="meta">${esc(a.cat || 'Sem categoria')}${a.entryDate ? ' · entrada ' + fmtBR(a.entryDate) : ''} · ${ws.length} pesagens${arro != null ? ' · ~' + fmtN(arro, 1) + ' @ (rend. ' + settings.yield + '%)' : ''}</div>
+      ${a.manejoData ? `<div class="meta">Manejo sanitário: ${fmtBR(a.manejoData)}${a.manejoMedicamento ? ' — ' + esc(a.manejoMedicamento) : ''}</div>` : ''}
       <div class="metrics">
         <div class="metric"><div class="lbl">Peso atual</div><div class="val">${last ? fmtN(last.weight, 0) + ' kg' : '—'}</div></div>
         <div class="metric"><div class="lbl">GMD total</div><div class="val ${gmdCls(gT)}">${Number.isFinite(gT) ? fmtN(gT, 3) : '—'}</div></div>
@@ -363,6 +364,8 @@ function openAnimal(a) {
   $('an-cat').value = a ? (a.cat || '') : '';
   $('an-entry-date').value = a ? (a.entryDate || '') : todayISO();
   $('an-entry-weight').value = a && a.entryWeight ? a.entryWeight : '';
+  $('an-manejo-data').value = a ? (a.manejoData || '') : '';
+  $('an-manejo-medicamento').value = a ? (a.manejoMedicamento || '') : '';
   $('an-notes').value = a ? (a.notes || '') : '';
   $('btn-delete-animal').hidden = !a;
   openM('modal-animal');
@@ -374,7 +377,14 @@ $('form-animal').addEventListener('submit', e => {
   if (!ident) return;
   const dupe = animals.find(x => x.ident.toLowerCase() === ident.toLowerCase() && x.id !== id);
   if (dupe) { toast('Já existe animal com essa identificação'); return; }
-  const data = { ident, cat: $('an-cat').value.trim(), entryDate: $('an-entry-date').value || null, entryWeight: parseFloat($('an-entry-weight').value) || null, notes: $('an-notes').value.trim() };
+  const data = {
+    ident, cat: $('an-cat').value.trim(),
+    entryDate: $('an-entry-date').value || null,
+    entryWeight: parseFloat($('an-entry-weight').value) || null,
+    manejoData: $('an-manejo-data').value || null,
+    manejoMedicamento: $('an-manejo-medicamento').value.trim() || null,
+    notes: $('an-notes').value.trim()
+  };
   if (id) {
     const a = animals.find(x => x.id === id); Object.assign(a, data); upsert('animals', a);
   } else {

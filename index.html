@@ -197,6 +197,14 @@
       <input type="date" id="an-entry-date" />
       <label class="mono">Peso de entrada (kg)</label>
       <input type="number" inputmode="decimal" step="0.1" id="an-entry-weight" placeholder="Ex: 320" />
+      <label class="mono">Data do último manejo sanitário</label>
+      <input type="date" id="an-manejo-data" />
+      <label class="mono">Medicamento/produto utilizado</label>
+      <input type="text" id="an-manejo-medicamento" list="medicamentos-manejo" placeholder="Ex: Ivermectina, Vacina aftosa" />
+      <datalist id="medicamentos-manejo">
+        <option>Vacina aftosa</option><option>Vacina brucelose</option><option>Vermífugo (Ivermectina)</option>
+        <option>Antibiótico</option><option>Carrapaticida</option><option>Suplemento mineral</option>
+      </datalist>
       <label class="mono">Observações</label>
       <textarea id="an-notes" rows="2"></textarea>
       <div class="modal-actions">
