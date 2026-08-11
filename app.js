@@ -173,19 +173,22 @@ function render() {
   $('view-aviarios').classList.toggle('active', tab === 'aviarios');
   if (tab === 'bovinos') {
     document.querySelectorAll('#bov-segs .seg').forEach(s => s.classList.toggle('active', s.dataset.seg === seg));
-    ['bov-rebanho', 'bov-detail', 'bov-estoque', 'stock-detail', 'bov-fin'].forEach(id => $(id).classList.remove('active'));
+    ['bov-rebanho', 'bov-detail', 'bov-vendidas', 'bov-estoque', 'stock-detail', 'bov-fin'].forEach(id => $(id).classList.remove('active'));
     if (seg === 'rebanho') { $(detailAnimal ? 'bov-detail' : 'bov-rebanho').classList.add('active'); detailAnimal ? renderAnimalDetail() : renderRebanho(); }
+    if (seg === 'vendidas') { $('bov-vendidas').classList.add('active'); renderVendidas(); }
     if (seg === 'estoque') { $(detailItem ? 'stock-detail' : 'bov-estoque').classList.add('active'); detailItem ? renderStockDetail() : renderEstoque(); }
     if (seg === 'financeiro') { $('bov-fin').classList.add('active'); renderFin('bov'); }
   } else { renderFin('av'); }
 }
 
 function renderRebanho() {
-  const n = animals.length;
-  const gmds = animals.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite);
+  const activeAnimals = animals.filter(a => !a.sold);
+  const activeIds = new Set(activeAnimals.map(a => a.id));
+  const n = activeAnimals.length;
+  const gmds = activeAnimals.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite);
   const avg = gmds.length ? gmds.reduce((s, g) => s + g, 0) / gmds.length : null;
-  const lastDates = weighings.map(w => w.date).sort();
-  const lastWeights = animals.map(a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; }).filter(Number.isFinite);
+  const lastDates = weighings.filter(w => activeIds.has(w.animalId)).map(w => w.date).sort();
+  const lastWeights = activeAnimals.map(a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; }).filter(Number.isFinite);
   const avgWeight = lastWeights.length ? lastWeights.reduce((s, w) => s + w, 0) / lastWeights.length : null;
   const avgArroba = avgWeight != null ? avgWeight * (settings.yield / 100) / 15 : null;
   $('bov-stats').innerHTML = `
@@ -194,7 +197,7 @@ function renderRebanho() {
     <div class="stat-card"><div class="stat-value">${lastDates.length ? fmtBR(lastDates[lastDates.length - 1]) : '—'}</div><div class="stat-label">Últ. pesagem</div></div>
     <div class="stat-card"><div class="stat-value">${avgWeight != null ? fmtN(avgWeight, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
     <div class="stat-card"><div class="stat-value">${avgArroba != null ? fmtN(avgArroba, 1) + ' @' : '—'}</div><div class="stat-label">Peso médio</div></div>`;
-  const sorted = [...animals].sort((a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true }));
+  const sorted = [...activeAnimals].sort((a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true }));
   $('animal-list').innerHTML = sorted.map(a => {
     const ws = wOf(a.id); const last = ws[ws.length - 1]; const g = gmdTotal(ws);
     return `<div class="list-item" data-animal="${a.id}">
@@ -209,6 +212,29 @@ function renderRebanho() {
     </div>`;
   }).join('');
   $('bov-empty').hidden = n > 0;
+}
+
+function renderVendidas() {
+  const sold = animals.filter(a => a.sold).sort((a, b) => (b.soldDate || '').localeCompare(a.soldDate || ''));
+  const totalRevenue = sold.reduce((s, a) => s + (Number.isFinite(a.soldPrice) ? a.soldPrice : 0), 0);
+  $('vendidas-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${sold.length}</div><div class="stat-label">Vendidos</div></div>
+    <div class="stat-card"><div class="stat-value">${fmtRS(totalRevenue)}</div><div class="stat-label">Total recebido</div></div>`;
+  $('vendidas-list').innerHTML = sold.map(a => {
+    const ws = wOf(a.id);
+    const w = Number.isFinite(a.soldWeight) ? a.soldWeight : (ws.length ? ws[ws.length - 1].weight : null);
+    return `<div class="list-item" data-animal-edit="${a.id}">
+      <div class="item-main">
+        <div class="item-title">${esc(a.ident)}</div>
+        <div class="item-subtitle">${esc(a.cat || 'Sem categoria')}${a.soldDate ? ' · vendido em ' + fmtBR(a.soldDate) : ''}</div>
+      </div>
+      <div class="item-side">
+        <div class="value">${w != null ? fmtN(w, 0) + ' kg' : '—'}</div>
+        <div class="aux">${Number.isFinite(a.soldPrice) ? fmtRS(a.soldPrice) : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+  $('vendidas-empty').hidden = sold.length > 0;
 }
 
 function renderAnimalDetail() {
@@ -372,8 +398,33 @@ function openAnimal(a) {
   $('an-manejo-data').value = a ? (a.manejoData || '') : '';
   $('an-manejo-medicamento').value = a ? (a.manejoMedicamento || '') : '';
   $('an-notes').value = a ? (a.notes || '') : '';
+  $('an-sold').checked = a ? !!a.sold : false;
+  $('an-sold-date').value = a && a.soldDate ? a.soldDate : todayISO();
+  $('an-sold-weight').value = a && Number.isFinite(a.soldWeight) ? a.soldWeight : '';
+  $('an-sold-price').value = a && Number.isFinite(a.soldPrice) ? a.soldPrice : '';
+  syncSoldWrap();
   $('btn-delete-animal').hidden = !a;
   openM('modal-animal');
+}
+function syncSoldWrap() {
+  $('an-sold-wrap').style.display = $('an-sold').checked ? '' : 'none';
+}
+$('an-sold').addEventListener('change', syncSoldWrap);
+function syncAnimalSaleTrans(a) {
+  if (a.sold && Number.isFinite(a.soldPrice) && a.soldPrice > 0) {
+    const saleData = { date: a.soldDate || todayISO(), type: 'entrada', amount: a.soldPrice, category: 'Venda de gado', notes: a.ident, lock: 'animal' };
+    if (a.linkTrans) {
+      const t = bovT.find(x => x.id === a.linkTrans);
+      if (t) { Object.assign(t, saleData); upsert('bovtrans', t); return; }
+    }
+    const t = Object.assign({ id: uid() }, saleData);
+    bovT.push(t); upsert('bovtrans', t);
+    a.linkTrans = t.id;
+  } else if (a.linkTrans) {
+    bovT = bovT.filter(x => x.id !== a.linkTrans);
+    remove('bovtrans', a.linkTrans);
+    a.linkTrans = null;
+  }
 }
 $('form-animal').addEventListener('submit', e => {
   e.preventDefault();
@@ -382,34 +433,52 @@ $('form-animal').addEventListener('submit', e => {
   if (!ident) return;
   const dupe = animals.find(x => x.ident.toLowerCase() === ident.toLowerCase() && x.id !== id);
   if (dupe) { toast('Já existe animal com essa identificação'); return; }
+  const sold = $('an-sold').checked;
+  const soldPriceRaw = parseFloat($('an-sold-price').value);
   const data = {
     ident, cat: $('an-cat').value.trim(),
     entryDate: $('an-entry-date').value || null,
     entryWeight: parseFloat($('an-entry-weight').value) || null,
     manejoData: $('an-manejo-data').value || null,
     manejoMedicamento: $('an-manejo-medicamento').value.trim() || null,
-    notes: $('an-notes').value.trim()
+    notes: $('an-notes').value.trim(),
+    sold,
+    soldDate: sold ? ($('an-sold-date').value || todayISO()) : null,
+    soldWeight: sold ? (parseFloat($('an-sold-weight').value) || null) : null,
+    soldPrice: sold && Number.isFinite(soldPriceRaw) && soldPriceRaw > 0 ? soldPriceRaw : null
   };
+  let a, isNew = false;
   if (id) {
-    const a = animals.find(x => x.id === id); Object.assign(a, data); upsert('animals', a);
+    a = animals.find(x => x.id === id);
+    Object.assign(a, data);
   } else {
-    const na = Object.assign({ id: uid() }, data);
-    animals.push(na); upsert('animals', na);
-    if (na.entryDate && na.entryWeight) {
-      const w = { id: uid(), animalId: na.id, date: na.entryDate, weight: na.entryWeight, jejum: false, notes: 'Peso de entrada' };
-      weighings.push(w); upsert('weighings', w);
-    }
+    a = Object.assign({ id: uid() }, data);
+    animals.push(a);
+    isNew = true;
+  }
+  syncAnimalSaleTrans(a);
+  upsert('animals', a);
+  if (isNew && a.entryDate && a.entryWeight) {
+    const w = { id: uid(), animalId: a.id, date: a.entryDate, weight: a.entryWeight, jejum: false, notes: 'Peso de entrada' };
+    weighings.push(w); upsert('weighings', w);
   }
   closeAllM(); render(); toast('Animal salvo');
 });
 $('btn-delete-animal').addEventListener('click', () => {
   const id = $('an-id').value; if (!id) return;
   if (!confirm('Excluir o animal e TODAS as pesagens dele (em todos os aparelhos)?')) return;
+  const a = animals.find(x => x.id === id);
   const ws = weighings.filter(w => w.animalId === id);
+  const linkTrans = a && a.linkTrans;
   animals = animals.filter(x => x.id !== id);
   weighings = weighings.filter(w => w.animalId !== id);
+  if (linkTrans) bovT = bovT.filter(x => x.id !== linkTrans);
   if (detailAnimal === id) detailAnimal = null;
-  batchWrite([{ col: 'animals', del: id }, ...ws.map(w => ({ col: 'weighings', del: w.id }))]);
+  batchWrite([
+    { col: 'animals', del: id },
+    ...ws.map(w => ({ col: 'weighings', del: w.id })),
+    ...(linkTrans ? [{ col: 'bovtrans', del: linkTrans }] : [])
+  ]);
   closeAllM(); render(); toast('Animal excluído');
 });
 
@@ -459,6 +528,7 @@ function openTrans(book, t) {
   $('t-notes').value = t ? (t.notes || '') : '';
   const ctx = $('t-context');
   if (t && t.lock === 'stock') { ctx.hidden = false; ctx.textContent = 'Gerado pelo estoque — prefira editar pela movimentação de estoque.'; }
+  else if (t && t.lock === 'animal') { ctx.hidden = false; ctx.textContent = 'Gerado pela venda do animal — prefira editar pelo cadastro do animal.'; }
   else ctx.hidden = true;
   $('btn-delete-transaction').hidden = !t;
   openM('modal-transaction');
@@ -491,6 +561,7 @@ $('btn-delete-transaction').addEventListener('click', () => {
   else {
     bovT = bovT.filter(x => x.id !== id); remove('bovtrans', id);
     moves.forEach(m => { if (m.linkTrans === id) { delete m.linkTrans; upsert('moves', m); } });
+    animals.forEach(a => { if (a.linkTrans === id) { delete a.linkTrans; upsert('animals', a); } });
   }
   closeAllM(); render(); toast('Lançamento excluído');
 });
@@ -847,6 +918,8 @@ $('av-period').addEventListener('change', render);
 $('av-aviary').addEventListener('change', render);
 
 document.addEventListener('click', e => {
+  const aed = e.target.closest('[data-animal-edit]');
+  if (aed) { const a = animals.find(x => x.id === aed.dataset.animalEdit); if (a) openAnimal(a); return; }
   const ai = e.target.closest('[data-animal]');
   if (ai) { detailAnimal = ai.dataset.animal; render(); return; }
   const si = e.target.closest('[data-item]');

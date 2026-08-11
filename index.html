@@ -67,6 +67,7 @@
 
   <div class="seg-row" id="bov-segs">
     <button class="seg active" data-seg="rebanho">Rebanho</button>
+    <button class="seg" data-seg="vendidas">Vendidas</button>
     <button class="seg" data-seg="estoque">Estoque</button>
     <button class="seg" data-seg="financeiro">Financeiro</button>
   </div>
@@ -78,6 +79,15 @@
     <div class="empty" id="bov-empty" hidden>
       <p class="eyebrow mono">Nenhum animal cadastrado</p>
       <p>Toque em + para cadastrar, use o modo pesagem, ou importe um CSV pelo menu (⋯).</p>
+    </div>
+  </div>
+
+  <div class="subview" id="bov-vendidas">
+    <div class="stats-row" id="vendidas-stats"></div>
+    <div class="list" id="vendidas-list"></div>
+    <div class="empty" id="vendidas-empty" hidden>
+      <p class="eyebrow mono">Nenhum animal vendido ainda</p>
+      <p>Marque "Animal vendido" na edição de um animal do Rebanho para ele aparecer aqui.</p>
     </div>
   </div>
 
@@ -207,6 +217,15 @@
       </datalist>
       <label class="mono">Observações</label>
       <textarea id="an-notes" rows="2"></textarea>
+      <label class="check-lbl"><input type="checkbox" id="an-sold" /> Animal vendido</label>
+      <div id="an-sold-wrap">
+        <label class="mono">Data da venda</label>
+        <input type="date" id="an-sold-date" />
+        <label class="mono">Peso na venda (kg)</label>
+        <input type="number" inputmode="decimal" step="0.1" id="an-sold-weight" placeholder="Opcional — usa a última pesagem se vazio" />
+        <label class="mono">Valor recebido (R$)</label>
+        <input type="number" inputmode="decimal" step="0.01" id="an-sold-price" placeholder="Opcional — lança automaticamente no Financeiro" />
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn-danger" id="btn-delete-animal" hidden>Excluir</button>
         <button type="submit" class="btn-primary">Salvar</button>
