@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
-<meta name="theme-color" content="#1c1917" />
+<meta name="theme-color" content="#225437" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Fazenda JS" />
-<title>Fazenda JS</title>
+<meta name="apple-mobile-web-app-title" content="Fazenda J.S" />
+<title>Fazenda J.S</title>
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
@@ -19,7 +19,8 @@
 <!-- SETUP (primeira configuração) -->
 <div class="setup-overlay" id="setup-screen" hidden>
   <div class="setup-box">
-    <h2><span class="brand-mark mono">F.</span> Fazenda <span class="italic">JS</span></h2>
+    <img class="setup-logo" src="logo.png" alt="" />
+    <h2>Fazenda <span class="italic">J.S</span></h2>
     <p class="setup-sub">Sincronização entre aparelhos</p>
 
     <label class="mono">1 · Cole a configuração do Firebase</label>
@@ -47,8 +48,11 @@
 
 <header class="app-header">
   <div class="brand">
-    <span class="brand-mark mono">F.</span>
-    <h1>Fazenda <span class="italic">JS</span></h1>
+    <img class="brand-logo" src="logo.png" alt="" />
+    <div class="brand-text">
+      <h1>Fazenda <span class="italic">J.S</span></h1>
+      <p class="brand-tagline mono">Cultivando o futuro</p>
+    </div>
   </div>
   <div class="hdr-right">
     <span class="sync-dot" id="sync-dot" title="Sincronização"></span>
@@ -83,7 +87,7 @@
   </div>
 
   <div class="subview" id="bov-vendidas">
-    <div class="stats-row" id="vendidas-stats"></div>
+    <div class="stats-row two" id="vendidas-stats"></div>
     <div class="list" id="vendidas-list"></div>
     <div class="empty" id="vendidas-empty" hidden>
       <p class="eyebrow mono">Nenhum animal vendido ainda</p>

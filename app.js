@@ -189,14 +189,18 @@ function renderRebanho() {
   const avg = gmds.length ? gmds.reduce((s, g) => s + g, 0) / gmds.length : null;
   const lastDates = weighings.filter(w => activeIds.has(w.animalId)).map(w => w.date).sort();
   const lastWeights = activeAnimals.map(a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; }).filter(Number.isFinite);
-  const avgWeight = lastWeights.length ? lastWeights.reduce((s, w) => s + w, 0) / lastWeights.length : null;
-  const avgArroba = avgWeight != null ? avgWeight * (settings.yield / 100) / 15 : null;
+  const totalWeight = lastWeights.reduce((s, w) => s + w, 0);
+  const avgWeight = lastWeights.length ? totalWeight / lastWeights.length : null;
+  const arrobaOf = kg => kg * (settings.yield / 100) / 15;
+  const avgArroba = avgWeight != null ? arrobaOf(avgWeight) : null;
+  const totalArroba = lastWeights.length ? arrobaOf(totalWeight) : null;
   $('bov-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${n}</div><div class="stat-label">Animais</div></div>
     <div class="stat-card"><div class="stat-value">${avg != null ? fmtN(avg, 2) : '—'}</div><div class="stat-label">GMD médio</div></div>
     <div class="stat-card"><div class="stat-value">${lastDates.length ? fmtBR(lastDates[lastDates.length - 1]) : '—'}</div><div class="stat-label">Últ. pesagem</div></div>
     <div class="stat-card"><div class="stat-value">${avgWeight != null ? fmtN(avgWeight, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
-    <div class="stat-card"><div class="stat-value">${avgArroba != null ? fmtN(avgArroba, 1) + ' @' : '—'}</div><div class="stat-label">Peso médio</div></div>`;
+    <div class="stat-card"><div class="stat-value">${avgArroba != null ? fmtN(avgArroba, 1) + ' @' : '—'}</div><div class="stat-label">Média em @</div></div>
+    <div class="stat-card"><div class="stat-value">${totalArroba != null ? fmtN(totalArroba, 0) + ' @' : '—'}</div><div class="stat-label">Total do rebanho</div></div>`;
   const sorted = [...activeAnimals].sort((a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true }));
   $('animal-list').innerHTML = sorted.map(a => {
     const ws = wOf(a.id); const last = ws[ws.length - 1]; const g = gmdTotal(ws);
@@ -284,9 +288,9 @@ function renderChart(ws) {
   const X = t => t1 === t0 ? W / 2 : P + (t - t0) / (t1 - t0) * (W - 2 * P);
   const Y = w => H - P - (w - mn) / (mx - mn) * (H - 2 * P);
   const pts = ws.map(w => `${X(new Date(w.date + 'T12:00').getTime()).toFixed(1)},${Y(w.weight).toFixed(1)}`).join(' ');
-  const dots = ws.map(w => `<circle cx="${X(new Date(w.date + 'T12:00').getTime()).toFixed(1)}" cy="${Y(w.weight).toFixed(1)}" r="3" fill="#1c1917"/>`).join('');
+  const dots = ws.map(w => `<circle cx="${X(new Date(w.date + 'T12:00').getTime()).toFixed(1)}" cy="${Y(w.weight).toFixed(1)}" r="3" fill="#225437"/>`).join('');
   wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-    <polyline points="${pts}" fill="none" stroke="#1c1917" stroke-width="2"/>${dots}
+    <polyline points="${pts}" fill="none" stroke="#225437" stroke-width="2"/>${dots}
     <text x="${P}" y="12" font-size="9" fill="#78716c" font-family="monospace">${fmtN(mx, 0)} kg</text>
     <text x="${P}" y="${H - 6}" font-size="9" fill="#78716c" font-family="monospace">${fmtBR(ws[0].date)}</text>
     <text x="${W - P}" y="${H - 6}" font-size="9" fill="#78716c" font-family="monospace" text-anchor="end">${fmtBR(ws[ws.length - 1].date)}</text>

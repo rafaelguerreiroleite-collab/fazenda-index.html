@@ -1,11 +1,11 @@
 {
-  "name": "Fazenda JS",
-  "short_name": "Fazenda JS",
+  "name": "Fazenda J.S",
+  "short_name": "Fazenda J.S",
   "description": "Gestão de pesagens, estoque e financeiro — bovinos e aviários",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#fafaf9",
-  "theme_color": "#1c1917",
+  "theme_color": "#225437",
   "orientation": "portrait",
   "lang": "pt-BR",
   "icons": [
