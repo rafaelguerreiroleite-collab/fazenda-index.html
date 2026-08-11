@@ -1,408 +1,430 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fazenda | Gestão de Fazendas</title>
-<style>
-  :root {
-    --green: #2f7d3c;
-    --green-dark: #235c2c;
-    --bg: #f4f6f2;
-    --card: #ffffff;
-    --border: #dfe3dc;
-    --text: #22281f;
-    --muted: #6b7266;
-    --danger: #b3382c;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-  }
-  header {
-    background: var(--green);
-    color: #fff;
-    padding: 16px 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  header h1 { font-size: 1.2rem; margin: 0; }
-  header button {
-    background: rgba(255,255,255,0.15);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.4);
-    padding: 6px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  header button:hover { background: rgba(255,255,255,0.25); }
-  main {
-    max-width: 720px;
-    margin: 0 auto;
-    padding: 24px 16px 80px;
-  }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-  .hidden { display: none !important; }
-  label {
-    display: block;
-    font-size: 0.85rem;
-    color: var(--muted);
-    margin-bottom: 4px;
-    margin-top: 12px;
-  }
-  input {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 1rem;
-  }
-  input:focus { outline: 2px solid var(--green); border-color: var(--green); }
-  .btn {
-    display: inline-block;
-    margin-top: 16px;
-    padding: 10px 16px;
-    background: var(--green);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 1rem;
-    cursor: pointer;
-  }
-  .btn:hover { background: var(--green-dark); }
-  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-  .btn-link {
-    background: none;
-    border: none;
-    color: var(--green-dark);
-    cursor: pointer;
-    padding: 0;
-    font-size: 0.9rem;
-    text-decoration: underline;
-  }
-  .error {
-    color: var(--danger);
-    font-size: 0.9rem;
-    margin-top: 10px;
-    min-height: 1.2em;
-  }
-  .farm-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--border);
-    gap: 12px;
-  }
-  .farm-item:last-child { border-bottom: none; }
-  .farm-info strong { display: block; font-size: 1.05rem; }
-  .farm-info span { color: var(--muted); font-size: 0.9rem; }
-  .farm-actions button {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 10px;
-    cursor: pointer;
-    color: var(--danger);
-  }
-  .farm-actions button:hover { background: #fbeceb; }
-  .empty-state {
-    color: var(--muted);
-    text-align: center;
-    padding: 24px 0;
-  }
-  .config-warning {
-    background: #fff4e5;
-    border: 1px solid #e8b566;
-    color: #6b4a0f;
-    padding: 14px 16px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    font-size: 0.9rem;
-    line-height: 1.5;
-  }
-  .config-warning code {
-    background: rgba(0,0,0,0.06);
-    padding: 1px 5px;
-    border-radius: 4px;
-  }
-  .toggle-row { margin-top: 14px; font-size: 0.9rem; }
-</style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#1c1917" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Fazenda JS" />
+<title>Fazenda JS</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" type="image/png" href="icon-192.png" />
+<link rel="stylesheet" href="style.css" />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
 
-<header>
-  <h1>🌱 Fazenda</h1>
-  <button id="logout-btn" class="hidden">Sair</button>
+<!-- SETUP (primeira configuração) -->
+<div class="setup-overlay" id="setup-screen" hidden>
+  <div class="setup-box">
+    <h2><span class="brand-mark mono">F.</span> Fazenda <span class="italic">JS</span></h2>
+    <p class="setup-sub">Sincronização entre aparelhos</p>
+
+    <label class="mono">1 · Cole a configuração do Firebase</label>
+    <textarea id="su-config" rows="6" placeholder="Cole aqui o bloco firebaseConfig copiado do site do Firebase"></textarea>
+
+    <label class="mono">2 · Código da fazenda</label>
+    <input type="text" id="su-farm" placeholder="Ex: fazendajs-2026" autocapitalize="off" autocomplete="off" />
+    <p class="small">Use o MESMO código em todos os aparelhos. Quem tem o código acessa os dados — trate como senha.</p>
+
+    <button class="btn-primary setup-btn" id="su-connect">Conectar</button>
+    <p class="setup-error mono" id="su-error" hidden></p>
+
+    <details>
+      <summary>Como obter a configuração (resumo)</summary>
+      <ol class="setup-steps">
+        <li>console.firebase.google.com → criar projeto</li>
+        <li>Firestore Database → criar (São Paulo) → colar regras</li>
+        <li>Authentication → ativar login Anônimo</li>
+        <li>Configurações do projeto → Adicionar app Web → copiar o firebaseConfig</li>
+      </ol>
+      <p class="small">O passo a passo completo está na conversa do Claude.</p>
+    </details>
+  </div>
+</div>
+
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-mark mono">F.</span>
+    <h1>Fazenda <span class="italic">JS</span></h1>
+  </div>
+  <div class="hdr-right">
+    <span class="sync-dot" id="sync-dot" title="Sincronização"></span>
+    <button class="icon-btn" id="btn-menu" aria-label="Menu">⋯</button>
+  </div>
 </header>
 
+<nav class="tabs">
+  <button class="tab active" data-view="bovinos">Bovinos</button>
+  <button class="tab" data-view="aviarios">Aviários</button>
+</nav>
+
 <main>
-  <div id="config-warning" class="config-warning hidden">
-    ⚠️ O app ainda não está conectado a um projeto Firebase.
-    Preencha o objeto <code>firebaseConfig</code> no início do arquivo
-    <code>index.html</code> com as credenciais do seu projeto
-    (Console do Firebase → Configurações do projeto → Seus apps → SDK).
-    Depois disso, habilite o provedor <code>Email/senha</code> em
-    <code>Authentication → Sign-in method</code> e publique o arquivo
-    <code>firestore.rules</code> em <code>Firestore → Regras</code>.
+
+<section class="view active" id="view-bovinos">
+
+  <div class="seg-row" id="bov-segs">
+    <button class="seg active" data-seg="rebanho">Rebanho</button>
+    <button class="seg" data-seg="estoque">Estoque</button>
+    <button class="seg" data-seg="financeiro">Financeiro</button>
   </div>
 
-  <!-- Auth screen -->
-  <section id="auth-section" class="card hidden">
-    <h2 id="auth-title">Entrar</h2>
-    <form id="auth-form">
-      <label for="email">Email</label>
-      <input type="email" id="email" required autocomplete="email">
-
-      <label for="password">Senha</label>
-      <input type="password" id="password" required autocomplete="current-password" minlength="6">
-
-      <button type="submit" class="btn" id="auth-submit-btn">Entrar</button>
-      <div class="error" id="auth-error"></div>
-    </form>
-    <div class="toggle-row">
-      <span id="toggle-text">Ainda não tem conta?</span>
-      <button type="button" class="btn-link" id="toggle-auth-mode">Criar conta</button>
+  <div class="subview active" id="bov-rebanho">
+    <button class="btn-weigh" id="btn-weigh-mode">⚖️ Modo pesagem</button>
+    <div class="stats-row" id="bov-stats"></div>
+    <div class="list" id="animal-list"></div>
+    <div class="empty" id="bov-empty" hidden>
+      <p class="eyebrow mono">Nenhum animal cadastrado</p>
+      <p>Toque em + para cadastrar, use o modo pesagem, ou importe um CSV pelo menu (⋯).</p>
     </div>
-  </section>
+  </div>
 
-  <!-- App screen (visible when logged in) -->
-  <section id="app-section" class="hidden">
-    <div class="card">
-      <h2>Nova fazenda</h2>
-      <form id="farm-form">
-        <label for="farm-name">Nome da fazenda</label>
-        <input type="text" id="farm-name" required placeholder="Ex: Fazenda Boa Vista">
+  <div class="subview" id="bov-detail">
+    <button class="back-btn" data-back="animal">← Rebanho</button>
+    <div id="animal-header"></div>
+    <div class="chart-wrap" id="chart-wrap"></div>
+    <div class="weighings-table" id="weighings-table"></div>
+  </div>
 
-        <label for="farm-location">Localização</label>
-        <input type="text" id="farm-location" placeholder="Ex: Ribeirão Preto, SP">
-
-        <label for="farm-area">Área (hectares)</label>
-        <input type="number" id="farm-area" min="0" step="0.01" placeholder="Ex: 120.5">
-
-        <button type="submit" class="btn" id="farm-submit-btn">Adicionar fazenda</button>
-        <div class="error" id="farm-error"></div>
-      </form>
+  <div class="subview" id="bov-estoque">
+    <div class="list" id="stock-list"></div>
+    <div class="empty" id="stock-empty" hidden>
+      <p class="eyebrow mono">Estoque vazio</p>
+      <p>Toque em + para cadastrar ração, suplementos, medicamentos e insumos.</p>
     </div>
+  </div>
 
-    <div class="card">
-      <h2>Minhas fazendas</h2>
-      <div id="farm-list"></div>
-      <div id="farm-empty" class="empty-state hidden">Você ainda não cadastrou nenhuma fazenda.</div>
+  <div class="subview" id="stock-detail">
+    <button class="back-btn" data-back="item">← Estoque</button>
+    <div id="stock-header"></div>
+    <div class="detail-actions">
+      <button class="btn-small in" id="btn-move-in">＋ Entrada (compra)</button>
+      <button class="btn-small out" id="btn-move-out">－ Saída (consumo)</button>
     </div>
-  </section>
+    <div class="weighings-table" id="stock-moves"></div>
+  </div>
+
+  <div class="subview" id="bov-fin">
+    <div class="filter-row one">
+      <select id="bfin-period">
+        <option value="this-month" selected>Este mês</option>
+        <option value="last-month">Mês anterior</option>
+        <option value="this-year">Este ano</option>
+        <option value="all">Todo período</option>
+      </select>
+    </div>
+    <div class="balance-card" id="bfin-balance"></div>
+    <div class="category-breakdown" id="bfin-cats"></div>
+    <div class="list" id="bfin-list"></div>
+  </div>
+
+</section>
+
+<section class="view" id="view-aviarios">
+  <div class="subview active" id="av-main">
+    <div class="filter-row">
+      <select id="av-period">
+        <option value="this-month" selected>Este mês</option>
+        <option value="last-month">Mês anterior</option>
+        <option value="this-year">Este ano</option>
+        <option value="all">Todo período</option>
+      </select>
+      <select id="av-aviary">
+        <option value="all">Todos aviários</option>
+        <option value="5">Aviário 5</option>
+        <option value="6">Aviário 6</option>
+        <option value="7">Aviário 7</option>
+      </select>
+    </div>
+    <div class="balance-card" id="av-balance"></div>
+    <div class="category-breakdown" id="av-cats"></div>
+    <div class="list" id="av-list"></div>
+    <div class="empty" id="av-empty" hidden>
+      <p class="eyebrow mono">Nenhum lançamento</p>
+      <p>Toque em + para registrar entradas e saídas dos aviários.</p>
+    </div>
+  </div>
+</section>
+
 </main>
 
-<!-- Firebase SDK (compat build, no bundler required) -->
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<button class="fab" id="fab" aria-label="Adicionar">+</button>
 
-<script>
-  // ---------------------------------------------------------------------
-  // 1) Cole aqui as credenciais do SEU projeto Firebase.
-  //    Console do Firebase → Configurações do projeto → Seus apps → SDK.
-  // ---------------------------------------------------------------------
-  const firebaseConfig = {
-    apiKey: "AIzaSyDFdvoEP6eklxgWLH5jKO1D741LLaKS3kA",
-    authDomain: "fazenda-e3652.firebaseapp.com",
-    projectId: "fazenda-e3652",
-    storageBucket: "fazenda-e3652.firebasestorage.app",
-    messagingSenderId: "893414271627",
-    appId: "1:893414271627:web:1c8f93bb26fa0b9761c28e"
-  };
+<div class="weigh-overlay" id="weigh-mode" hidden>
+  <div class="wm-top">
+    <h2>⚖️ Pesagem</h2>
+    <button class="wm-close" id="wm-close">Encerrar</button>
+  </div>
+  <div class="wm-session">
+    <div>
+      <label class="mono">Data</label>
+      <input type="date" id="wm-date" />
+    </div>
+    <label class="wm-jejum-lbl">
+      <input type="checkbox" id="wm-jejum" /> Jejum
+    </label>
+  </div>
+  <label class="mono">Brinco / identificação</label>
+  <input type="text" id="wm-ident" list="wm-idents" placeholder="BR001" autocomplete="off" autocapitalize="characters" />
+  <datalist id="wm-idents"></datalist>
+  <label class="mono">Peso (kg)</label>
+  <input type="number" inputmode="decimal" step="0.1" id="wm-peso" placeholder="415" />
+  <button class="wm-save" id="wm-save">Salvar e próximo →</button>
+  <p class="wm-last mono" id="wm-last"></p>
+  <p class="wm-count mono" id="wm-count"></p>
+  <p class="wm-hint">Animal não cadastrado é criado automaticamente. Pesagem repetida no mesmo dia substitui a anterior. Funciona sem sinal — sincroniza quando a internet voltar.</p>
+</div>
 
-  const isConfigured = !firebaseConfig.apiKey.startsWith("COLE_");
+<div class="modal" id="modal-animal" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2 id="animal-modal-title">Novo animal</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <form id="form-animal">
+      <input type="hidden" id="an-id" />
+      <label class="mono">Identificação *</label>
+      <input type="text" id="an-ident" placeholder="Ex: BR001, Brinco 42" required />
+      <label class="mono">Categoria</label>
+      <input type="text" id="an-cat" list="categorias-animal" placeholder="Ex: Novilho" />
+      <datalist id="categorias-animal">
+        <option>Bezerro</option><option>Bezerra</option><option>Novilho</option><option>Novilha</option>
+        <option>Boi</option><option>Vaca</option><option>Touro</option><option>Lote</option>
+      </datalist>
+      <label class="mono">Data de entrada</label>
+      <input type="date" id="an-entry-date" />
+      <label class="mono">Peso de entrada (kg)</label>
+      <input type="number" inputmode="decimal" step="0.1" id="an-entry-weight" placeholder="Ex: 320" />
+      <label class="mono">Observações</label>
+      <textarea id="an-notes" rows="2"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" id="btn-delete-animal" hidden>Excluir</button>
+        <button type="submit" class="btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
 
-  const configWarning = document.getElementById('config-warning');
-  const authSection = document.getElementById('auth-section');
-  const appSection = document.getElementById('app-section');
-  const logoutBtn = document.getElementById('logout-btn');
+<div class="modal" id="modal-weighing" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2 id="w-modal-title">Nova pesagem</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <form id="form-weighing">
+      <input type="hidden" id="w-id" />
+      <input type="hidden" id="w-animal-id" />
+      <p class="modal-context" id="w-context"></p>
+      <label class="mono">Data *</label>
+      <input type="date" id="w-date" required />
+      <label class="mono">Peso (kg) *</label>
+      <input type="number" inputmode="decimal" step="0.1" id="w-weight" required />
+      <label class="check-lbl"><input type="checkbox" id="w-jejum" /> Pesagem em jejum</label>
+      <label class="mono">Observações</label>
+      <textarea id="w-notes" rows="2"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" id="btn-delete-weighing" hidden>Excluir</button>
+        <button type="submit" class="btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
 
-  if (!isConfigured) {
-    configWarning.classList.remove('hidden');
-  } else {
-    firebase.initializeApp(firebaseConfig);
-    const auth = firebase.auth();
-    const db = firebase.firestore();
+<div class="modal" id="modal-transaction" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2 id="t-modal-title">Novo lançamento</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <form id="form-transaction">
+      <input type="hidden" id="t-id" />
+      <input type="hidden" id="t-book" />
+      <p class="modal-context" id="t-context" hidden></p>
+      <div class="type-toggle">
+        <label><input type="radio" name="t-type" value="entrada" /> <span class="chip entrada">Entrada</span></label>
+        <label><input type="radio" name="t-type" value="saida" checked /> <span class="chip saida">Saída</span></label>
+      </div>
+      <label class="mono">Data *</label>
+      <input type="date" id="t-date" required />
+      <label class="mono">Valor (R$) *</label>
+      <input type="number" inputmode="decimal" step="0.01" id="t-amount" required />
+      <div id="t-aviary-wrap">
+        <label class="mono">Aviário *</label>
+        <select id="t-aviary">
+          <option value="5">Aviário 5</option>
+          <option value="6">Aviário 6</option>
+          <option value="7">Aviário 7</option>
+          <option value="geral">Geral (todos)</option>
+        </select>
+      </div>
+      <label class="mono">Categoria</label>
+      <input type="text" id="t-category" list="cats-bov" placeholder="Escolha ou digite" />
+      <datalist id="cats-bov">
+        <option>Venda de gado</option><option>Venda de esterco</option>
+        <option>Compra de gado (engorda)</option><option>Compra de reprodutores</option>
+        <option>Ração/insumos</option><option>Sal mineral/suplemento</option>
+        <option>Medicamentos/vacinas</option><option>Mão de obra</option>
+        <option>Combustível</option><option>Manutenção</option><option>Energia elétrica</option>
+        <option>Frete</option><option>Impostos/Funrural</option>
+        <option>Equipamentos</option><option>Benfeitorias</option><option>Outros</option>
+      </datalist>
+      <datalist id="cats-av">
+        <option>Pagamento Seara</option><option>Venda de cama</option>
+        <option>Energia elétrica</option><option>Gás</option>
+        <option>Medicamentos</option><option>Mão de obra</option>
+        <option>Manutenção</option><option>Equipamentos</option>
+        <option>Combustível</option><option>Impostos/Funrural</option><option>Outros</option>
+      </datalist>
+      <label class="mono">Descrição</label>
+      <input type="text" id="t-notes" />
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" id="btn-delete-transaction" hidden>Excluir</button>
+        <button type="submit" class="btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
 
-    // --- Auth UI state ---
-    let isSignUpMode = false;
-    const authForm = document.getElementById('auth-form');
-    const authTitle = document.getElementById('auth-title');
-    const authSubmitBtn = document.getElementById('auth-submit-btn');
-    const authError = document.getElementById('auth-error');
-    const toggleAuthModeBtn = document.getElementById('toggle-auth-mode');
-    const toggleText = document.getElementById('toggle-text');
+<div class="modal" id="modal-item" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2 id="i-modal-title">Novo item de estoque</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <form id="form-item">
+      <input type="hidden" id="i-id" />
+      <label class="mono">Nome *</label>
+      <input type="text" id="i-name" placeholder="Ex: Proteinado 30%, Sal mineral" required />
+      <label class="mono">Unidade</label>
+      <select id="i-unit">
+        <option value="kg">kg</option>
+        <option value="saco">saco</option>
+        <option value="t">tonelada</option>
+        <option value="L">litro</option>
+        <option value="un">unidade</option>
+        <option value="dose">dose</option>
+      </select>
+      <label class="mono">Alerta de estoque mínimo</label>
+      <input type="number" inputmode="decimal" step="0.1" id="i-min" placeholder="Opcional — ex: 10" />
+      <label class="mono">Carência (dias) — medicamentos</label>
+      <input type="number" inputmode="numeric" id="i-carencia" placeholder="Opcional — ex: 30" />
+      <label class="mono">Observações</label>
+      <textarea id="i-notes" rows="2"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" id="btn-delete-item" hidden>Excluir</button>
+        <button type="submit" class="btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
 
-    function setAuthMode(signUp) {
-      isSignUpMode = signUp;
-      authTitle.textContent = signUp ? 'Criar conta' : 'Entrar';
-      authSubmitBtn.textContent = signUp ? 'Criar conta' : 'Entrar';
-      toggleText.textContent = signUp ? 'Já tem uma conta?' : 'Ainda não tem conta?';
-      toggleAuthModeBtn.textContent = signUp ? 'Entrar' : 'Criar conta';
-      authError.textContent = '';
-    }
+<div class="modal" id="modal-move" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2 id="m-modal-title">Movimentação</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <form id="form-move">
+      <input type="hidden" id="m-id" />
+      <input type="hidden" id="m-item-id" />
+      <p class="modal-context" id="m-context"></p>
+      <div class="type-toggle">
+        <label><input type="radio" name="m-type" value="entrada" checked /> <span class="chip entrada">Entrada</span></label>
+        <label><input type="radio" name="m-type" value="saida" /> <span class="chip saida">Saída</span></label>
+      </div>
+      <label class="mono">Data *</label>
+      <input type="date" id="m-date" required />
+      <label class="mono">Quantidade *</label>
+      <input type="number" inputmode="decimal" step="0.01" id="m-qty" required />
+      <div id="m-cost-wrap">
+        <label class="mono">Custo unitário (R$)</label>
+        <input type="number" inputmode="decimal" step="0.01" id="m-cost" placeholder="Por unidade" />
+        <label class="check-lbl"><input type="checkbox" id="m-postfin" checked /> Lançar compra no financeiro (Bovinos)</label>
+      </div>
+      <label class="mono">Observações</label>
+      <input type="text" id="m-notes" placeholder="Ex: consumo lote 3" />
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" id="btn-delete-move" hidden>Excluir</button>
+        <button type="submit" class="btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
 
-    toggleAuthModeBtn.addEventListener('click', () => setAuthMode(!isSignUpMode));
-    setAuthMode(false);
+<div class="modal" id="modal-import" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2>Importar pesagens</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <div class="import-body">
+      <p>Arquivo <b>CSV</b> com 3 colunas: <span class="mono">identificacao, data, peso</span></p>
+      <details>
+        <summary>Ver formato esperado</summary>
+        <pre class="csv-example">identificacao,data,peso
+BR001,15/01/2025,320
+BR001,20/04/2025,415
+BR002,15/01/2025,340</pre>
+        <p class="small">Datas: <b>DD/MM/AAAA</b> ou <b>AAAA-MM-DD</b>. Peso: vírgula ou ponto. Separador: vírgula ou ponto e vírgula. Animais não cadastrados são criados automaticamente.</p>
+        <button type="button" class="btn-link" id="btn-template">Baixar modelo</button>
+      </details>
+      <input type="file" id="csv-input" accept=".csv,text/csv,text/plain" />
+      <div id="import-preview" hidden>
+        <h3>Prévia</h3>
+        <div id="preview-stats"></div>
+        <div id="preview-errors" hidden></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" data-close>Cancelar</button>
+          <button type="button" class="btn-primary" id="btn-confirm-import">Importar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-    authForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      authError.textContent = '';
-      authSubmitBtn.disabled = true;
-      const email = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value;
-      try {
-        if (isSignUpMode) {
-          await auth.createUserWithEmailAndPassword(email, password);
-        } else {
-          await auth.signInWithEmailAndPassword(email, password);
-        }
-        authForm.reset();
-      } catch (err) {
-        authError.textContent = traduzErroAuth(err);
-      } finally {
-        authSubmitBtn.disabled = false;
-      }
-    });
+<div class="modal" id="modal-menu" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2>Menu</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <div class="menu-list">
+      <p class="menu-farm mono" id="menu-farm-info"></p>
+      <hr />
+      <button class="menu-item" id="menu-import"><span>📥</span> Importar pesagens (CSV)</button>
+      <button class="menu-item" id="menu-exp-pes"><span>📤</span> Exportar pesagens (CSV)</button>
+      <button class="menu-item" id="menu-exp-bfin"><span>📤</span> Exportar financeiro Bovinos (CSV)</button>
+      <button class="menu-item" id="menu-exp-afin"><span>📤</span> Exportar financeiro Aviários (CSV)</button>
+      <hr />
+      <div class="menu-setting">
+        <label class="mono">Rendimento de carcaça (%)</label>
+        <input type="number" inputmode="numeric" id="set-yield" min="40" max="65" />
+      </div>
+      <hr />
+      <button class="menu-item" id="menu-migrate" hidden><span>☁️</span> Enviar dados locais antigos p/ nuvem</button>
+      <button class="menu-item" id="menu-backup"><span>💾</span> Backup completo (baixar tudo)</button>
+      <button class="menu-item" id="menu-restore"><span>♻️</span> Restaurar backup</button>
+      <input type="file" id="restore-input" accept=".json,application/json" hidden />
+      <hr />
+      <button class="menu-item" id="menu-leave"><span>🚪</span> Trocar fazenda / reconfigurar</button>
+      <button class="menu-item danger" id="menu-clear"><span>🗑️</span> Apagar todos os dados</button>
+    </div>
+  </div>
+</div>
 
-    logoutBtn.addEventListener('click', () => auth.signOut());
+<div class="install-banner" id="install-banner" hidden>
+  <span>📲 Instalar aplicativo</span>
+  <button id="install-btn">Instalar</button>
+  <button class="close" id="close-banner" aria-label="Fechar">×</button>
+</div>
 
-    function traduzErroAuth(err) {
-      const map = {
-        'auth/email-already-in-use': 'Este email já está cadastrado.',
-        'auth/invalid-email': 'Email inválido.',
-        'auth/weak-password': 'A senha precisa ter pelo menos 6 caracteres.',
-        'auth/user-not-found': 'Email ou senha incorretos.',
-        'auth/wrong-password': 'Email ou senha incorretos.',
-        'auth/invalid-credential': 'Email ou senha incorretos.',
-        'auth/too-many-requests': 'Muitas tentativas. Tente novamente mais tarde.'
-      };
-      return map[err.code] || 'Erro: ' + err.message;
-    }
+<div class="toast" id="toast" hidden></div>
 
-    // --- Farms CRUD ---
-    const farmForm = document.getElementById('farm-form');
-    const farmSubmitBtn = document.getElementById('farm-submit-btn');
-    const farmError = document.getElementById('farm-error');
-    const farmList = document.getElementById('farm-list');
-    const farmEmpty = document.getElementById('farm-empty');
-
-    let unsubscribeFarms = null;
-
-    farmForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      farmError.textContent = '';
-      const user = auth.currentUser;
-      if (!user) return;
-
-      const name = document.getElementById('farm-name').value.trim();
-      const location = document.getElementById('farm-location').value.trim();
-      const areaRaw = document.getElementById('farm-area').value;
-      const area = areaRaw === '' ? null : Number(areaRaw);
-
-      farmSubmitBtn.disabled = true;
-      try {
-        await db.collection('farms').add({
-          ownerId: user.uid,
-          name,
-          location: location || null,
-          area,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        farmForm.reset();
-      } catch (err) {
-        farmError.textContent = 'Erro ao salvar: ' + err.message;
-      } finally {
-        farmSubmitBtn.disabled = false;
-      }
-    });
-
-    function renderFarms(snapshot) {
-      farmList.innerHTML = '';
-      if (snapshot.empty) {
-        farmEmpty.classList.remove('hidden');
-        return;
-      }
-      farmEmpty.classList.add('hidden');
-
-      snapshot.forEach((doc) => {
-        const farm = doc.data();
-        const item = document.createElement('div');
-        item.className = 'farm-item';
-
-        const info = document.createElement('div');
-        info.className = 'farm-info';
-        const details = [
-          farm.location ? farm.location : null,
-          (farm.area !== null && farm.area !== undefined) ? `${farm.area} ha` : null
-        ].filter(Boolean).join(' · ');
-        info.innerHTML = `<strong>${escapeHtml(farm.name || '(sem nome)')}</strong>` +
-          (details ? `<span>${escapeHtml(details)}</span>` : '');
-
-        const actions = document.createElement('div');
-        actions.className = 'farm-actions';
-        const delBtn = document.createElement('button');
-        delBtn.textContent = 'Excluir';
-        delBtn.addEventListener('click', () => excluirFazenda(doc.id, farm.name));
-        actions.appendChild(delBtn);
-
-        item.appendChild(info);
-        item.appendChild(actions);
-        farmList.appendChild(item);
-      });
-    }
-
-    async function excluirFazenda(id, name) {
-      if (!confirm(`Excluir a fazenda "${name || ''}"? Esta ação não pode ser desfeita.`)) return;
-      try {
-        await db.collection('farms').doc(id).delete();
-      } catch (err) {
-        alert('Erro ao excluir: ' + err.message);
-      }
-    }
-
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
-
-    // --- Auth state → show/hide screens & (un)subscribe farms listener ---
-    auth.onAuthStateChanged((user) => {
-      if (user) {
-        authSection.classList.add('hidden');
-        appSection.classList.remove('hidden');
-        logoutBtn.classList.remove('hidden');
-
-        unsubscribeFarms = db.collection('farms')
-          .where('ownerId', '==', user.uid)
-          .orderBy('createdAt', 'desc')
-          .onSnapshot(renderFarms, (err) => {
-            farmError.textContent = 'Erro ao carregar fazendas: ' + err.message;
-          });
-      } else {
-        appSection.classList.add('hidden');
-        authSection.classList.remove('hidden');
-        logoutBtn.classList.add('hidden');
-        if (unsubscribeFarms) { unsubscribeFarms(); unsubscribeFarms = null; }
-        farmList.innerHTML = '';
-        farmEmpty.classList.add('hidden');
-      }
-    });
-  }
-</script>
-
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
