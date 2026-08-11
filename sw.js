@@ -22,7 +22,13 @@ self.addEventListener('fetch', e => {
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
-      }).catch(() => caches.match(e.request).then(cached => cached || caches.match('./index.html')))
+      }).catch(() => caches.match(e.request, { ignoreSearch: true }).then(cached => {
+        // ignoreSearch: o pré-cache guarda "app.js" sem versão, mas a página
+        // pede "app.js?v=N" — sem isso, offline devolveria HTML no lugar do JS.
+        if (cached) return cached;
+        if (e.request.mode === 'navigate') return caches.match('./index.html');
+        return Response.error();
+      }))
     );
     return;
   }
