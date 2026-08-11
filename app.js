@@ -185,10 +185,15 @@ function renderRebanho() {
   const gmds = animals.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite);
   const avg = gmds.length ? gmds.reduce((s, g) => s + g, 0) / gmds.length : null;
   const lastDates = weighings.map(w => w.date).sort();
+  const lastWeights = animals.map(a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; }).filter(Number.isFinite);
+  const avgWeight = lastWeights.length ? lastWeights.reduce((s, w) => s + w, 0) / lastWeights.length : null;
+  const avgArroba = avgWeight != null ? avgWeight * (settings.yield / 100) / 15 : null;
   $('bov-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${n}</div><div class="stat-label">Animais</div></div>
     <div class="stat-card"><div class="stat-value">${avg != null ? fmtN(avg, 2) : '—'}</div><div class="stat-label">GMD médio</div></div>
-    <div class="stat-card"><div class="stat-value">${lastDates.length ? fmtBR(lastDates[lastDates.length - 1]) : '—'}</div><div class="stat-label">Últ. pesagem</div></div>`;
+    <div class="stat-card"><div class="stat-value">${lastDates.length ? fmtBR(lastDates[lastDates.length - 1]) : '—'}</div><div class="stat-label">Últ. pesagem</div></div>
+    <div class="stat-card"><div class="stat-value">${avgWeight != null ? fmtN(avgWeight, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
+    <div class="stat-card"><div class="stat-value">${avgArroba != null ? fmtN(avgArroba, 1) + ' @' : '—'}</div><div class="stat-label">Peso médio</div></div>`;
   const sorted = [...animals].sort((a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true }));
   $('animal-list').innerHTML = sorted.map(a => {
     const ws = wOf(a.id); const last = ws[ws.length - 1]; const g = gmdTotal(ws);
