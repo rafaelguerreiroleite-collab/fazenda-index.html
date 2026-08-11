@@ -139,6 +139,24 @@ const CLASSIF = {
 };
 const classOf = (cat, type) => CLASSIF[cat] || (type === 'entrada' ? 'Receita' : 'Custeio');
 
+// ===== Prevenção de duplicidade =====
+// Avisa, sem bloquear: duplicatas legítimas existem (dois abastecimentos no
+// mesmo dia, pelo mesmo valor). Quem decide é quem está lançando.
+const sameMoney = (a, b) => Math.abs(a - b) < 0.005;
+function askDuplicate(detalhe) {
+  return confirm(`⚠️ POSSÍVEL DUPLICIDADE\n\n${detalhe}\n\nLançar mesmo assim?`);
+}
+// Lançamento financeiro já existente com mesma data, valor, tipo, categoria
+// (e aviário, no caso dos aviários). Ignora o próprio registro ao editar.
+function findDupTrans(list, data, book, ignoreId) {
+  return list.find(t => t.id !== ignoreId
+    && t.date === data.date
+    && t.type === data.type
+    && sameMoney(t.amount, data.amount)
+    && (t.category || '') === (data.category || '')
+    && (book !== 'av' || t.aviary === data.aviary));
+}
+
 // ===== Cálculos =====
 const wOf = aid => weighings.filter(w => w.animalId === aid).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 function gmdBetween(a, b) { const d = daysBetween(a.date, b.date); return d > 0 ? (b.weight - a.weight) / d : null; }
@@ -421,6 +439,13 @@ function syncAnimalSaleTrans(a) {
       const t = bovT.find(x => x.id === a.linkTrans);
       if (t) { Object.assign(t, saleData); upsert('bovtrans', t); return; }
     }
+    // A venda já pode ter sido lançada à mão no Financeiro — não lança de novo
+    // sem perguntar.
+    const dup = findDupTrans(bovT, saleData, 'bov', null);
+    if (dup && !askDuplicate(`Esta venda de ${fmtRS(saleData.amount)} em ${fmtBRfull(saleData.date)} já parece estar lançada no Financeiro${dup.notes ? `\nDescrição: ${dup.notes}` : ''}.\n\nO animal será marcado como vendido de qualquer forma.`)) {
+      a.linkTrans = null;
+      return;
+    }
     const t = Object.assign({ id: uid() }, saleData);
     bovT.push(t); upsert('bovtrans', t);
     a.linkTrans = t.id;
@@ -504,6 +529,11 @@ $('form-weighing').addEventListener('submit', e => {
   const id = $('w-id').value, animalId = $('w-animal-id').value;
   const date = $('w-date').value, weight = parseFloat($('w-weight').value);
   if (!date || !Number.isFinite(weight) || weight <= 0) return;
+  const dupW = weighings.find(x => x.id !== id && x.animalId === animalId && x.date === date);
+  if (dupW) {
+    const an = animals.find(x => x.id === animalId);
+    if (!askDuplicate(`${an ? an.ident : 'Este animal'} já tem pesagem em ${fmtBRfull(dupW.date)}: ${fmtN(dupW.weight, 1)} kg.\n\nPara corrigir o peso, edite a pesagem existente em vez de criar outra.`)) return;
+  }
   const data = { animalId, date, weight, jejum: $('w-jejum').checked, notes: $('w-notes').value.trim() };
   let w;
   if (id) { w = weighings.find(x => x.id === id); Object.assign(w, data); }
@@ -552,6 +582,13 @@ $('form-transaction').addEventListener('submit', e => {
   if (book === 'av') data.aviary = $('t-aviary').value;
   const arr = book === 'av' ? avT : bovT;
   const col = book === 'av' ? 'avtrans' : 'bovtrans';
+  const dup = findDupTrans(arr, data, book, id);
+  if (dup) {
+    const tipo = dup.type === 'entrada' ? 'entrada' : 'saída';
+    const origem = dup.lock === 'stock' ? '\n(gerado por uma compra de estoque)'
+      : dup.lock === 'animal' ? '\n(gerado pela venda de um animal)' : '';
+    if (!askDuplicate(`Já existe uma ${tipo} de ${fmtRS(dup.amount)} em ${fmtBRfull(dup.date)}${dup.category ? `\nCategoria: ${dup.category}` : ''}${dup.notes ? `\nDescrição: ${dup.notes}` : ''}${origem}`)) return;
+  }
   let t;
   if (id) { t = arr.find(x => x.id === id); Object.assign(t, data); }
   else { t = Object.assign({ id: uid() }, data); arr.push(t); }
@@ -641,6 +678,11 @@ $('form-move').addEventListener('submit', e => {
   const unitCost = parseFloat($('m-cost').value);
   const postFin = $('m-postfin').checked;
   if (!date || !Number.isFinite(qty) || qty <= 0) return;
+  const dupMv = moves.find(x => x.id !== id && x.itemId === itemId && x.date === date && x.type === type && Math.abs(x.qty - qty) < 0.0001);
+  if (dupMv) {
+    const tipo = type === 'entrada' ? 'entrada' : 'saída';
+    if (!askDuplicate(`Já existe uma ${tipo} de ${fmtN(dupMv.qty, dupMv.qty % 1 ? 2 : 0)} ${it.unit} de ${it.name} em ${fmtBRfull(dupMv.date)}${dupMv.notes ? `\nObs.: ${dupMv.notes}` : ''}`)) return;
+  }
   let mv;
   if (id) { mv = moves.find(x => x.id === id); Object.assign(mv, { type, date, qty, notes: $('m-notes').value.trim() }); }
   else { mv = { id: uid(), itemId, type, date, qty, notes: $('m-notes').value.trim() }; moves.push(mv); }
