@@ -1,4 +1,4 @@
-const CACHE = 'fazendajs-v2';
+const CACHE = 'fazendajs-v3';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -11,14 +11,32 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   // Nunca interceptar tráfego do Firestore/Auth (tempo real)
   if (url.includes('firestore.googleapis.com') || url.includes('identitytoolkit') || url.includes('securetoken')) return;
-  const cacheable = url.startsWith(self.location.origin) || url.includes('gstatic.com/firebasejs') || url.includes('fonts.googleapis.com') || url.includes('fonts.gstatic.com');
+
+  // Arquivos do próprio app: rede primeiro, para que uma nova versão publicada
+  // chegue ao aparelho. O cache fica como reserva para uso sem sinal.
+  if (url.startsWith(self.location.origin)) {
+    e.respondWith(
+      fetch(e.request).then(res => {
+        if (res && res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return res;
+      }).catch(() => caches.match(e.request).then(cached => cached || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // Fontes e SDK do Firebase têm URL fixa por versão — cache primeiro.
+  const cacheable = url.includes('gstatic.com/firebasejs') || url.includes('fonts.googleapis.com') || url.includes('fonts.gstatic.com');
+  if (!cacheable) return;
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request).then(res => {
-      if (cacheable && res && (res.ok || res.type === 'opaque')) {
+      if (res && (res.ok || res.type === 'opaque')) {
         const clone = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, clone));
       }
       return res;
-    }).catch(() => caches.match('./index.html')))
+    }))
   );
 });
