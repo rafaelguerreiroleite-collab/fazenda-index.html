@@ -973,7 +973,13 @@ $('install-btn').addEventListener('click', async () => {
   $('install-banner').hidden = true; deferredPrompt = null;
 });
 $('close-banner').addEventListener('click', () => { $('install-banner').hidden = true; localStorage.setItem('fjs-install-dismissed', '1'); });
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+if ('serviceWorker' in navigator) window.addEventListener('load', () => {
+  // updateViaCache: 'none' impede que o próprio sw.js seja lido do cache do
+  // navegador — sem isso, uma versão nova pode demorar a chegar ao aparelho.
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+    .then(reg => reg.update())
+    .catch(() => {});
+});
 
 // ===== Início =====
 (function init() {
