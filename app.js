@@ -20,7 +20,8 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = fals
 let animals = [], weighings = [], bovT = [], avT = [], items = [], moves = [];
 let settings = { yield: 52 };
 // Parâmetros da calculadora de custo da arroba (independentes das outras abas)
-const CUSTO_VAZIO = { gmd: null, salConsumo: null, salPreco: null, sanidade: null, mo: null, rend: null };
+const CUSTO_VAZIO = { gmd: null, salConsumo: null, salPreco: null, sanidade: null, mo: null, terra: null, rend: null };
+const CUSTO_REND_PADRAO = 52; // próprio desta aba — não usa o rendimento do Rebanho
 let custoParams = Object.assign({}, CUSTO_VAZIO);
 
 // ===== Firebase =====
@@ -285,14 +286,15 @@ function renderVendidas() {
 // pelo rendimento de carcaça.
 function calcCusto() {
   const p = custoParams;
-  const rend = Number.isFinite(p.rend) && p.rend > 0 ? p.rend : settings.yield;
+  const rend = Number.isFinite(p.rend) && p.rend > 0 ? p.rend : CUSTO_REND_PADRAO;
   const salDia = Number.isFinite(p.salConsumo) && Number.isFinite(p.salPreco) ? (p.salConsumo / 1000) * p.salPreco : 0;
   const sanDia = Number.isFinite(p.sanidade) ? p.sanidade / 30 : 0;
   const moDia = Number.isFinite(p.mo) ? p.mo / 30 : 0;
-  const custoDia = salDia + sanDia + moDia;
+  const terraDia = Number.isFinite(p.terra) ? p.terra / 30 : 0;
+  const custoDia = salDia + sanDia + moDia + terraDia;
   const arrobaDia = Number.isFinite(p.gmd) && p.gmd > 0 ? (p.gmd * rend / 100) / 15 : null;
   return {
-    rend, salDia, sanDia, moDia, custoDia, arrobaDia,
+    rend, salDia, sanDia, moDia, terraDia, custoDia, arrobaDia,
     custoArroba: arrobaDia && custoDia > 0 ? custoDia / arrobaDia : null
   };
 }
@@ -313,7 +315,8 @@ function renderCustos() {
   const partes = [
     { nome: 'Sal', v: c.salDia },
     { nome: 'Sanidade', v: c.sanDia },
-    { nome: 'Mão de obra', v: c.moDia }
+    { nome: 'Mão de obra', v: c.moDia },
+    { nome: 'Terra', v: c.terraDia }
   ].filter(x => x.v > 0).sort((a, b) => b.v - a.v);
   const bd = $('cst-breakdown');
   bd.style.display = partes.length ? '' : 'none';
@@ -328,7 +331,7 @@ function renderCustos() {
   fillCustoInputs();
 }
 
-const CUSTO_CAMPOS = { 'cst-gmd': 'gmd', 'cst-sal-consumo': 'salConsumo', 'cst-sal-preco': 'salPreco', 'cst-sanidade': 'sanidade', 'cst-mo': 'mo', 'cst-rend': 'rend' };
+const CUSTO_CAMPOS = { 'cst-gmd': 'gmd', 'cst-sal-consumo': 'salConsumo', 'cst-sal-preco': 'salPreco', 'cst-sanidade': 'sanidade', 'cst-mo': 'mo', 'cst-terra': 'terra', 'cst-rend': 'rend' };
 function fillCustoInputs() {
   Object.entries(CUSTO_CAMPOS).forEach(([id, key]) => {
     const el = $(id);
