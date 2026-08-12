@@ -35,9 +35,13 @@ export async function abrirApp(url, { locale = 'pt-BR' } = {}) {
   const errosJS = [];
   pagina.on('pageerror', e => errosJS.push(e.message));
 
-  // O SDK real do Firebase é bloqueado e substituído por um dublê, para que o
-  // teste rode igual aqui e no servidor, sem depender de rede nem de chave.
-  await pagina.route('**/gstatic.com/firebasejs/**', r => r.abort());
+  // Nada sai para a internet: só o servidor local responde. Assim o teste roda
+  // igual aqui e no servidor, sem depender de rede, de CDN nem de chave — o
+  // SDK do Firebase é substituído pelo dublê abaixo.
+  await pagina.route('**/*', rota => {
+    const alvo = new URL(rota.request().url());
+    return ['localhost', '127.0.0.1'].includes(alvo.hostname) ? rota.continue() : rota.abort();
+  });
   await pagina.addInitScript(() => {
     localStorage.setItem('fjs-fbconfig', JSON.stringify({ apiKey: 'x', projectId: 'p', authDomain: 'a', appId: '1' }));
     localStorage.setItem('fjs-farm', JSON.stringify('demo'));
