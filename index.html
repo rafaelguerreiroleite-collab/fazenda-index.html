@@ -79,6 +79,14 @@
   <div class="subview active" id="bov-rebanho">
     <button class="btn-weigh" id="btn-weigh-mode">⚖️ Modo pesagem</button>
     <div class="stats-row" id="bov-stats"></div>
+    <div class="filter-row one">
+      <select id="bov-sort">
+        <option value="ident-asc" selected>Ordem: brinco crescente</option>
+        <option value="ident-desc">Ordem: brinco decrescente</option>
+        <option value="peso-desc">Ordem: mais pesado primeiro</option>
+        <option value="peso-asc">Ordem: mais leve primeiro</option>
+      </select>
+    </div>
     <div class="list" id="animal-list"></div>
     <div class="empty" id="bov-empty" hidden>
       <p class="eyebrow mono">Nenhum animal cadastrado</p>

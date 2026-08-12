@@ -184,6 +184,7 @@ function inPeriod(iso, sel) {
 
 // ===== Navegação =====
 let tab = 'bovinos', seg = 'rebanho', detailAnimal = null, detailItem = null;
+let bovSort = LS.g('fjs-sort-rebanho', 'ident-asc');
 
 function render() {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === tab));
@@ -206,7 +207,8 @@ function renderRebanho() {
   const gmds = activeAnimals.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite);
   const avg = gmds.length ? gmds.reduce((s, g) => s + g, 0) / gmds.length : null;
   const lastDates = weighings.filter(w => activeIds.has(w.animalId)).map(w => w.date).sort();
-  const lastWeights = activeAnimals.map(a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; }).filter(Number.isFinite);
+  const weightById = new Map(activeAnimals.map(a => { const ws = wOf(a.id); return [a.id, ws.length ? ws[ws.length - 1].weight : null]; }));
+  const lastWeights = [...weightById.values()].filter(Number.isFinite);
   const totalWeight = lastWeights.reduce((s, w) => s + w, 0);
   const avgWeight = lastWeights.length ? totalWeight / lastWeights.length : null;
   const arrobaOf = kg => kg * (settings.yield / 100) / 15;
@@ -219,7 +221,17 @@ function renderRebanho() {
     <div class="stat-card"><div class="stat-value">${avgWeight != null ? fmtN(avgWeight, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
     <div class="stat-card"><div class="stat-value">${avgArroba != null ? fmtN(avgArroba, 1) + ' @' : '—'}</div><div class="stat-label">Média em @</div></div>
     <div class="stat-card"><div class="stat-value">${totalArroba != null ? fmtN(totalArroba, 0) + ' @' : '—'}</div><div class="stat-label">Total do rebanho</div></div>`;
-  const sorted = [...activeAnimals].sort((a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true }));
+  const byIdent = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true });
+  const sorted = [...activeAnimals].sort((a, b) => {
+    if (bovSort === 'peso-desc' || bovSort === 'peso-asc') {
+      const wa = weightById.get(a.id), wb = weightById.get(b.id);
+      if (wa == null && wb == null) return byIdent(a, b);
+      if (wa == null) return 1; // sem pesagem vai para o fim da lista
+      if (wb == null) return -1;
+      return bovSort === 'peso-desc' ? wb - wa : wa - wb;
+    }
+    return bovSort === 'ident-desc' ? byIdent(b, a) : byIdent(a, b);
+  });
   $('animal-list').innerHTML = sorted.map(a => {
     const ws = wOf(a.id); const last = ws[ws.length - 1]; const g = gmdTotal(ws);
     return `<div class="list-item" data-animal="${a.id}">
@@ -966,6 +978,8 @@ $('btn-move-out').addEventListener('click', () => openMove(detailItem, 'saida'))
 $('bfin-period').addEventListener('change', render);
 $('av-period').addEventListener('change', render);
 $('av-aviary').addEventListener('change', render);
+$('bov-sort').value = bovSort;
+$('bov-sort').addEventListener('change', e => { bovSort = e.target.value; LS.s('fjs-sort-rebanho', bovSort); render(); });
 
 document.addEventListener('click', e => {
   const aed = e.target.closest('[data-animal-edit]');
