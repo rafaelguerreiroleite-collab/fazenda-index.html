@@ -44,9 +44,10 @@ button { cursor: pointer; font-family: inherit; }
 .tab.active { color: #225437; border-bottom-color: #225437; }
 
 /* SEGMENTS */
-.seg-row { display: flex; gap: 0.4rem; margin-bottom: 1rem; }
+.seg-row { display: flex; gap: 0.4rem; margin-bottom: 1rem; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.seg-row::-webkit-scrollbar { display: none; }
 .seg {
-  flex: 1; padding: 0.5rem 0.25rem;
+  flex: 1 0 auto; padding: 0.5rem 0.7rem;
   border: 1px solid #d6d3d1; background: white; border-radius: 999px;
   font-family: 'DM Mono', monospace; font-size: 0.72rem;
   text-transform: uppercase; letter-spacing: 0.05em; color: #57534e;
@@ -245,6 +246,22 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
   display: flex; align-items: center; justify-content: center; line-height: 1;
 }
 .fab:active { transform: scale(0.95); }
+.fab[hidden] { display: none; }
+
+/* CALCULADORA DE CUSTO DA ARROBA */
+.calc-result { background: #225437; color: #fafaf9; padding: 1.25rem; border-radius: 3px; margin-bottom: 1rem; text-align: center; }
+.cr-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.18em; color: #9dbcaa; }
+.cr-value { font-size: 2.4rem; font-weight: 800; line-height: 1.05; margin-top: 0.35rem; }
+.cr-hint { font-size: 0.64rem; color: #9dbcaa; margin-top: 0.4rem; }
+.calc-form { background: white; border: 1px solid #e7e5e4; border-radius: 3px; padding: 0.875rem 1rem 1rem; margin-bottom: 1rem; }
+.cf-title { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em; color: #78716c; margin-bottom: 0.25rem; }
+.calc-form label { display: block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: #57534e; margin: 0.85rem 0 0.3rem; }
+.calc-form input {
+  width: 100%; padding: 0.6rem 0.7rem; border: 2px solid #d6d3d1; border-radius: 3px;
+  background: white; font-family: 'DM Mono', monospace; font-size: 1rem; color: #225437;
+}
+.calc-form input:focus { outline: none; border-color: #225437; }
+.calc-form .small { margin: 1rem 0 0; }
 
 /* WEIGH MODE */
 .weigh-overlay {

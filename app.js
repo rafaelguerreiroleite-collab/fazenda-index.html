@@ -19,6 +19,9 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = fals
 // ===== Estado (espelho local dos snapshots) =====
 let animals = [], weighings = [], bovT = [], avT = [], items = [], moves = [];
 let settings = { yield: 52 };
+// Parâmetros da calculadora de custo da arroba (independentes das outras abas)
+const CUSTO_VAZIO = { gmd: null, salConsumo: null, salPreco: null, sanidade: null, mo: null, rend: null };
+let custoParams = Object.assign({}, CUSTO_VAZIO);
 
 // ===== Firebase =====
 let db = null, farm = null, unsubs = [];
@@ -88,6 +91,9 @@ function subscribe() {
   unsubs.push(db.collection('farms').doc(farm).onSnapshot(snap => {
     const d = snap.data() || {};
     settings.yield = Number.isFinite(d.yield) ? d.yield : 52;
+    // Não sobrescreve o que está sendo digitado neste instante
+    const digitando = document.activeElement && document.activeElement.closest && document.activeElement.closest('.calc-form');
+    if (!digitando) custoParams = Object.assign({}, CUSTO_VAZIO, d.custo || {});
     render();
   }));
 }
@@ -192,12 +198,15 @@ function render() {
   $('view-aviarios').classList.toggle('active', tab === 'aviarios');
   if (tab === 'bovinos') {
     document.querySelectorAll('#bov-segs .seg').forEach(s => s.classList.toggle('active', s.dataset.seg === seg));
-    ['bov-rebanho', 'bov-detail', 'bov-vendidas', 'bov-estoque', 'stock-detail', 'bov-fin'].forEach(id => $(id).classList.remove('active'));
+    ['bov-rebanho', 'bov-detail', 'bov-vendidas', 'bov-estoque', 'stock-detail', 'bov-fin', 'bov-custos'].forEach(id => $(id).classList.remove('active'));
     if (seg === 'rebanho') { $(detailAnimal ? 'bov-detail' : 'bov-rebanho').classList.add('active'); detailAnimal ? renderAnimalDetail() : renderRebanho(); }
     if (seg === 'vendidas') { $('bov-vendidas').classList.add('active'); renderVendidas(); }
+    if (seg === 'custos') { $('bov-custos').classList.add('active'); renderCustos(); }
     if (seg === 'estoque') { $(detailItem ? 'stock-detail' : 'bov-estoque').classList.add('active'); detailItem ? renderStockDetail() : renderEstoque(); }
     if (seg === 'financeiro') { $('bov-fin').classList.add('active'); renderFin('bov'); }
   } else { renderFin('av'); }
+  // Vendidas e Custos não têm nada para adicionar pelo botão +
+  $('fab').hidden = tab === 'bovinos' && (seg === 'vendidas' || seg === 'custos');
 }
 
 function renderRebanho() {
@@ -270,6 +279,80 @@ function renderVendidas() {
   }).join('');
   $('vendidas-empty').hidden = sold.length > 0;
 }
+
+// Custo de produzir uma arroba: gasto diário por animal ÷ arrobas ganhas por dia.
+// Arroba = 15 kg de carcaça, então o ganho de peso vivo (GMD) entra corrigido
+// pelo rendimento de carcaça.
+function calcCusto() {
+  const p = custoParams;
+  const rend = Number.isFinite(p.rend) && p.rend > 0 ? p.rend : settings.yield;
+  const salDia = Number.isFinite(p.salConsumo) && Number.isFinite(p.salPreco) ? (p.salConsumo / 1000) * p.salPreco : 0;
+  const sanDia = Number.isFinite(p.sanidade) ? p.sanidade / 30 : 0;
+  const moDia = Number.isFinite(p.mo) ? p.mo / 30 : 0;
+  const custoDia = salDia + sanDia + moDia;
+  const arrobaDia = Number.isFinite(p.gmd) && p.gmd > 0 ? (p.gmd * rend / 100) / 15 : null;
+  return {
+    rend, salDia, sanDia, moDia, custoDia, arrobaDia,
+    custoArroba: arrobaDia && custoDia > 0 ? custoDia / arrobaDia : null
+  };
+}
+
+function renderCustos() {
+  const c = calcCusto();
+  $('cst-arroba').textContent = c.custoArroba != null ? fmtRS(c.custoArroba) : '—';
+  $('cst-hint').textContent = c.custoArroba != null
+    ? `por @ produzida · rendimento ${fmtN(c.rend, 0)}%`
+    : (c.arrobaDia == null ? 'Informe o GMD para calcular' : 'Informe ao menos um custo');
+
+  $('cst-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia)}</div><div class="stat-label">Custo por dia</div></div>
+    <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia * 30)}</div><div class="stat-label">Custo por mês</div></div>
+    <div class="stat-card"><div class="stat-value">${c.arrobaDia ? fmtN(c.arrobaDia * 30, 2) + ' @' : '—'}</div><div class="stat-label">Ganho por mês</div></div>
+    <div class="stat-card"><div class="stat-value">${c.arrobaDia ? fmtN(1 / c.arrobaDia, 0) : '—'}</div><div class="stat-label">Dias por @</div></div>`;
+
+  const partes = [
+    { nome: 'Sal', v: c.salDia },
+    { nome: 'Sanidade', v: c.sanDia },
+    { nome: 'Mão de obra', v: c.moDia }
+  ].filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+  const bd = $('cst-breakdown');
+  bd.style.display = partes.length ? '' : 'none';
+  if (partes.length) {
+    const maxV = partes[0].v;
+    bd.innerHTML = '<div class="cb-header">Composição do custo diário</div>' + partes.map(x => `
+      <div class="cb-row">
+        <div class="cb-line"><span>${x.nome}</span><span class="value">${fmtRS(x.v)} · ${fmtN(x.v / c.custoDia * 100, 0)}%</span></div>
+        <div class="cb-bar"><div class="cb-fill saida" style="width:${Math.max(4, x.v / maxV * 100)}%"></div></div>
+      </div>`).join('');
+  }
+  fillCustoInputs();
+}
+
+const CUSTO_CAMPOS = { 'cst-gmd': 'gmd', 'cst-sal-consumo': 'salConsumo', 'cst-sal-preco': 'salPreco', 'cst-sanidade': 'sanidade', 'cst-mo': 'mo', 'cst-rend': 'rend' };
+function fillCustoInputs() {
+  Object.entries(CUSTO_CAMPOS).forEach(([id, key]) => {
+    const el = $(id);
+    if (document.activeElement === el) return; // não atropela quem está digitando
+    const v = custoParams[key];
+    el.value = Number.isFinite(v) ? v : '';
+  });
+}
+let custoSaveTimer = null;
+function saveCustoParams() {
+  clearTimeout(custoSaveTimer);
+  custoSaveTimer = setTimeout(() => {
+    if (db && farm) db.collection('farms').doc(farm).set({ custo: clean(custoParams) }, { merge: true })
+      .catch(() => toast('Falha ao salvar — será reenviado'));
+  }, 700);
+}
+Object.entries(CUSTO_CAMPOS).forEach(([id, key]) => {
+  $(id).addEventListener('input', e => {
+    const v = parseFloat(e.target.value);
+    custoParams[key] = Number.isFinite(v) ? v : null;
+    saveCustoParams();
+    renderCustos();
+  });
+});
 
 function renderAnimalDetail() {
   const a = animals.find(x => x.id === detailAnimal);
@@ -885,7 +968,7 @@ $('menu-exp-afin').addEventListener('click', () => exportFin('av'));
 
 // ===== Backup / restauração =====
 $('menu-backup').addEventListener('click', () => {
-  const data = { app: 'fazendajs', v: 3, exportedAt: new Date().toISOString(), animals, weighings, bovT, avT, items, moves, settings };
+  const data = { app: 'fazendajs', v: 4, exportedAt: new Date().toISOString(), animals, weighings, bovT, avT, items, moves, settings, custo: custoParams };
   download(`backup-fazendajs-${todayISO()}.json`, JSON.stringify(data, null, 1), 'application/json');
   closeAllM(); toast('Backup baixado');
 });
@@ -917,7 +1000,10 @@ $('restore-input').addEventListener('change', e => {
         ...(d.moves || []).map(x => ({ col: 'moves', obj: x }))
       ];
       await batchWrite(addOps);
-      if (d.settings && Number.isFinite(d.settings.yield)) await db.collection('farms').doc(farm).set({ yield: d.settings.yield }, { merge: true });
+      const farmDoc = {};
+      if (d.settings && Number.isFinite(d.settings.yield)) farmDoc.yield = d.settings.yield;
+      if (d.custo) farmDoc.custo = Object.assign({}, CUSTO_VAZIO, d.custo);
+      if (Object.keys(farmDoc).length) await db.collection('farms').doc(farm).set(farmDoc, { merge: true });
       detailAnimal = null; detailItem = null; closeAllM();
       toast('Backup restaurado');
     } catch (err) { toast('Arquivo inválido ou falha de conexão'); }
@@ -1002,6 +1088,7 @@ document.addEventListener('click', e => {
 
 $('fab').addEventListener('click', () => {
   if (tab === 'aviarios') return openTrans('av');
+  if (seg === 'vendidas' || seg === 'custos') return;
   if (seg === 'rebanho' && detailAnimal) return openWeighing(detailAnimal);
   if (seg === 'rebanho') return openAnimal();
   if (seg === 'estoque' && detailItem) return openMove(detailItem, 'entrada');
