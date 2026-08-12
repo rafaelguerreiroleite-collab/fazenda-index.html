@@ -14,6 +14,24 @@ const fmtRS = n => 'R$ ' + fmtN(n, 2);
 const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 86400000);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clean = o => JSON.parse(JSON.stringify(o));
+// Lê número digitado em português: aceita vírgula decimal e ponto de milhar.
+// Campos type="number" descartavam a vírgula em silêncio ("4,50" virava 450).
+function parseNum(txt) {
+  if (typeof txt !== 'string') return NaN;
+  let s = txt.trim().replace(/\s/g, '');
+  if (!s) return NaN;
+  const v = s.lastIndexOf(','), d = s.lastIndexOf('.');
+  if (v > -1 && d > -1) {
+    // o separador que vem por último é o decimal; o outro é de milhar
+    const dec = Math.max(v, d);
+    s = s.slice(0, dec).replace(/[.,]/g, '') + '.' + s.slice(dec + 1);
+  } else if (v > -1) {
+    s = s.replace(/\./g, '').replace(',', '.');
+  }
+  return /^-?\d*\.?\d*$/.test(s) ? parseFloat(s) : NaN;
+}
+// Mostra o número de volta no campo em português (2,5 em vez de 2.5)
+const numParaCampo = n => Number.isFinite(n) ? String(n).replace('.', ',') : '';
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(t._to); t._to = setTimeout(() => t.hidden = true, 2500); }
 
 // ===== Estado (espelho local dos snapshots) =====
@@ -430,8 +448,7 @@ function fillCustoInputs() {
   Object.entries(CUSTO_CAMPOS).forEach(([id, key]) => {
     const el = $(id);
     if (document.activeElement === el) return; // não atropela quem está digitando
-    const v = custoParams[key];
-    el.value = Number.isFinite(v) ? v : '';
+    el.value = numParaCampo(custoParams[key]);
   });
 }
 let custoSaveTimer = null;
@@ -444,7 +461,7 @@ function saveCustoParams() {
 }
 Object.entries(CUSTO_CAMPOS).forEach(([id, key]) => {
   $(id).addEventListener('input', e => {
-    const v = parseFloat(e.target.value);
+    const v = parseNum(e.target.value);
     // Peso, custo, GMD e rendimento negativos não existem — entrariam na conta
     // e produziriam um resultado falso.
     custoParams[key] = Number.isFinite(v) && v >= 0 ? v : null;
@@ -610,14 +627,14 @@ function openAnimal(a) {
   $('an-ident').value = a ? a.ident : '';
   $('an-cat').value = a ? (a.cat || '') : '';
   $('an-entry-date').value = a ? (a.entryDate || '') : todayISO();
-  $('an-entry-weight').value = a && a.entryWeight ? a.entryWeight : '';
+  $('an-entry-weight').value = a ? numParaCampo(a.entryWeight) : '';
   $('an-manejo-data').value = a ? (a.manejoData || '') : '';
   $('an-manejo-medicamento').value = a ? (a.manejoMedicamento || '') : '';
   $('an-notes').value = a ? (a.notes || '') : '';
   $('an-sold').checked = a ? !!a.sold : false;
   $('an-sold-date').value = a && a.soldDate ? a.soldDate : todayISO();
-  $('an-sold-weight').value = a && Number.isFinite(a.soldWeight) ? a.soldWeight : '';
-  $('an-sold-price').value = a && Number.isFinite(a.soldPrice) ? a.soldPrice : '';
+  $('an-sold-weight').value = a ? numParaCampo(a.soldWeight) : '';
+  $('an-sold-price').value = a ? numParaCampo(a.soldPrice) : '';
   syncSoldWrap();
   $('btn-delete-animal').hidden = !a;
   openM('modal-animal');
@@ -659,17 +676,17 @@ $('form-animal').addEventListener('submit', e => {
   // ativo já usa a identificação — e só quando este também ficará ativo.
   const dupe = !sold && animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase() && x.id !== id);
   if (dupe) { toast('Já existe animal ativo com essa identificação'); return; }
-  const soldPriceRaw = parseFloat($('an-sold-price').value);
+  const soldPriceRaw = parseNum($('an-sold-price').value);
   const data = {
     ident, cat: $('an-cat').value.trim(),
     entryDate: $('an-entry-date').value || null,
-    entryWeight: parseFloat($('an-entry-weight').value) || null,
+    entryWeight: parseNum($('an-entry-weight').value) || null,
     manejoData: $('an-manejo-data').value || null,
     manejoMedicamento: $('an-manejo-medicamento').value.trim() || null,
     notes: $('an-notes').value.trim(),
     sold,
     soldDate: sold ? ($('an-sold-date').value || todayISO()) : null,
-    soldWeight: sold ? (parseFloat($('an-sold-weight').value) || null) : null,
+    soldWeight: sold ? (parseNum($('an-sold-weight').value) || null) : null,
     soldPrice: sold && Number.isFinite(soldPriceRaw) && soldPriceRaw > 0 ? soldPriceRaw : null
   };
   let a, isNew = false;
@@ -714,7 +731,7 @@ function openWeighing(animalId, w) {
   $('w-id').value = w ? w.id : '';
   $('w-animal-id').value = animalId;
   $('w-date').value = w ? w.date : todayISO();
-  $('w-weight').value = w ? w.weight : '';
+  $('w-weight').value = w ? numParaCampo(w.weight) : '';
   $('w-jejum').checked = w ? !!w.jejum : false;
   $('w-notes').value = w ? (w.notes || '') : '';
   $('btn-delete-weighing').hidden = !w;
@@ -723,7 +740,7 @@ function openWeighing(animalId, w) {
 $('form-weighing').addEventListener('submit', e => {
   e.preventDefault();
   const id = $('w-id').value, animalId = $('w-animal-id').value;
-  const date = $('w-date').value, weight = parseFloat($('w-weight').value);
+  const date = $('w-date').value, weight = parseNum($('w-weight').value);
   if (!date || !Number.isFinite(weight) || weight <= 0) return;
   const dupW = weighings.find(x => x.id !== id && x.animalId === animalId && x.date === date);
   if (dupW) {
@@ -752,7 +769,7 @@ function openTrans(book, t) {
   $('t-category').setAttribute('list', book === 'av' ? 'cats-av' : 'cats-bov');
   document.querySelector(`input[name="t-type"][value="${t ? t.type : 'saida'}"]`).checked = true;
   $('t-date').value = t ? t.date : todayISO();
-  $('t-amount').value = t ? t.amount : '';
+  $('t-amount').value = t ? numParaCampo(t.amount) : '';
   if (book === 'av') $('t-aviary').value = t && t.aviary ? t.aviary : '5';
   $('t-category').value = t ? (t.category || '') : '';
   $('t-notes').value = t ? (t.notes || '') : '';
@@ -766,7 +783,7 @@ function openTrans(book, t) {
 $('form-transaction').addEventListener('submit', e => {
   e.preventDefault();
   const id = $('t-id').value, book = $('t-book').value;
-  const amount = parseFloat($('t-amount').value);
+  const amount = parseNum($('t-amount').value);
   const date = $('t-date').value;
   if (!date || !Number.isFinite(amount) || amount <= 0) return;
   const data = {
@@ -808,8 +825,8 @@ function openItem(it) {
   $('i-id').value = it ? it.id : '';
   $('i-name').value = it ? it.name : '';
   $('i-unit').value = it ? it.unit : 'kg';
-  $('i-min').value = it && it.minQty ? it.minQty : '';
-  $('i-carencia').value = it && it.carencia ? it.carencia : '';
+  $('i-min').value = it ? numParaCampo(it.minQty) : '';
+  $('i-carencia').value = it ? numParaCampo(it.carencia) : '';
   $('i-notes').value = it ? (it.notes || '') : '';
   $('btn-delete-item').hidden = !it;
   openM('modal-item');
@@ -819,7 +836,7 @@ $('form-item').addEventListener('submit', e => {
   const id = $('i-id').value;
   const name = $('i-name').value.trim();
   if (!name) return;
-  const data = { name, unit: $('i-unit').value, minQty: parseFloat($('i-min').value) || null, carencia: parseInt($('i-carencia').value) || null, notes: $('i-notes').value.trim() };
+  const data = { name, unit: $('i-unit').value, minQty: parseNum($('i-min').value) || null, carencia: Math.round(parseNum($('i-carencia').value)) || null, notes: $('i-notes').value.trim() };
   let it;
   if (id) { it = items.find(x => x.id === id); Object.assign(it, data); }
   else { it = Object.assign({ id: uid() }, data); items.push(it); }
@@ -857,8 +874,8 @@ function openMove(itemId, presetType, m) {
   $('m-item-id').value = itemId;
   document.querySelector(`input[name="m-type"][value="${m ? m.type : presetType}"]`).checked = true;
   $('m-date').value = m ? m.date : todayISO();
-  $('m-qty').value = m ? m.qty : '';
-  $('m-cost').value = m && Number.isFinite(m.unitCost) ? m.unitCost : '';
+  $('m-qty').value = m ? numParaCampo(m.qty) : '';
+  $('m-cost').value = m ? numParaCampo(m.unitCost) : '';
   $('m-postfin').checked = m ? !!m.linkTrans : true;
   $('m-notes').value = m ? (m.notes || '') : '';
   $('btn-delete-move').hidden = !m;
@@ -870,8 +887,8 @@ $('form-move').addEventListener('submit', e => {
   const id = $('m-id').value, itemId = $('m-item-id').value;
   const it = items.find(x => x.id === itemId);
   const type = document.querySelector('input[name="m-type"]:checked').value;
-  const date = $('m-date').value, qty = parseFloat($('m-qty').value);
-  const unitCost = parseFloat($('m-cost').value);
+  const date = $('m-date').value, qty = parseNum($('m-qty').value);
+  const unitCost = parseNum($('m-cost').value);
   const postFin = $('m-postfin').checked;
   if (!date || !Number.isFinite(qty) || qty <= 0) return;
   const dupMv = moves.find(x => x.id !== id && x.itemId === itemId && x.date === date && x.type === type && Math.abs(x.qty - qty) < 0.0001);
@@ -936,7 +953,7 @@ $('btn-weigh-mode').addEventListener('click', openWeighMode);
 $('wm-close').addEventListener('click', () => { $('weigh-mode').hidden = true; render(); });
 $('wm-save').addEventListener('click', () => {
   const ident = $('wm-ident').value.trim();
-  const peso = parseFloat($('wm-peso').value);
+  const peso = parseNum($('wm-peso').value);
   const date = $('wm-date').value;
   if (!ident || !Number.isFinite(peso) || peso <= 0 || !date) { toast('Preencha brinco e peso'); return; }
   let a = animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase());
@@ -989,7 +1006,7 @@ $('csv-input').addEventListener('change', e => {
       if (cols.length < 3) { errors.push(`Linha ${i + 1}: menos de 3 colunas`); return; }
       const ident = cols[0];
       const date = parseDateFlex(cols[1]);
-      const peso = parseFloat(cols[2].replace(',', '.'));
+      const peso = parseNum(cols[2]);
       if (!ident) { errors.push(`Linha ${i + 1}: identificação vazia`); return; }
       if (!date) { errors.push(`Linha ${i + 1}: data inválida "${cols[1]}"`); return; }
       if (!Number.isFinite(peso) || peso <= 0) { errors.push(`Linha ${i + 1}: peso inválido "${cols[2]}"`); return; }
@@ -1136,7 +1153,7 @@ $('menu-leave').addEventListener('click', () => {
 
 // ===== Ajustes =====
 $('set-yield').addEventListener('change', e => {
-  let v = parseInt(e.target.value);
+  let v = Math.round(parseNum(e.target.value));
   if (!Number.isFinite(v)) v = 52;
   v = Math.min(65, Math.max(40, v));
   e.target.value = v; settings.yield = v;
