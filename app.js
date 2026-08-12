@@ -310,6 +310,16 @@ function renderVendidas() {
 // Custo de produzir uma arroba: gasto diário por animal ÷ arrobas ganhas por dia.
 // Arroba = 15 kg de carcaça, então o ganho de peso vivo (GMD) entra corrigido
 // pelo rendimento de carcaça.
+const arrobasDe = (kg, rend) => kg * (rend / 100) / 15;
+// Rendimento de cada ponta: o informado, ou o geral quando em branco/inválido
+function rendimentosDe(p, rendGeral) {
+  const ok = v => Number.isFinite(v) && v > 0 && v <= 100;
+  return {
+    rendCompra: ok(p.rendCompra) ? p.rendCompra : rendGeral,
+    rendVenda: ok(p.rendVenda) ? p.rendVenda : rendGeral
+  };
+}
+
 function calcCusto() {
   const p = custoParams;
   const rend = Number.isFinite(p.rend) && p.rend > 0 && p.rend <= 100 ? p.rend : CUSTO_REND_PADRAO;
@@ -325,27 +335,38 @@ function calcCusto() {
   const moDia = Number.isFinite(p.mo) ? p.mo / DIAS_MES : 0;
   const terraDia = Number.isFinite(p.terra) ? p.terra / DIAS_MES : 0;
   const custoDia = salDia + sanDia + moDia + terraDia;
-  const arrobaDia = Number.isFinite(p.gmd) && p.gmd > 0 ? (p.gmd * rend / 100) / 15 : null;
+
+  // Arrobas ganhas por dia. Havendo os dois pesos, usa as arrobas realmente
+  // produzidas no período (cada ponta com o seu rendimento) — assim este
+  // número e o da simulação são sempre o mesmo. Sem os pesos, cai no cálculo
+  // direto pelo GMD e pelo rendimento geral.
+  const { rendCompra, rendVenda } = rendimentosDe(p, rend);
+  let arrobaDia = null;
+  if (Number.isFinite(p.gmd) && p.gmd > 0) {
+    const pc = p.pesoCompra, pv = p.pesoVenda;
+    if (Number.isFinite(pc) && pc > 0 && Number.isFinite(pv) && pv > pc) {
+      arrobaDia = (arrobasDe(pv, rendVenda) - arrobasDe(pc, rendCompra)) / ((pv - pc) / p.gmd);
+    } else {
+      arrobaDia = (p.gmd * rend / 100) / 15;
+    }
+  }
   return {
-    rend, salPct, pesoMedio, salKgDia, salDia, sanDia, moDia, terraDia, custoDia, arrobaDia,
-    custoArroba: arrobaDia && custoDia > 0 ? custoDia / arrobaDia : null
+    rend, rendCompra, rendVenda, salPct, pesoMedio, salKgDia, salDia, sanDia, moDia, terraDia,
+    custoDia, arrobaDia,
+    custoArroba: arrobaDia > 0 && custoDia > 0 ? custoDia / arrobaDia : null
   };
 }
 
 // Simulação da operação: compra o animal, engorda até o peso alvo pagando o
 // custo diário acima, e vende ao preço da arroba informado.
-const arrobasDe = (kg, rend) => kg * (rend / 100) / 15;
 function calcSimulacao(c) {
   const p = custoParams;
   const pc = p.pesoCompra, pv = p.pesoVenda;
   if (!Number.isFinite(pc) || pc <= 0 || !Number.isFinite(pv) || pv <= pc) return null;
   if (!Number.isFinite(p.gmd) || p.gmd <= 0) return null;
 
-  // Rendimentos próprios de cada ponta (o magro rende menos que o gordo).
-  // Em branco, cada um cai no rendimento geral dos parâmetros.
-  const rendValido = v => Number.isFinite(v) && v > 0 && v <= 100;
-  const rendCompra = rendValido(p.rendCompra) ? p.rendCompra : c.rend;
-  const rendVenda = rendValido(p.rendVenda) ? p.rendVenda : c.rend;
+  // Mesmos rendimentos usados no custo da arroba, para os dois baterem
+  const { rendCompra, rendVenda } = rendimentosDe(p, c.rend);
 
   const ganhoKg = pv - pc;
   const dias = ganhoKg / p.gmd;
@@ -415,17 +436,22 @@ function renderSimulacao(c) {
 function renderCustos() {
   const c = calcCusto();
   $('cst-arroba').textContent = c.custoArroba != null ? fmtRS(c.custoArroba) : '—';
+  const rendTxt = c.rendCompra === c.rendVenda
+    ? `rendimento ${fmtN(c.rendCompra, 1)}%`
+    : `rendimento ${fmtN(c.rendCompra, 1)}% na compra e ${fmtN(c.rendVenda, 1)}% na venda`;
   $('cst-hint').textContent = c.custoArroba != null
-    ? `por @ produzida · rendimento ${fmtN(c.rend, 0)}%`
-    : (c.arrobaDia == null ? 'Informe o GMD para calcular' : 'Informe ao menos um custo');
+    ? `por @ produzida · ${rendTxt}`
+    : (c.arrobaDia == null ? 'Informe o GMD para calcular'
+      : c.arrobaDia <= 0 ? 'O rendimento da compra está alto demais em relação ao da venda'
+      : 'Informe ao menos um custo');
 
   $('cst-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${c.pesoMedio != null ? fmtN(c.pesoMedio, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
     <div class="stat-card"><div class="stat-value">${c.salKgDia != null ? fmtN(c.salKgDia, 3) + ' kg' : '—'}</div><div class="stat-label">Sal por dia</div></div>
     <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia)}</div><div class="stat-label">Custo por dia</div></div>
     <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia * DIAS_MES)}</div><div class="stat-label">Custo por mês</div></div>
-    <div class="stat-card"><div class="stat-value">${c.arrobaDia ? fmtN(c.arrobaDia * DIAS_MES, 2) + ' @' : '—'}</div><div class="stat-label">Ganho por mês</div></div>
-    <div class="stat-card"><div class="stat-value">${c.arrobaDia ? fmtN(1 / c.arrobaDia, 0) : '—'}</div><div class="stat-label">Dias por @</div></div>`;
+    <div class="stat-card"><div class="stat-value">${c.arrobaDia > 0 ? fmtN(c.arrobaDia * DIAS_MES, 2) + ' @' : '—'}</div><div class="stat-label">Ganho por mês</div></div>
+    <div class="stat-card"><div class="stat-value">${c.arrobaDia > 0 ? fmtN(1 / c.arrobaDia, 0) : '—'}</div><div class="stat-label">Dias por @</div></div>`;
 
   const pc = custoParams.pesoCompra, pv = custoParams.pesoVenda;
   $('cst-sal-calc').textContent = c.pesoMedio == null
