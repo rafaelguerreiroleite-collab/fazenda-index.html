@@ -1,7 +1,22 @@
-const CACHE = 'fazendajs-v4';
+const CACHE = 'fazendajs-v5';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './logo.png', './icon-192.png', './icon-512.png'];
+// O SDK do Firebase precisa estar guardado desde a instalação: sem ele o app
+// abriria no curral sem conseguir gravar nada.
+const EXTERNOS = [
+  'https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js',
+  'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js'
+];
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil((async () => {
+    const c = await caches.open(CACHE);
+    await c.addAll(ASSETS);
+    // De outro domínio: melhor esforço, sem derrubar a instalação se falhar.
+    await Promise.all(EXTERNOS.map(u =>
+      fetch(new Request(u, { mode: 'no-cors' })).then(r => c.put(u, r)).catch(() => {})
+    ));
+    await self.skipWaiting();
+  })());
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));

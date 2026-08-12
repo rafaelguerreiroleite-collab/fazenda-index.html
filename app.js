@@ -54,9 +54,65 @@ let custoParams = Object.assign({}, CUSTO_VAZIO);
 let db = null, farm = null, unsubs = [];
 const COLS = { animals: a => animals = a, weighings: a => weighings = a, bovtrans: a => bovT = a, avtrans: a => avT = a, items: a => items = a, moves: a => moves = a };
 const colRef = name => db.collection('farms').doc(farm).collection(name);
-const upsert = (col, obj) => colRef(col).doc(obj.id).set(clean(obj)).catch(() => toast('Falha ao sincronizar — será reenviado'));
-const remove = (col, id) => colRef(col).doc(id).delete().catch(() => {});
-async function batchWrite(ops) { // ops: [{col, obj} | {col, del:id}]
+
+// ===== Funciona sem internet =====
+// Cópia local de tudo, gravada no próprio aparelho. É ela que garante que o
+// app abra com os dados no curral mesmo que a nuvem esteja fora de alcance —
+// inclusive quando o próprio SDK do Firebase não pôde ser carregado.
+const ESPELHO = 'fjs-espelho';
+let espelhoTimer = null;
+function salvarEspelho(agora) {
+  clearTimeout(espelhoTimer);
+  const gravar = () => LS.s(ESPELHO, { farm, animals, weighings, bovT, avT, items, moves, settings, custo: custoParams });
+  agora ? gravar() : (espelhoTimer = setTimeout(gravar, 600));
+}
+function carregarEspelho(codigo) {
+  const e = LS.g(ESPELHO, null);
+  if (!e || e.farm !== codigo) return false;
+  animals = e.animals || []; weighings = e.weighings || []; bovT = e.bovT || [];
+  avT = e.avT || []; items = e.items || []; moves = e.moves || [];
+  if (e.settings && Number.isFinite(e.settings.yield)) settings.yield = e.settings.yield;
+  if (e.custo) custoParams = Object.assign({}, CUSTO_VAZIO, e.custo);
+  return true;
+}
+
+// Escritas que não alcançaram a nuvem ficam nesta fila até conseguirem subir.
+let pendentes = LS.g('fjs-pendentes', []);
+const guardarFila = () => LS.s('fjs-pendentes', pendentes);
+function enfileirar(op) {
+  // uma escrita nova substitui a anterior do mesmo registro
+  pendentes = pendentes.filter(p => !(p.col === op.col && p.id === op.id));
+  pendentes.push(op);
+  guardarFila();
+  atualizarPendentes();
+}
+function atualizarPendentes() {
+  const d = $('sync-dot');
+  if (d) d.title = pendentes.length ? `${pendentes.length} registro(s) aguardando a internet` : 'Sincronização';
+}
+async function enviarPendentes() {
+  if (!db || !pendentes.length) return;
+  const fila = pendentes.slice();
+  try {
+    await escreverLote(fila.map(p => p.del ? { col: p.col, del: p.id } : { col: p.col, obj: p.obj }));
+    pendentes = pendentes.filter(p => !fila.some(f => f.col === p.col && f.id === p.id));
+    guardarFila(); atualizarPendentes();
+    toast(`${fila.length} registro(s) enviados para a nuvem`);
+  } catch (e) { /* segue na fila para a próxima tentativa */ }
+}
+
+// Nenhuma gravação pode derrubar a tela: sem nuvem, vai para a fila.
+function upsert(col, obj) {
+  salvarEspelho(true);   // ação do usuário: grava já, para nada se perder
+  if (!db) return enfileirar({ col, id: obj.id, obj: clean(obj) });
+  colRef(col).doc(obj.id).set(clean(obj)).catch(() => enfileirar({ col, id: obj.id, obj: clean(obj) }));
+}
+function remove(col, id) {
+  salvarEspelho(true);
+  if (!db) return enfileirar({ col, id, del: true });
+  colRef(col).doc(id).delete().catch(() => enfileirar({ col, id, del: true }));
+}
+async function escreverLote(ops) { // ops: [{col, obj} | {col, del:id}]
   for (let i = 0; i < ops.length; i += 400) {
     const b = db.batch();
     ops.slice(i, i + 400).forEach(op => {
@@ -64,6 +120,16 @@ async function batchWrite(ops) { // ops: [{col, obj} | {col, del:id}]
       op.del ? b.delete(ref) : b.set(ref, clean(op.obj));
     });
     await b.commit();
+  }
+}
+async function batchWrite(ops) {
+  salvarEspelho(true);
+  if (!db) { ops.forEach(op => enfileirar(op.del ? { col: op.col, id: op.del, del: true } : { col: op.col, id: op.obj.id, obj: clean(op.obj) })); return; }
+  try {
+    await escreverLote(ops);
+  } catch (e) {
+    ops.forEach(op => enfileirar(op.del ? { col: op.col, id: op.del, del: true } : { col: op.col, id: op.obj.id, obj: clean(op.obj) }));
+    throw e;
   }
 }
 
@@ -79,17 +145,25 @@ function parseConfig(text) {
 }
 
 function setSync(on) { const d = $('sync-dot'); d.classList.toggle('on', on); d.classList.toggle('off', !on); }
-window.addEventListener('online', () => setSync(true));
+window.addEventListener('online', () => { setSync(true); enviarPendentes(); });
 window.addEventListener('offline', () => setSync(false));
 
 function connect(cfg, farmCode) {
+  farm = farmCode;
+  if (typeof firebase === 'undefined') {
+    // Sem o SDK (primeira abertura sem sinal, por exemplo) o app segue local:
+    // tudo o que for feito agora fica na fila e sobe quando a internet voltar.
+    setSync(false);
+    toast('Sem conexão — trabalhando neste aparelho');
+    return;
+  }
   try { firebase.initializeApp(cfg); } catch (e) { /* já inicializado */ }
   db = firebase.firestore();
   db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
-  farm = farmCode;
-  firebase.auth().onAuthStateChanged(user => {
+  firebase.auth().onAuthStateChanged(async user => {
     if (!user) return;
     setSync(navigator.onLine);
+    await enviarPendentes();   // o que foi feito sem sinal sobe antes de tudo
     subscribe();
   });
   firebase.auth().signInAnonymously().catch(err => {
@@ -117,6 +191,7 @@ function subscribe() {
   Object.keys(COLS).forEach(name => {
     unsubs.push(colRef(name).onSnapshot(snap => {
       COLS[name](snap.docs.map(d => d.data()));
+      salvarEspelho();
       if (name === 'animals' && firstAnimalsSnap && !snap.metadata.fromCache) {
         firstAnimalsSnap = false;
         maybeOfferMigration();
@@ -127,6 +202,7 @@ function subscribe() {
   unsubs.push(db.collection('farms').doc(farm).onSnapshot(snap => {
     const d = snap.data() || {};
     settings.yield = Number.isFinite(d.yield) ? d.yield : 52;
+    salvarEspelho();
     // Não sobrescreve o que está sendo digitado neste instante
     const digitando = document.activeElement && document.activeElement.closest && document.activeElement.closest('.calc-form');
     if (!digitando) custoParams = Object.assign({}, CUSTO_VAZIO, d.custo || {});
@@ -1373,6 +1449,11 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
   render();
   const cfg = LS.g('fjs-fbconfig', null);
   const savedFarm = LS.g('fjs-farm', null);
-  if (cfg && savedFarm) { connect(cfg, savedFarm); }
+  if (cfg && savedFarm) {
+    farm = savedFarm;
+    if (carregarEspelho(savedFarm)) render();   // dados do aparelho já na tela
+    atualizarPendentes();
+    connect(cfg, savedFarm);
+  }
   else { $('setup-screen').hidden = false; }
 })();
