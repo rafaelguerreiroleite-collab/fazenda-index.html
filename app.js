@@ -914,8 +914,10 @@ $('restore-input').addEventListener('change', e => {
   e.target.value = '';
 });
 $('menu-clear').addEventListener('click', async () => {
-  if (!confirm('Apagar TODOS os dados da fazenda, em todos os aparelhos?')) return;
-  if (!confirm('Tem certeza? Essa ação não pode ser desfeita. Recomendado fazer backup antes.')) return;
+  if (!confirm('Apagar TODOS os dados da fazenda, em todos os aparelhos?\n\nRecomendado baixar um backup antes (menu → Backup completo).')) return;
+  const typed = prompt('Esta ação NÃO pode ser desfeita.\n\nPara confirmar, digite a palavra:\n\nAPAGAR');
+  if (typed == null) return;
+  if (typed.trim().toUpperCase() !== 'APAGAR') { toast('Confirmação incorreta — nada foi apagado'); return; }
   const ops = [
     ...animals.map(x => ({ col: 'animals', del: x.id })),
     ...weighings.map(x => ({ col: 'weighings', del: x.id })),
