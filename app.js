@@ -39,7 +39,7 @@ let animals = [], weighings = [], bovT = [], avT = [], items = [], moves = [];
 let settings = { yield: 52 };
 // Parâmetros da calculadora de custo da arroba (independentes das outras abas)
 const CUSTO_VAZIO = {
-  gmd: null, salConsumo: null, salPreco: null, sanidade: null, mo: null, terra: null, rend: null,
+  gmd: null, salPct: null, salPreco: null, sanidade: null, mo: null, terra: null, rend: null,
   pesoCompra: null, valorCompra: null, pesoVenda: null, precoArroba: null,
   rendCompra: null, rendVenda: null
 };
@@ -47,6 +47,7 @@ const CUSTO_REND_PADRAO = 52; // próprio desta aba — não usa o rendimento do
 // Mês médio real (365/12). Usar 30 fixos cobraria ~1,4% de custo a mais num
 // ciclo longo, porque o ano tem 12,17 meses de 30 dias.
 const DIAS_MES = 365 / 12;
+const SAL_PCT_PADRAO = 0.3; // consumo de sal como % do peso vivo por dia
 let custoParams = Object.assign({}, CUSTO_VAZIO);
 
 // ===== Firebase =====
@@ -312,14 +313,21 @@ function renderVendidas() {
 function calcCusto() {
   const p = custoParams;
   const rend = Number.isFinite(p.rend) && p.rend > 0 && p.rend <= 100 ? p.rend : CUSTO_REND_PADRAO;
-  const salDia = Number.isFinite(p.salConsumo) && Number.isFinite(p.salPreco) ? (p.salConsumo / 1000) * p.salPreco : 0;
+
+  // O animal come sal em proporção ao próprio peso, que muda ao longo da
+  // engorda — por isso o consumo sai do peso médio entre entrada e saída.
+  const pesos = [p.pesoCompra, p.pesoVenda].filter(x => Number.isFinite(x) && x > 0);
+  const pesoMedio = pesos.length ? pesos.reduce((a, b) => a + b, 0) / pesos.length : null;
+  const salPct = Number.isFinite(p.salPct) && p.salPct >= 0 ? p.salPct : SAL_PCT_PADRAO;
+  const salKgDia = pesoMedio != null ? pesoMedio * salPct / 100 : null;
+  const salDia = salKgDia != null && Number.isFinite(p.salPreco) ? salKgDia * p.salPreco : 0;
   const sanDia = Number.isFinite(p.sanidade) ? p.sanidade / DIAS_MES : 0;
   const moDia = Number.isFinite(p.mo) ? p.mo / DIAS_MES : 0;
   const terraDia = Number.isFinite(p.terra) ? p.terra / DIAS_MES : 0;
   const custoDia = salDia + sanDia + moDia + terraDia;
   const arrobaDia = Number.isFinite(p.gmd) && p.gmd > 0 ? (p.gmd * rend / 100) / 15 : null;
   return {
-    rend, salDia, sanDia, moDia, terraDia, custoDia, arrobaDia,
+    rend, salPct, pesoMedio, salKgDia, salDia, sanDia, moDia, terraDia, custoDia, arrobaDia,
     custoArroba: arrobaDia && custoDia > 0 ? custoDia / arrobaDia : null
   };
 }
@@ -412,13 +420,21 @@ function renderCustos() {
     : (c.arrobaDia == null ? 'Informe o GMD para calcular' : 'Informe ao menos um custo');
 
   $('cst-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${c.pesoMedio != null ? fmtN(c.pesoMedio, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
+    <div class="stat-card"><div class="stat-value">${c.salKgDia != null ? fmtN(c.salKgDia, 3) + ' kg' : '—'}</div><div class="stat-label">Sal por dia</div></div>
     <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia)}</div><div class="stat-label">Custo por dia</div></div>
     <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia * DIAS_MES)}</div><div class="stat-label">Custo por mês</div></div>
     <div class="stat-card"><div class="stat-value">${c.arrobaDia ? fmtN(c.arrobaDia * DIAS_MES, 2) + ' @' : '—'}</div><div class="stat-label">Ganho por mês</div></div>
     <div class="stat-card"><div class="stat-value">${c.arrobaDia ? fmtN(1 / c.arrobaDia, 0) : '—'}</div><div class="stat-label">Dias por @</div></div>`;
 
+  const pc = custoParams.pesoCompra, pv = custoParams.pesoVenda;
+  $('cst-sal-calc').textContent = c.pesoMedio == null
+    ? 'Informe os pesos de compra e venda na simulação abaixo para calcular o consumo.'
+    : `${fmtN(c.salPct, 2)}% de ${fmtN(c.pesoMedio, 0)} kg = ${fmtN(c.salKgDia, 3)} kg/dia`
+      + (Number.isFinite(pc) && Number.isFinite(pv) ? ` · média entre ${fmtN(pc, 0)} e ${fmtN(pv, 0)} kg` : ' · com um só peso informado');
+
   const partes = [
-    { nome: 'Sal', v: c.salDia },
+    { nome: c.salKgDia != null ? `Sal (${fmtN(c.salKgDia, 2)} kg/dia)` : 'Sal', v: c.salDia },
     { nome: 'Sanidade', v: c.sanDia },
     { nome: 'Mão de obra', v: c.moDia },
     { nome: 'Terra', v: c.terraDia }
@@ -438,7 +454,7 @@ function renderCustos() {
 }
 
 const CUSTO_CAMPOS = {
-  'cst-gmd': 'gmd', 'cst-sal-consumo': 'salConsumo', 'cst-sal-preco': 'salPreco',
+  'cst-gmd': 'gmd', 'cst-sal-pct': 'salPct', 'cst-sal-preco': 'salPreco',
   'cst-sanidade': 'sanidade', 'cst-mo': 'mo', 'cst-terra': 'terra', 'cst-rend': 'rend',
   'cst-peso-compra': 'pesoCompra', 'cst-valor-compra': 'valorCompra',
   'cst-peso-venda': 'pesoVenda', 'cst-preco-arroba': 'precoArroba',

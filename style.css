@@ -266,6 +266,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 }
 .calc-form input:focus { outline: none; border-color: #225437; }
 .calc-form .small { margin: 1rem 0 0; }
+.cf-nota { font-size: 0.66rem; color: #57534e; margin: 0.4rem 0 0; line-height: 1.4; }
 
 /* WEIGH MODE */
 .weigh-overlay {
