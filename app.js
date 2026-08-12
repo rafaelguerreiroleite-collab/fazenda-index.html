@@ -313,6 +313,7 @@ function calcSimulacao(c) {
 
   const ganhoKg = pv - pc;
   const dias = ganhoKg / p.gmd;
+  const meses = dias / 30;
   const custoPeriodo = c.custoDia * dias;
   const arrobasCompra = arrobasDe(pc, c.rend);
   const arrobasVenda = arrobasDe(pv, c.rend);
@@ -324,10 +325,13 @@ function calcSimulacao(c) {
   const receita = temPreco ? arrobasVenda * p.precoArroba : null;
   const resultado = investido != null && receita != null ? receita - investido : null;
 
+  const margem = resultado != null && investido > 0 ? resultado / investido * 100 : null;
   return {
-    ganhoKg, dias, custoPeriodo, arrobasCompra, arrobasVenda, arrobasProduzidas,
-    investido, receita, resultado,
-    margem: resultado != null && investido > 0 ? resultado / investido * 100 : null,
+    ganhoKg, dias, meses, custoPeriodo, arrobasCompra, arrobasVenda, arrobasProduzidas,
+    investido, receita, resultado, margem,
+    // Retorno ao mês: o retorno do período dividido pelos meses da operação
+    retornoMensal: margem != null && meses > 0 ? margem / meses : null,
+    lucroMensal: resultado != null && meses > 0 ? resultado / meses : null,
     precoArrobaCompra: temCompra && arrobasCompra > 0 ? p.valorCompra / arrobasCompra : null,
     custoArrobaProduzida: arrobasProduzidas > 0 ? custoPeriodo / arrobasProduzidas : null,
     lucroArrobaProduzida: resultado != null && arrobasProduzidas > 0 ? resultado / arrobasProduzidas : null,
@@ -350,7 +354,7 @@ function renderSimulacao(c) {
   if (s.resultado != null) {
     el.textContent = fmtRS(s.resultado);
     el.classList.add(s.resultado >= 0 ? 'positive' : 'negative');
-    hint.textContent = `${s.resultado >= 0 ? 'Compensa' : 'Não compensa'} · ${fmtN(s.margem, 1)}% sobre o investido · ${fmtN(s.dias, 0)} dias`;
+    hint.textContent = `${s.resultado >= 0 ? 'Compensa' : 'Não compensa'} · ${fmtN(s.margem, 1)}% no período · ${fmtN(s.retornoMensal, 2)}% ao mês · ${fmtN(s.dias, 0)} dias`;
   } else {
     el.textContent = '—';
     hint.textContent = 'Informe o valor pago e o preço da arroba na venda';
@@ -363,7 +367,9 @@ function renderSimulacao(c) {
     <div class="stat-card"><div class="stat-value">${s.precoArrobaCompra != null ? fmtRS(s.precoArrobaCompra) : '—'}</div><div class="stat-label">@ paga na compra</div></div>
     <div class="stat-card"><div class="stat-value">${s.custoArrobaProduzida != null ? fmtRS(s.custoArrobaProduzida) : '—'}</div><div class="stat-label">@ produzida custa</div></div>
     <div class="stat-card"><div class="stat-value ${s.lucroArrobaProduzida < 0 ? 'gmd-low' : ''}">${s.lucroArrobaProduzida != null ? fmtRS(s.lucroArrobaProduzida) : '—'}</div><div class="stat-label">Lucro por @ produzida</div></div>
-    <div class="stat-card"><div class="stat-value ${s.lucroArrobaVendida < 0 ? 'gmd-low' : ''}">${s.lucroArrobaVendida != null ? fmtRS(s.lucroArrobaVendida) : '—'}</div><div class="stat-label">Lucro por @ vendida</div></div>`;
+    <div class="stat-card"><div class="stat-value ${s.lucroArrobaVendida < 0 ? 'gmd-low' : ''}">${s.lucroArrobaVendida != null ? fmtRS(s.lucroArrobaVendida) : '—'}</div><div class="stat-label">Lucro por @ vendida</div></div>
+    <div class="stat-card"><div class="stat-value ${s.retornoMensal < 0 ? 'gmd-low' : ''}">${s.retornoMensal != null ? fmtN(s.retornoMensal, 2) + '%' : '—'}</div><div class="stat-label">Retorno ao mês</div></div>
+    <div class="stat-card"><div class="stat-value ${s.lucroMensal < 0 ? 'gmd-low' : ''}">${s.lucroMensal != null ? fmtRS(s.lucroMensal) : '—'}</div><div class="stat-label">Lucro por mês</div></div>`;
 }
 
 function renderCustos() {
