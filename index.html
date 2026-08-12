@@ -141,22 +141,22 @@
       <div class="cf-title mono">Parâmetros — por animal</div>
 
       <label class="mono" for="cst-gmd">GMD · ganho médio diário (kg/dia)</label>
-      <input type="number" inputmode="decimal" step="0.001" id="cst-gmd" placeholder="Ex: 0,850" />
+      <input type="number" inputmode="decimal" step="0.001" id="cst-gmd" min="0" placeholder="Ex: 0,850" />
 
       <label class="mono" for="cst-sal-consumo">Consumo de sal (g por animal/dia)</label>
-      <input type="number" inputmode="decimal" step="1" id="cst-sal-consumo" placeholder="Ex: 150" />
+      <input type="number" inputmode="decimal" step="1" id="cst-sal-consumo" min="0" placeholder="Ex: 150" />
 
       <label class="mono" for="cst-sal-preco">Preço do sal (R$ por kg)</label>
-      <input type="number" inputmode="decimal" step="0.01" id="cst-sal-preco" placeholder="Ex: 4,50" />
+      <input type="number" inputmode="decimal" step="0.01" id="cst-sal-preco" min="0" placeholder="Ex: 4,50" />
 
       <label class="mono" for="cst-sanidade">Sanidade (R$ por animal/mês)</label>
-      <input type="number" inputmode="decimal" step="0.01" id="cst-sanidade" placeholder="Ex: 5,00" />
+      <input type="number" inputmode="decimal" step="0.01" id="cst-sanidade" min="0" placeholder="Ex: 5,00" />
 
       <label class="mono" for="cst-mo">Mão de obra (R$ por animal/mês)</label>
-      <input type="number" inputmode="decimal" step="0.01" id="cst-mo" placeholder="Ex: 15,00" />
+      <input type="number" inputmode="decimal" step="0.01" id="cst-mo" min="0" placeholder="Ex: 15,00" />
 
       <label class="mono" for="cst-terra">Preço da terra (R$ por animal/mês)</label>
-      <input type="number" inputmode="decimal" step="0.01" id="cst-terra" placeholder="Ex: 30,00" />
+      <input type="number" inputmode="decimal" step="0.01" id="cst-terra" min="0" placeholder="Ex: 30,00" />
 
       <label class="mono" for="cst-rend">Rendimento de carcaça (%)</label>
       <input type="number" inputmode="numeric" step="1" min="40" max="65" id="cst-rend" placeholder="52" />
@@ -174,16 +174,16 @@
       <div class="cf-title mono">Simulação de compra e venda</div>
 
       <label class="mono" for="cst-peso-compra">Peso na compra (kg)</label>
-      <input type="number" inputmode="decimal" step="0.1" id="cst-peso-compra" placeholder="Ex: 220" />
+      <input type="number" inputmode="decimal" step="0.1" id="cst-peso-compra" min="0" placeholder="Ex: 220" />
 
       <label class="mono" for="cst-valor-compra">Valor pago no animal (R$)</label>
-      <input type="number" inputmode="decimal" step="0.01" id="cst-valor-compra" placeholder="Ex: 2500,00" />
+      <input type="number" inputmode="decimal" step="0.01" id="cst-valor-compra" min="0" placeholder="Ex: 2500,00" />
 
       <label class="mono" for="cst-peso-venda">Peso na venda (kg)</label>
-      <input type="number" inputmode="decimal" step="0.1" id="cst-peso-venda" placeholder="Ex: 480" />
+      <input type="number" inputmode="decimal" step="0.1" id="cst-peso-venda" min="0" placeholder="Ex: 480" />
 
       <label class="mono" for="cst-preco-arroba">Preço da arroba na venda (R$/@)</label>
-      <input type="number" inputmode="decimal" step="0.01" id="cst-preco-arroba" placeholder="Ex: 320,00" />
+      <input type="number" inputmode="decimal" step="0.01" id="cst-preco-arroba" min="0" placeholder="Ex: 320,00" />
 
       <p class="small">Usa o GMD, o rendimento e o custo diário dos parâmetros acima para estimar o período de engorda e o resultado da operação.</p>
     </div>

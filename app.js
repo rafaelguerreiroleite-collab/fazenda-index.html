@@ -25,6 +25,9 @@ const CUSTO_VAZIO = {
   pesoCompra: null, valorCompra: null, pesoVenda: null, precoArroba: null
 };
 const CUSTO_REND_PADRAO = 52; // próprio desta aba — não usa o rendimento do Rebanho
+// Mês médio real (365/12). Usar 30 fixos cobraria ~1,4% de custo a mais num
+// ciclo longo, porque o ano tem 12,17 meses de 30 dias.
+const DIAS_MES = 365 / 12;
 let custoParams = Object.assign({}, CUSTO_VAZIO);
 
 // ===== Firebase =====
@@ -289,11 +292,11 @@ function renderVendidas() {
 // pelo rendimento de carcaça.
 function calcCusto() {
   const p = custoParams;
-  const rend = Number.isFinite(p.rend) && p.rend > 0 ? p.rend : CUSTO_REND_PADRAO;
+  const rend = Number.isFinite(p.rend) && p.rend > 0 && p.rend <= 100 ? p.rend : CUSTO_REND_PADRAO;
   const salDia = Number.isFinite(p.salConsumo) && Number.isFinite(p.salPreco) ? (p.salConsumo / 1000) * p.salPreco : 0;
-  const sanDia = Number.isFinite(p.sanidade) ? p.sanidade / 30 : 0;
-  const moDia = Number.isFinite(p.mo) ? p.mo / 30 : 0;
-  const terraDia = Number.isFinite(p.terra) ? p.terra / 30 : 0;
+  const sanDia = Number.isFinite(p.sanidade) ? p.sanidade / DIAS_MES : 0;
+  const moDia = Number.isFinite(p.mo) ? p.mo / DIAS_MES : 0;
+  const terraDia = Number.isFinite(p.terra) ? p.terra / DIAS_MES : 0;
   const custoDia = salDia + sanDia + moDia + terraDia;
   const arrobaDia = Number.isFinite(p.gmd) && p.gmd > 0 ? (p.gmd * rend / 100) / 15 : null;
   return {
@@ -313,7 +316,7 @@ function calcSimulacao(c) {
 
   const ganhoKg = pv - pc;
   const dias = ganhoKg / p.gmd;
-  const meses = dias / 30;
+  const meses = dias / DIAS_MES;
   const custoPeriodo = c.custoDia * dias;
   const arrobasCompra = arrobasDe(pc, c.rend);
   const arrobasVenda = arrobasDe(pv, c.rend);
@@ -366,10 +369,10 @@ function renderSimulacao(c) {
     <div class="stat-card"><div class="stat-value">${s.receita != null ? fmtRS(s.receita) : '—'}</div><div class="stat-label">Receita da venda</div></div>
     <div class="stat-card"><div class="stat-value">${s.precoArrobaCompra != null ? fmtRS(s.precoArrobaCompra) : '—'}</div><div class="stat-label">@ paga na compra</div></div>
     <div class="stat-card"><div class="stat-value">${s.custoArrobaProduzida != null ? fmtRS(s.custoArrobaProduzida) : '—'}</div><div class="stat-label">@ produzida custa</div></div>
-    <div class="stat-card"><div class="stat-value ${s.lucroArrobaProduzida < 0 ? 'gmd-low' : ''}">${s.lucroArrobaProduzida != null ? fmtRS(s.lucroArrobaProduzida) : '—'}</div><div class="stat-label">Lucro por @ produzida</div></div>
-    <div class="stat-card"><div class="stat-value ${s.lucroArrobaVendida < 0 ? 'gmd-low' : ''}">${s.lucroArrobaVendida != null ? fmtRS(s.lucroArrobaVendida) : '—'}</div><div class="stat-label">Lucro por @ vendida</div></div>
-    <div class="stat-card"><div class="stat-value ${s.retornoMensal < 0 ? 'gmd-low' : ''}">${s.retornoMensal != null ? fmtN(s.retornoMensal, 2) + '%' : '—'}</div><div class="stat-label">Retorno ao mês</div></div>
-    <div class="stat-card"><div class="stat-value ${s.lucroMensal < 0 ? 'gmd-low' : ''}">${s.lucroMensal != null ? fmtRS(s.lucroMensal) : '—'}</div><div class="stat-label">Lucro por mês</div></div>`;
+    <div class="stat-card"><div class="stat-value ${s.lucroArrobaProduzida < 0 ? 'neg' : ''}">${s.lucroArrobaProduzida != null ? fmtRS(s.lucroArrobaProduzida) : '—'}</div><div class="stat-label">Lucro por @ produzida</div></div>
+    <div class="stat-card"><div class="stat-value ${s.lucroArrobaVendida < 0 ? 'neg' : ''}">${s.lucroArrobaVendida != null ? fmtRS(s.lucroArrobaVendida) : '—'}</div><div class="stat-label">Lucro por @ vendida</div></div>
+    <div class="stat-card"><div class="stat-value ${s.retornoMensal < 0 ? 'neg' : ''}">${s.retornoMensal != null ? fmtN(s.retornoMensal, 2) + '%' : '—'}</div><div class="stat-label">Retorno ao mês</div></div>
+    <div class="stat-card"><div class="stat-value ${s.lucroMensal < 0 ? 'neg' : ''}">${s.lucroMensal != null ? fmtRS(s.lucroMensal) : '—'}</div><div class="stat-label">Lucro por mês</div></div>`;
 }
 
 function renderCustos() {
@@ -381,8 +384,8 @@ function renderCustos() {
 
   $('cst-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia)}</div><div class="stat-label">Custo por dia</div></div>
-    <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia * 30)}</div><div class="stat-label">Custo por mês</div></div>
-    <div class="stat-card"><div class="stat-value">${c.arrobaDia ? fmtN(c.arrobaDia * 30, 2) + ' @' : '—'}</div><div class="stat-label">Ganho por mês</div></div>
+    <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia * DIAS_MES)}</div><div class="stat-label">Custo por mês</div></div>
+    <div class="stat-card"><div class="stat-value">${c.arrobaDia ? fmtN(c.arrobaDia * DIAS_MES, 2) + ' @' : '—'}</div><div class="stat-label">Ganho por mês</div></div>
     <div class="stat-card"><div class="stat-value">${c.arrobaDia ? fmtN(1 / c.arrobaDia, 0) : '—'}</div><div class="stat-label">Dias por @</div></div>`;
 
   const partes = [
@@ -430,7 +433,9 @@ function saveCustoParams() {
 Object.entries(CUSTO_CAMPOS).forEach(([id, key]) => {
   $(id).addEventListener('input', e => {
     const v = parseFloat(e.target.value);
-    custoParams[key] = Number.isFinite(v) ? v : null;
+    // Peso, custo, GMD e rendimento negativos não existem — entrariam na conta
+    // e produziriam um resultado falso.
+    custoParams[key] = Number.isFinite(v) && v >= 0 ? v : null;
     saveCustoParams();
     renderCustos();
   });
