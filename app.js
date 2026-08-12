@@ -20,7 +20,10 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = fals
 let animals = [], weighings = [], bovT = [], avT = [], items = [], moves = [];
 let settings = { yield: 52 };
 // Parâmetros da calculadora de custo da arroba (independentes das outras abas)
-const CUSTO_VAZIO = { gmd: null, salConsumo: null, salPreco: null, sanidade: null, mo: null, terra: null, rend: null };
+const CUSTO_VAZIO = {
+  gmd: null, salConsumo: null, salPreco: null, sanidade: null, mo: null, terra: null, rend: null,
+  pesoCompra: null, valorCompra: null, pesoVenda: null, precoArroba: null
+};
 const CUSTO_REND_PADRAO = 52; // próprio desta aba — não usa o rendimento do Rebanho
 let custoParams = Object.assign({}, CUSTO_VAZIO);
 
@@ -299,6 +302,66 @@ function calcCusto() {
   };
 }
 
+// Simulação da operação: compra o animal, engorda até o peso alvo pagando o
+// custo diário acima, e vende ao preço da arroba informado.
+const arrobasDe = (kg, rend) => kg * (rend / 100) / 15;
+function calcSimulacao(c) {
+  const p = custoParams;
+  const pc = p.pesoCompra, pv = p.pesoVenda;
+  if (!Number.isFinite(pc) || pc <= 0 || !Number.isFinite(pv) || pv <= pc) return null;
+  if (!Number.isFinite(p.gmd) || p.gmd <= 0) return null;
+
+  const ganhoKg = pv - pc;
+  const dias = ganhoKg / p.gmd;
+  const custoPeriodo = c.custoDia * dias;
+  const arrobasCompra = arrobasDe(pc, c.rend);
+  const arrobasVenda = arrobasDe(pv, c.rend);
+  const arrobasProduzidas = arrobasVenda - arrobasCompra;
+
+  const temCompra = Number.isFinite(p.valorCompra) && p.valorCompra >= 0;
+  const temPreco = Number.isFinite(p.precoArroba) && p.precoArroba > 0;
+  const investido = temCompra ? p.valorCompra + custoPeriodo : null;
+  const receita = temPreco ? arrobasVenda * p.precoArroba : null;
+  const resultado = investido != null && receita != null ? receita - investido : null;
+
+  return {
+    ganhoKg, dias, custoPeriodo, arrobasCompra, arrobasVenda, arrobasProduzidas,
+    investido, receita, resultado,
+    margem: resultado != null && investido > 0 ? resultado / investido * 100 : null,
+    precoArrobaCompra: temCompra && arrobasCompra > 0 ? p.valorCompra / arrobasCompra : null,
+    custoArrobaProduzida: arrobasProduzidas > 0 ? custoPeriodo / arrobasProduzidas : null
+  };
+}
+
+function renderSimulacao(c) {
+  const s = calcSimulacao(c);
+  const el = $('sim-valor'), hint = $('sim-hint');
+  el.classList.remove('positive', 'negative');
+  if (!s) {
+    el.textContent = '—';
+    hint.textContent = !Number.isFinite(custoParams.gmd) || custoParams.gmd <= 0
+      ? 'Informe o GMD nos parâmetros acima'
+      : 'Informe peso de compra e peso de venda (maior que o de compra)';
+    $('sim-stats').innerHTML = '';
+    return;
+  }
+  if (s.resultado != null) {
+    el.textContent = fmtRS(s.resultado);
+    el.classList.add(s.resultado >= 0 ? 'positive' : 'negative');
+    hint.textContent = `${s.resultado >= 0 ? 'Compensa' : 'Não compensa'} · ${fmtN(s.margem, 1)}% sobre o investido · ${fmtN(s.dias, 0)} dias`;
+  } else {
+    el.textContent = '—';
+    hint.textContent = 'Informe o valor pago e o preço da arroba na venda';
+  }
+  $('sim-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${fmtN(s.dias, 0)}</div><div class="stat-label">Dias de engorda</div></div>
+    <div class="stat-card"><div class="stat-value">${fmtN(s.arrobasProduzidas, 2)} @</div><div class="stat-label">Arrobas produzidas</div></div>
+    <div class="stat-card"><div class="stat-value">${s.investido != null ? fmtRS(s.investido) : '—'}</div><div class="stat-label">Total investido</div></div>
+    <div class="stat-card"><div class="stat-value">${s.receita != null ? fmtRS(s.receita) : '—'}</div><div class="stat-label">Receita da venda</div></div>
+    <div class="stat-card"><div class="stat-value">${s.precoArrobaCompra != null ? fmtRS(s.precoArrobaCompra) : '—'}</div><div class="stat-label">@ paga na compra</div></div>
+    <div class="stat-card"><div class="stat-value">${s.custoArrobaProduzida != null ? fmtRS(s.custoArrobaProduzida) : '—'}</div><div class="stat-label">@ produzida custa</div></div>`;
+}
+
 function renderCustos() {
   const c = calcCusto();
   $('cst-arroba').textContent = c.custoArroba != null ? fmtRS(c.custoArroba) : '—';
@@ -328,10 +391,16 @@ function renderCustos() {
         <div class="cb-bar"><div class="cb-fill saida" style="width:${Math.max(4, x.v / maxV * 100)}%"></div></div>
       </div>`).join('');
   }
+  renderSimulacao(c);
   fillCustoInputs();
 }
 
-const CUSTO_CAMPOS = { 'cst-gmd': 'gmd', 'cst-sal-consumo': 'salConsumo', 'cst-sal-preco': 'salPreco', 'cst-sanidade': 'sanidade', 'cst-mo': 'mo', 'cst-terra': 'terra', 'cst-rend': 'rend' };
+const CUSTO_CAMPOS = {
+  'cst-gmd': 'gmd', 'cst-sal-consumo': 'salConsumo', 'cst-sal-preco': 'salPreco',
+  'cst-sanidade': 'sanidade', 'cst-mo': 'mo', 'cst-terra': 'terra', 'cst-rend': 'rend',
+  'cst-peso-compra': 'pesoCompra', 'cst-valor-compra': 'valorCompra',
+  'cst-peso-venda': 'pesoVenda', 'cst-preco-arroba': 'precoArroba'
+};
 function fillCustoInputs() {
   Object.entries(CUSTO_CAMPOS).forEach(([id, key]) => {
     const el = $(id);
