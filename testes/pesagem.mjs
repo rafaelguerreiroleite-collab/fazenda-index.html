@@ -156,6 +156,57 @@ export default async function () {
     eq(await pagina.evaluate(() => gmdTotal(wOf(animals.find(a => a.ident === '292').id))), (405 - 300) / daysEntre()), '');
   function daysEntre() { return 75; } // 01/06 → 15/08
 
+  // ---------- prévia do GMD antes de salvar ----------
+  t.secao('prévia do GMD com o animal na balança');
+  await pagina.evaluate(() => {
+    animals = [{ id: 'p1', ident: 'P1' }, { id: 'p2', ident: 'P2' }, { id: 'p3', ident: 'P3' }];
+    weighings = [{ id: 'pw1', animalId: 'p1', date: '2026-06-01', weight: 300 },
+                 { id: 'pw2', animalId: 'p2', date: '2026-06-01', weight: 330 },
+                 { id: 'pw3', animalId: 'p3', date: '2026-06-01', weight: 350 }];
+    settings.yield = 52; render(); openWeighMode();
+  });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');
+  const previa = async (brinco, peso) => {
+    await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', brinco);
+    await pagina.fill('#wm-peso', ''); await pagina.type('#wm-peso', peso);
+    await pagina.waitForTimeout(100);
+    return pagina.evaluate(() => {
+      const el = $('wm-previa'), g = el.querySelector('.wp-gmd');
+      return { visivel: !el.hidden, texto: el.textContent.replace(/\s+/g, ' ').trim(),
+        classe: g ? g.className : '', cor: g ? getComputedStyle(g).color : '' };
+    });
+  };
+  let pv = await previa('P1', '415');
+  t.conferir('GMD aparece antes de salvar', pv.visivel && /1,597/.test(pv.texto), pv.texto.slice(0, 46));
+  t.conferir('mostra ganho e dias', /\+115 kg em 72 dias/.test(pv.texto));
+  t.conferir('mostra peso anterior e data', /anterior 300 kg em 01\/06\/26/.test(pv.texto));
+  t.conferir('mostra o peso em arrobas', /14,4 @/.test(pv.texto));
+  t.conferir('GMD bom fica verde', pv.classe.includes('g-otimo') && pv.cor === 'rgb(110, 231, 183)', pv.cor);
+  t.conferir('nada foi gravado só por olhar a prévia', await pagina.evaluate(() => weighings.length) === 3);
+
+  pv = await previa('P2', '360');
+  t.conferir('GMD mediano fica âmbar', pv.classe.includes('g-medio') && /0,417/.test(pv.texto), pv.cor);
+  pv = await previa('P3', '365');
+  t.conferir('GMD baixo fica vermelho', pv.classe.includes('g-baixo') && /0,208/.test(pv.texto), pv.cor);
+  pv = await previa('NOVO9', '250');
+  t.conferir('brinco novo avisa em vez de mostrar GMD', /será cadastrado/.test(pv.texto) && !/kg\/dia/.test(pv.texto), pv.texto.slice(0, 40));
+
+  await pagina.fill('#wm-peso', '');
+  t.conferir('prévia some quando falta o peso', await pagina.evaluate(() => $('wm-previa').hidden));
+  await pagina.type('#wm-peso', '400'); await pagina.fill('#wm-ident', '');
+  t.conferir('prévia some quando falta o brinco', await pagina.evaluate(() => $('wm-previa').hidden));
+
+  // a prévia tem de bater com o GMD que fica gravado depois de salvar
+  await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', 'P1');
+  await pagina.fill('#wm-peso', ''); await pagina.type('#wm-peso', '415');
+  const daPrevia = await pagina.evaluate(() => parseNum($('wm-previa').querySelector('.wp-gmd').firstChild.textContent));
+  await pagina.click('#wm-save'); await pagina.waitForTimeout(100);
+  const gravado = await pagina.evaluate(() => gmdRecent(wOf(animals.find(a => a.ident === 'P1').id)));
+  t.conferir('prévia bate com o GMD gravado', Math.abs(daPrevia - gravado) < 0.0005, `prévia ${daPrevia} · gravado ${gravado.toFixed(3)}`);
+  t.conferir('prévia some depois de salvar', await pagina.evaluate(() => $('wm-previa').hidden));
+  await pagina.evaluate(() => { $('weigh-mode').hidden = true; render(); });
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;

@@ -1016,13 +1016,53 @@ function openWeighMode() {
   $('wm-jejum').checked = false;
   $('wm-ident').value = ''; $('wm-peso').value = '';
   $('wm-last').textContent = ''; $('wm-count').textContent = '';
+  $('wm-previa').hidden = true;
   refreshIdentList();
   $('weigh-mode').hidden = false;
   setTimeout(() => $('wm-ident').focus(), 100);
 }
+// Prévia do GMD com o animal ainda na balança: mostra como ele vem ganhando
+// antes de salvar, para a decisão ser tomada ali mesmo.
+const gmdFaixa = g => !Number.isFinite(g) ? '' : g < 0.4 ? 'g-baixo' : g < 0.8 ? 'g-medio' : g < 1.2 ? 'g-bom' : 'g-otimo';
+function atualizarPreviaPesagem() {
+  const el = $('wm-previa');
+  const ident = $('wm-ident').value.trim();
+  const peso = parseNum($('wm-peso').value);
+  const data = $('wm-date').value;
+  if (!ident || !Number.isFinite(peso) || peso <= 0 || !data) { el.hidden = true; return; }
+
+  const arrobas = peso * (settings.yield / 100) / 15;
+  const pesoTxt = `${fmtN(peso, peso % 1 ? 1 : 0)} kg · ${fmtN(arrobas, 1)} @`;
+  const animal = animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase());
+  // Mesma regra do salvamento: compara com a última pesagem anterior a esta data
+  const anterior = animal ? wOf(animal.id).filter(w => w.date < data).pop() : null;
+  const dias = anterior ? daysBetween(anterior.date, data) : 0;
+  const gmd = anterior && dias > 0 ? (peso - anterior.weight) / dias : null;
+
+  if (gmd === null) {
+    el.innerHTML = `
+      <div class="wp-topo">
+        <div class="wp-gmd">${esc(ident)}</div>
+        <div class="wp-lado">${pesoTxt}</div>
+      </div>
+      <p class="wp-nota">${animal ? 'Primeira pesagem deste animal — sem GMD ainda' : 'Brinco novo — o animal será cadastrado'}</p>`;
+  } else {
+    const ganho = peso - anterior.weight;
+    el.innerHTML = `
+      <div class="wp-topo">
+        <div class="wp-gmd ${gmdFaixa(gmd)}">${fmtN(gmd, 3)}<span class="un">kg/dia</span></div>
+        <div class="wp-lado">${pesoTxt}<br>${ganho >= 0 ? '+' : ''}${fmtN(ganho, ganho % 1 ? 1 : 0)} kg em ${dias} dias</div>
+      </div>
+      <p class="wp-nota">anterior ${fmtN(anterior.weight, anterior.weight % 1 ? 1 : 0)} kg em ${fmtBR(anterior.date)}</p>`;
+  }
+  el.hidden = false;
+}
+
 function refreshIdentList() {
   $('wm-idents').innerHTML = animals.filter(a => !a.sold).map(a => `<option value="${esc(a.ident)}"></option>`).join('');
 }
+['wm-ident', 'wm-peso'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
+$('wm-date').addEventListener('change', atualizarPreviaPesagem);
 $('btn-weigh-mode').addEventListener('click', openWeighMode);
 $('wm-close').addEventListener('click', () => { $('weigh-mode').hidden = true; render(); });
 $('wm-save').addEventListener('click', () => {
@@ -1050,6 +1090,7 @@ $('wm-save').addEventListener('click', () => {
   $('wm-last').textContent = `✓ ${a.ident} · ${fmtN(peso, 1)} kg` +
     (Number.isFinite(g) ? ` · GMD ${fmtN(g, 3)} (desde ${fmtBR(prev.date)})` : createdNew ? ' · novo animal' : replaced ? ' · atualizada' : ' · 1ª pesagem');
   $('wm-ident').value = ''; $('wm-peso').value = '';
+  $('wm-previa').hidden = true;
   $('wm-ident').focus();
 });
 
