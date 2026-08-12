@@ -33,19 +33,37 @@ export async function abrirApp(url, { locale = 'pt-BR' } = {}) {
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 900 }, locale });
   const pagina = await ctx.newPage();
   const errosJS = [];
-  pagina.on('pageerror', e => { if (!/firebase|collection/.test(e.message)) errosJS.push(e.message); });
+  pagina.on('pageerror', e => errosJS.push(e.message));
+
+  // O SDK real do Firebase é bloqueado e substituído por um dublê, para que o
+  // teste rode igual aqui e no servidor, sem depender de rede nem de chave.
+  await pagina.route('**/gstatic.com/firebasejs/**', r => r.abort());
   await pagina.addInitScript(() => {
     localStorage.setItem('fjs-fbconfig', JSON.stringify({ apiKey: 'x', projectId: 'p', authDomain: 'a', appId: '1' }));
     localStorage.setItem('fjs-farm', JSON.stringify('demo'));
+    const banco = { set: async () => {}, delete: async () => {}, onSnapshot: () => () => {},
+      enablePersistence: async () => {} };
+    banco.collection = () => banco; banco.doc = () => banco;
+    banco.batch = () => ({ set() {}, delete() {}, commit: async () => {} });
+    window.firebase = {
+      initializeApp() {},
+      firestore: () => banco,
+      // onAuthStateChanged não dispara de propósito: assim o app não assina os
+      // snapshots e os dados montados por cada teste permanecem intactos.
+      auth: () => ({ onAuthStateChanged() {}, signInAnonymously: async () => ({ user: { uid: 'teste' } }) })
+    };
   });
+
   await pagina.goto(url + '/index.html', { waitUntil: 'domcontentloaded' });
   await pagina.waitForFunction(() => typeof window.render === 'function', { timeout: 15000 });
-  await pagina.evaluate(() => {
-    const falso = { set: async () => {}, delete: async () => {} };
-    falso.collection = () => falso; falso.doc = () => falso;
-    falso.batch = () => ({ set() {}, delete() {}, commit: async () => {} });
-    db = falso;
-  });
+  await pagina.waitForTimeout(150);
+
+  // Se a tela de configuração ficar por cima, os cliques falham por tempo
+  // esgotado e a causa some no meio do erro — melhor acusar aqui.
+  if (!await pagina.evaluate(() => document.getElementById('setup-screen').hidden)) {
+    const motivo = await pagina.evaluate(() => document.getElementById('su-error').textContent);
+    throw new Error('A tela de configuração apareceu e bloquearia os cliques: ' + (motivo || 'sem motivo informado'));
+  }
   return { navegador, pagina, errosJS };
 }
 
