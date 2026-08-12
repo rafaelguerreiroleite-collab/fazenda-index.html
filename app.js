@@ -22,7 +22,8 @@ let settings = { yield: 52 };
 // Parâmetros da calculadora de custo da arroba (independentes das outras abas)
 const CUSTO_VAZIO = {
   gmd: null, salConsumo: null, salPreco: null, sanidade: null, mo: null, terra: null, rend: null,
-  pesoCompra: null, valorCompra: null, pesoVenda: null, precoArroba: null
+  pesoCompra: null, valorCompra: null, pesoVenda: null, precoArroba: null,
+  rendCompra: null, rendVenda: null
 };
 const CUSTO_REND_PADRAO = 52; // próprio desta aba — não usa o rendimento do Rebanho
 // Mês médio real (365/12). Usar 30 fixos cobraria ~1,4% de custo a mais num
@@ -314,12 +315,18 @@ function calcSimulacao(c) {
   if (!Number.isFinite(pc) || pc <= 0 || !Number.isFinite(pv) || pv <= pc) return null;
   if (!Number.isFinite(p.gmd) || p.gmd <= 0) return null;
 
+  // Rendimentos próprios de cada ponta (o magro rende menos que o gordo).
+  // Em branco, cada um cai no rendimento geral dos parâmetros.
+  const rendValido = v => Number.isFinite(v) && v > 0 && v <= 100;
+  const rendCompra = rendValido(p.rendCompra) ? p.rendCompra : c.rend;
+  const rendVenda = rendValido(p.rendVenda) ? p.rendVenda : c.rend;
+
   const ganhoKg = pv - pc;
   const dias = ganhoKg / p.gmd;
   const meses = dias / DIAS_MES;
   const custoPeriodo = c.custoDia * dias;
-  const arrobasCompra = arrobasDe(pc, c.rend);
-  const arrobasVenda = arrobasDe(pv, c.rend);
+  const arrobasCompra = arrobasDe(pc, rendCompra);
+  const arrobasVenda = arrobasDe(pv, rendVenda);
   const arrobasProduzidas = arrobasVenda - arrobasCompra;
 
   const temCompra = Number.isFinite(p.valorCompra) && p.valorCompra >= 0;
@@ -331,7 +338,9 @@ function calcSimulacao(c) {
   const margem = resultado != null && investido > 0 ? resultado / investido * 100 : null;
   return {
     ganhoKg, dias, meses, custoPeriodo, arrobasCompra, arrobasVenda, arrobasProduzidas,
-    investido, receita, resultado, margem,
+    rendCompra, rendVenda, investido, receita, resultado, margem,
+    valorKgCompra: temCompra && pc > 0 ? p.valorCompra / pc : null,
+    valorKgVenda: receita != null && pv > 0 ? receita / pv : null,
     // Retorno ao mês: o retorno do período dividido pelos meses da operação
     retornoMensal: margem != null && meses > 0 ? margem / meses : null,
     lucroMensal: resultado != null && meses > 0 ? resultado / meses : null,
@@ -367,6 +376,8 @@ function renderSimulacao(c) {
     <div class="stat-card"><div class="stat-value">${fmtN(s.arrobasProduzidas, 2)} @</div><div class="stat-label">Arrobas produzidas</div></div>
     <div class="stat-card"><div class="stat-value">${s.investido != null ? fmtRS(s.investido) : '—'}</div><div class="stat-label">Total investido</div></div>
     <div class="stat-card"><div class="stat-value">${s.receita != null ? fmtRS(s.receita) : '—'}</div><div class="stat-label">Receita da venda</div></div>
+    <div class="stat-card"><div class="stat-value">${s.valorKgCompra != null ? fmtRS(s.valorKgCompra) : '—'}</div><div class="stat-label">Kg na compra</div></div>
+    <div class="stat-card"><div class="stat-value">${s.valorKgVenda != null ? fmtRS(s.valorKgVenda) : '—'}</div><div class="stat-label">Kg na venda</div></div>
     <div class="stat-card"><div class="stat-value">${s.precoArrobaCompra != null ? fmtRS(s.precoArrobaCompra) : '—'}</div><div class="stat-label">@ paga na compra</div></div>
     <div class="stat-card"><div class="stat-value">${s.custoArrobaProduzida != null ? fmtRS(s.custoArrobaProduzida) : '—'}</div><div class="stat-label">@ produzida custa</div></div>
     <div class="stat-card"><div class="stat-value ${s.lucroArrobaProduzida < 0 ? 'neg' : ''}">${s.lucroArrobaProduzida != null ? fmtRS(s.lucroArrobaProduzida) : '—'}</div><div class="stat-label">Lucro por @ produzida</div></div>
@@ -412,7 +423,8 @@ const CUSTO_CAMPOS = {
   'cst-gmd': 'gmd', 'cst-sal-consumo': 'salConsumo', 'cst-sal-preco': 'salPreco',
   'cst-sanidade': 'sanidade', 'cst-mo': 'mo', 'cst-terra': 'terra', 'cst-rend': 'rend',
   'cst-peso-compra': 'pesoCompra', 'cst-valor-compra': 'valorCompra',
-  'cst-peso-venda': 'pesoVenda', 'cst-preco-arroba': 'precoArroba'
+  'cst-peso-venda': 'pesoVenda', 'cst-preco-arroba': 'precoArroba',
+  'cst-rend-compra': 'rendCompra', 'cst-rend-venda': 'rendVenda'
 };
 function fillCustoInputs() {
   Object.entries(CUSTO_CAMPOS).forEach(([id, key]) => {

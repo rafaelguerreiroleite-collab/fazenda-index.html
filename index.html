@@ -179,13 +179,19 @@
       <label class="mono" for="cst-valor-compra">Valor pago no animal (R$)</label>
       <input type="number" inputmode="decimal" step="0.01" id="cst-valor-compra" min="0" placeholder="Ex: 2500,00" />
 
+      <label class="mono" for="cst-rend-compra">Rendimento de carcaça na compra (%)</label>
+      <input type="number" inputmode="decimal" step="0.1" id="cst-rend-compra" min="0" max="100" placeholder="Ex: 50" />
+
       <label class="mono" for="cst-peso-venda">Peso na venda (kg)</label>
       <input type="number" inputmode="decimal" step="0.1" id="cst-peso-venda" min="0" placeholder="Ex: 480" />
 
       <label class="mono" for="cst-preco-arroba">Preço da arroba na venda (R$/@)</label>
       <input type="number" inputmode="decimal" step="0.01" id="cst-preco-arroba" min="0" placeholder="Ex: 320,00" />
 
-      <p class="small">Usa o GMD, o rendimento e o custo diário dos parâmetros acima para estimar o período de engorda e o resultado da operação.</p>
+      <label class="mono" for="cst-rend-venda">Rendimento de carcaça na venda (%)</label>
+      <input type="number" inputmode="decimal" step="0.1" id="cst-rend-venda" min="0" max="100" placeholder="Ex: 54" />
+
+      <p class="small">Os dois rendimentos são opcionais — em branco, usam o rendimento dos parâmetros acima. O magro costuma render menos que o gordo, então informar os dois deixa a conta mais fiel. O período de engorda vem do GMD e o custo do dia vem dos parâmetros.</p>
     </div>
   </div>
 
