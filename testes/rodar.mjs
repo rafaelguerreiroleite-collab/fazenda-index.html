@@ -2,8 +2,9 @@
 // que a publicação seja bloqueada quando um teste quebrar.
 import calculos from './calculos.mjs';
 import app from './app.mjs';
+import pesagem from './pesagem.mjs';
 
-const baterias = [['Cálculos', calculos], ['Aplicativo', app]];
+const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem]];
 let total = 0;
 
 for (const [nome, rodar] of baterias) {
