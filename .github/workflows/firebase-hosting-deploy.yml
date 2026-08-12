@@ -5,10 +5,31 @@ on:
     branches:
       - main
       - claude/firestore-farms-security-rules-n8hl6v
+  pull_request:
   workflow_dispatch:
 
 jobs:
+  # Nada é publicado sem passar aqui: as contas são conferidas contra uma
+  # implementação independente e o app é exercitado num navegador de verdade.
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Instalar navegador de teste
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Rodar a bateria de testes
+        run: node testes/rodar.mjs
+        env:
+          CENARIOS: '20000'
+
   deploy:
+    needs: testes
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

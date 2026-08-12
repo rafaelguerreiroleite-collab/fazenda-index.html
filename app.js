@@ -93,7 +93,16 @@ function connect(cfg, farmCode) {
     subscribe();
   });
   firebase.auth().signInAnonymously().catch(err => {
-    const msg = err && err.code === 'auth/operation-not-allowed'
+    const code = err && err.code;
+    // Falta de sinal não pode devolver o usuário à tela de configuração: sem o
+    // código da fazenda em mãos ele ficaria trancado fora dos próprios dados.
+    // O app segue com o cache local e sincroniza quando a internet voltar.
+    if (code === 'auth/network-request-failed' || !navigator.onLine) {
+      setSync(false);
+      toast('Sem conexão — usando os dados salvos neste aparelho');
+      return;
+    }
+    const msg = code === 'auth/operation-not-allowed'
       ? 'Login Anônimo não está ativado no Firebase.\nNo console: Authentication → Sign-in method → Anônimo → Ativar.'
       : 'Erro de conexão: ' + (err && err.message || err);
     const el = $('su-error');
@@ -176,6 +185,12 @@ const classOf = (cat, type) => CLASSIF[cat] || (type === 'entrada' ? 'Receita' :
 // Avisa, sem bloquear: duplicatas legítimas existem (dois abastecimentos no
 // mesmo dia, pelo mesmo valor). Quem decide é quem está lançando.
 const sameMoney = (a, b) => Math.abs(a - b) < 0.005;
+// O registro pode ter sido apagado em outro aparelho enquanto este o editava
+function sumiu(frase) {
+  toast(`${frase} em outro aparelho`);
+  closeAllM(); render();
+  return true;
+}
 function askDuplicate(detalhe) {
   return confirm(`⚠️ POSSÍVEL DUPLICIDADE\n\n${detalhe}\n\nLançar mesmo assim?`);
 }
@@ -734,6 +749,7 @@ $('form-animal').addEventListener('submit', e => {
   let a, isNew = false;
   if (id) {
     a = animals.find(x => x.id === id);
+    if (!a) return sumiu('Este animal foi removido');
     Object.assign(a, data);
   } else {
     a = Object.assign({ id: uid() }, data);
@@ -762,7 +778,7 @@ $('btn-delete-animal').addEventListener('click', () => {
     { col: 'animals', del: id },
     ...ws.map(w => ({ col: 'weighings', del: w.id })),
     ...(linkTrans ? [{ col: 'bovtrans', del: linkTrans }] : [])
-  ]);
+  ]).catch(() => toast('Falha ao remover na nuvem — verifique a conexão'));
   closeAllM(); render(); toast('Animal excluído');
 });
 
@@ -791,7 +807,11 @@ $('form-weighing').addEventListener('submit', e => {
   }
   const data = { animalId, date, weight, jejum: $('w-jejum').checked, notes: $('w-notes').value.trim() };
   let w;
-  if (id) { w = weighings.find(x => x.id === id); Object.assign(w, data); }
+  if (id) {
+    w = weighings.find(x => x.id === id);
+    if (!w) return sumiu('Esta pesagem foi removida');
+    Object.assign(w, data);
+  }
   else { w = Object.assign({ id: uid() }, data); weighings.push(w); }
   upsert('weighings', w);
   closeAllM(); render(); toast('Pesagem salva');
@@ -845,7 +865,11 @@ $('form-transaction').addEventListener('submit', e => {
     if (!askDuplicate(`Já existe uma ${tipo} de ${fmtRS(dup.amount)} em ${fmtBRfull(dup.date)}${dup.category ? `\nCategoria: ${dup.category}` : ''}${dup.notes ? `\nDescrição: ${dup.notes}` : ''}${origem}`)) return;
   }
   let t;
-  if (id) { t = arr.find(x => x.id === id); Object.assign(t, data); }
+  if (id) {
+    t = arr.find(x => x.id === id);
+    if (!t) return sumiu('Este lançamento foi removido');
+    Object.assign(t, data);
+  }
   else { t = Object.assign({ id: uid() }, data); arr.push(t); }
   upsert(col, t);
   closeAllM(); render(); toast('Lançamento salvo');
@@ -880,7 +904,11 @@ $('form-item').addEventListener('submit', e => {
   if (!name) return;
   const data = { name, unit: $('i-unit').value, minQty: parseNum($('i-min').value) || null, carencia: Math.round(parseNum($('i-carencia').value)) || null, notes: $('i-notes').value.trim() };
   let it;
-  if (id) { it = items.find(x => x.id === id); Object.assign(it, data); }
+  if (id) {
+    it = items.find(x => x.id === id);
+    if (!it) return sumiu('Este item foi removido');
+    Object.assign(it, data);
+  }
   else { it = Object.assign({ id: uid() }, data); items.push(it); }
   upsert('items', it);
   closeAllM(); render(); toast('Item salvo');
@@ -898,7 +926,7 @@ $('btn-delete-item').addEventListener('click', () => {
     { col: 'items', del: id },
     ...mv.map(m => ({ col: 'moves', del: m.id })),
     ...linked.map(t => ({ col: 'bovtrans', del: t }))
-  ]);
+  ]).catch(() => toast('Falha ao remover na nuvem — verifique a conexão'));
   closeAllM(); render(); toast('Item excluído');
 });
 
@@ -939,7 +967,11 @@ $('form-move').addEventListener('submit', e => {
     if (!askDuplicate(`Já existe uma ${tipo} de ${fmtN(dupMv.qty, dupMv.qty % 1 ? 2 : 0)} ${it.unit} de ${it.name} em ${fmtBRfull(dupMv.date)}${dupMv.notes ? `\nObs.: ${dupMv.notes}` : ''}`)) return;
   }
   let mv;
-  if (id) { mv = moves.find(x => x.id === id); Object.assign(mv, { type, date, qty, notes: $('m-notes').value.trim() }); }
+  if (id) {
+    mv = moves.find(x => x.id === id);
+    if (!mv) return sumiu('Esta movimentação foi removida');
+    Object.assign(mv, { type, date, qty, notes: $('m-notes').value.trim() });
+  }
   else { mv = { id: uid(), itemId, type, date, qty, notes: $('m-notes').value.trim() }; moves.push(mv); }
   if (type === 'entrada') {
     mv.unitCost = Number.isFinite(unitCost) && unitCost > 0 ? unitCost : null;
@@ -1092,6 +1124,13 @@ $('btn-confirm-import').addEventListener('click', async () => {
 });
 
 // ===== Exportações =====
+// Campo de CSV: aspas quando houver separador, aspas ou quebra de linha —
+// sem isso, um brinco com ";" ou uma observação com quebra de linha desalinha
+// as colunas e corrompe a planilha inteira.
+function csv(v) {
+  const t = String(v == null ? '' : v);
+  return /[;"\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+}
 function download(name, content, mime) {
   const blob = new Blob(['\ufeff' + content], { type: (mime || 'text/plain') + ';charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -1104,7 +1143,7 @@ $('menu-exp-pes').addEventListener('click', () => {
   const rows = ['identificacao;data;peso_kg;jejum;observacoes'];
   weighings.slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(w => {
     const a = animals.find(x => x.id === w.animalId);
-    rows.push(`${a ? a.ident : '?'};${fmtBRfull(w.date)};${String(w.weight).replace('.', ',')};${w.jejum ? 'sim' : 'nao'};${(w.notes || '').replace(/;/g, ',')}`);
+    rows.push([csv(a ? a.ident : '?'), fmtBRfull(w.date), String(w.weight).replace('.', ','), w.jejum ? 'sim' : 'nao', csv(w.notes)].join(';'));
   });
   download('pesagens-fazendajs.csv', rows.join('\n'), 'text/csv');
   closeAllM(); toast('CSV de pesagens exportado');
@@ -1115,8 +1154,8 @@ function exportFin(book) {
   list.slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(t => {
     const val = fmtN(t.amount, 2);
     const cat = t.category || ''; const cls = classOf(cat, t.type);
-    if (book === 'av') rows.push([fmtBRfull(t.date), t.type, val, t.aviary || '', cat, cls, (t.notes || '').replace(/;/g, ',')].join(';'));
-    else rows.push([fmtBRfull(t.date), t.type, val, cat, cls, (t.notes || '').replace(/;/g, ',')].join(';'));
+    if (book === 'av') rows.push([fmtBRfull(t.date), t.type, val, csv(t.aviary || ''), csv(cat), cls, csv(t.notes)].join(';'));
+    else rows.push([fmtBRfull(t.date), t.type, val, csv(cat), cls, csv(t.notes)].join(';'));
   });
   download(`financeiro-${book === 'av' ? 'aviarios' : 'bovinos'}-fazendajs.csv`, rows.join('\n'), 'text/csv');
   closeAllM(); toast('CSV financeiro exportado');
@@ -1222,6 +1261,8 @@ $('btn-move-out').addEventListener('click', () => openMove(detailItem, 'saida'))
 $('bfin-period').addEventListener('change', render);
 $('av-period').addEventListener('change', render);
 $('av-aviary').addEventListener('change', render);
+// valor guardado pode estar desatualizado por uma versão antiga do app
+if (![...$('bov-sort').options].some(o => o.value === bovSort)) bovSort = 'ident-asc';
 $('bov-sort').value = bovSort;
 $('bov-sort').addEventListener('change', e => { bovSort = e.target.value; LS.s('fjs-sort-rebanho', bovSort); render(); });
 

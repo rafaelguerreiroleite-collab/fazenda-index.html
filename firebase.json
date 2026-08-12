@@ -7,6 +7,9 @@
       "README.md",
       ".git/**",
       ".github/**",
+      "testes/**",
+      "node_modules/**",
+      "package*.json",
       "**/.*"
     ],
     "headers": [
