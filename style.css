@@ -413,3 +413,6 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .lm-dia .n { margin-left: auto; text-align: right; font-size: 0.7rem; color: #57534e; }
 .lm-dia .origem { display: block; font-size: 0.62rem; color: #b45309; margin-top: 0.15rem; }
 .lm-dia:has(input:checked) { border-color: #225437; background: #f0f7f3; }
+/* Data da última pesagem na lista do rebanho: mostra de relance quem passou
+   pela balança no dia e quem não passou, sem precisar abrir a ficha. */
+.item-quando { font-size: 0.66rem; color: #78716c; margin-top: 0.1rem; }

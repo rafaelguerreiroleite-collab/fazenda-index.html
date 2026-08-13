@@ -392,6 +392,18 @@ function renderRebanho() {
       if (wb == null) return -1;
       return bovSort === 'peso-desc' ? wb - wa : wa - wb;
     }
+    // Por data da última pesagem: agrupa de um lado quem passou pela balança no
+    // dia e do outro quem não passou — é assim que se enxerga o que sobrou de
+    // um lote vendido sem precisar apagar nada para descobrir.
+    if (bovSort === 'data-desc' || bovSort === 'data-asc') {
+      const ua = wOf(a.id), ub = wOf(b.id);
+      const da = ua.length ? ua[ua.length - 1].date : null, dbb = ub.length ? ub[ub.length - 1].date : null;
+      if (da == null && dbb == null) return byIdent(a, b);
+      if (da == null) return 1; // nunca pesado vai para o fim
+      if (dbb == null) return -1;
+      if (da === dbb) return byIdent(a, b);
+      return bovSort === 'data-desc' ? dbb.localeCompare(da) : da.localeCompare(dbb);
+    }
     return bovSort === 'ident-desc' ? byIdent(b, a) : byIdent(a, b);
   });
   $('animal-list').innerHTML = sorted.map(a => {
@@ -400,6 +412,7 @@ function renderRebanho() {
       <div class="item-main">
         <div class="item-title">${esc(a.ident)}</div>
         <div class="item-subtitle">${esc(a.cat || 'Sem categoria')} · ${ws.length} pesag.${a.manejoData ? ' · manejo ' + fmtBR(a.manejoData) : ''}</div>
+        <div class="item-quando mono">${last ? 'última ' + fmtBR(last.date) : 'nunca pesado'}</div>
       </div>
       <div class="item-side">
         <div class="value">${last ? fmtN(last.weight, 0) + ' kg' : '—'}</div>

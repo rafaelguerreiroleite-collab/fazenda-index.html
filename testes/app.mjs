@@ -100,6 +100,22 @@ export default async function () {
   t.conferir('mais pesado primeiro, sem pesagem por último', await ordem('peso-desc') === '9,292,300,295');
   t.conferir('mais leve primeiro, sem pesagem por último', await ordem('peso-asc') === '300,292,9,295');
 
+  // Ordem por data da última pesagem: é como se enxerga quem ficou de fora do
+  // dia de pesagem sem apagar nada para descobrir.
+  await pagina.evaluate(() => {
+    weighings = [{ id: 'd1', animalId: 'a1', date: '2026-08-13', weight: 227 },
+                 { id: 'd2', animalId: 'a2', date: '2026-06-18', weight: 181 },
+                 { id: 'd3', animalId: 'a3', date: '2026-08-13', weight: 350 }];
+    render();
+  });
+  t.conferir('pesado mais recentemente primeiro, nunca pesado por último',
+    await ordem('data-desc') === '9,292,300,295', await ordem('data-desc'));
+  t.conferir('sem pesar há mais tempo primeiro, nunca pesado por último',
+    await ordem('data-asc') === '300,9,292,295', await ordem('data-asc'));
+  const quando = await pagina.evaluate(() => [...document.querySelectorAll('#animal-list .item-quando')].map(e => e.textContent));
+  t.conferir('cada linha mostra a data da última pesagem',
+    quando[0] === 'última 18/06/26' && quando.includes('nunca pesado'), quando.join(' | '));
+
   // ---------- financeiro ----------
   t.secao('financeiro');
   await pagina.evaluate(() => {
