@@ -390,3 +390,20 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .sync-dot.on { background: #047857; }
 .sync-dot.off { background: #b45309; }
 .menu-farm { font-size: 0.72rem; color: #57534e; padding: 0.25rem 0.75rem; margin: 0; }
+
+/* Limpeza do rebanho: a lista de quem sai precisa caber na tela e ser lida */
+.lm-numeros { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.75rem 0; }
+.lm-num { background: #f5f5f4; border: 1px solid #e7e5e4; border-radius: 3px; padding: 0.6rem; text-align: center; }
+.lm-num .v { display: block; font-size: 1.5rem; font-weight: 800; line-height: 1; }
+.lm-num .r { display: block; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: #78716c; margin-top: 0.25rem; }
+.lm-num.saem { background: #fee2e2; border-color: #fca5a5; }
+.lm-num.saem .v { color: #991b1b; }
+.lm-vazio { font-size: 0.75rem; color: #b45309; margin: 0.5rem 0 0; }
+.lm-bloco { border: 1px solid #e7e5e4; border-radius: 3px; margin-bottom: 0.5rem; }
+.lm-bloco > summary { padding: 0.6rem 0.75rem; font-family: 'DM Mono', monospace; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: #57534e; cursor: pointer; }
+.lm-linha { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; padding: 0.4rem 0.75rem; border-top: 1px solid #f5f5f4; }
+.lm-linha .brinco { font-weight: 600; font-size: 0.9rem; }
+.lm-linha .info { font-size: 0.66rem; color: #78716c; text-align: right; }
+.lm-bloco > summary + .lm-linha { border-top: 1px solid #e7e5e4; }
+.lm-aviso { font-size: 0.75rem; color: #991b1b; background: #fee2e2; border-radius: 3px; padding: 0.5rem 0.65rem; }
+#lm-listas { max-height: 45vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }

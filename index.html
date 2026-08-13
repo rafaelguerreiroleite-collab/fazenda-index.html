@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=7" />
+<link rel="stylesheet" href="style.css?v=8" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -489,6 +489,28 @@ BR002,15/01/2025,340</pre>
   </div>
 </div>
 
+<div class="modal" id="modal-limpeza" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2>Limpeza do rebanho</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <div class="import-body">
+      <p>Mantém no rebanho <b>apenas os animais pesados na data abaixo</b>, com todo o histórico deles. Os outros são apagados de vez, junto com as pesagens deles.</p>
+      <label class="mono">Data da pesagem que fica</label>
+      <input type="date" id="lm-date" />
+      <div id="lm-resumo"></div>
+      <button type="button" class="btn-secondary" id="lm-backup">💾 Baixar backup antes de apagar</button>
+      <div id="lm-listas"></div>
+      <p class="lm-aviso" id="lm-aviso" hidden>Esta ação <b>não pode ser desfeita</b> e vale para todos os aparelhos.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" data-close>Cancelar</button>
+        <button type="button" class="btn-danger" id="lm-confirm" disabled>Apagar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="modal-menu" hidden>
   <div class="modal-content">
     <header class="modal-header">
@@ -509,6 +531,7 @@ BR002,15/01/2025,340</pre>
       </div>
       <hr />
       <button class="menu-item" id="menu-migrate" hidden><span>☁️</span> Enviar dados locais antigos p/ nuvem</button>
+      <button class="menu-item" id="menu-limpeza"><span>🧹</span> Limpeza: manter só os pesados num dia</button>
       <button class="menu-item" id="menu-backup"><span>💾</span> Backup completo (baixar tudo)</button>
       <button class="menu-item" id="menu-restore"><span>♻️</span> Restaurar backup</button>
       <input type="file" id="restore-input" accept=".json,application/json" hidden />
@@ -530,6 +553,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

@@ -184,6 +184,85 @@ export default async function () {
   t.conferir('cancelar não apaga', await apagar(null) === false);
   t.conferir('palavra correta apaga', await apagar('APAGAR') === true);
 
+  // ---------- limpeza: manter só quem foi pesado num dia ----------
+  // Rebanho de teste: 292 e 293 passaram pela balança em 13/08 e ficam; 294 e
+  // 295 não passaram e saem; 296 nunca teve pesagem nenhuma e também sai.
+  t.secao('limpeza do rebanho');
+  const montarRebanho = () => pagina.evaluate(() => {
+    animals = [{ id: 'k1', ident: '292' }, { id: 'k2', ident: '293' }, { id: 'k3', ident: '294' },
+               { id: 'k4', ident: '295' }, { id: 'k5', ident: '296' }];
+    weighings = [
+      { id: 'kw1', animalId: 'k1', date: '2026-06-18', weight: 200 },
+      { id: 'kw2', animalId: 'k1', date: '2026-08-13', weight: 255 },
+      { id: 'kw3', animalId: 'k2', date: '2026-08-13', weight: 300 },
+      { id: 'kw4', animalId: 'k3', date: '2026-06-18', weight: 280 },
+      { id: 'kw5', animalId: 'k4', date: '2026-07-01', weight: 310 }
+    ];
+    window._ops = null; batchWrite = async ops => { window._ops = ops; };
+    render(); $('menu-limpeza').click();
+  });
+  await montarRebanho();
+  await pagina.fill('#lm-date', '2026-08-13');
+  await pagina.waitForTimeout(120);
+  const tela = await pagina.evaluate(() => ({
+    numeros: [...document.querySelectorAll('#lm-resumo .lm-num .v')].map(e => e.textContent),
+    saem: [...document.querySelectorAll('#lm-listas details')][0].querySelectorAll('.lm-linha .brinco'),
+    brincosSaem: [...[...document.querySelectorAll('#lm-listas details')][0].querySelectorAll('.lm-linha .brinco')].map(e => e.textContent),
+    brincosFicam: [...[...document.querySelectorAll('#lm-listas details')][1].querySelectorAll('.lm-linha .brinco')].map(e => e.textContent),
+    botao: $('lm-confirm').textContent, desabilitado: $('lm-confirm').disabled
+  }));
+  t.conferir('conta certo quem fica e quem sai', JSON.stringify(tela.numeros) === '["2","3"]', JSON.stringify(tela.numeros));
+  t.conferir('lista nominalmente quem vai ser apagado', JSON.stringify(tela.brincosSaem) === '["294","295","296"]', JSON.stringify(tela.brincosSaem));
+  t.conferir('e também quem continua', JSON.stringify(tela.brincosFicam) === '["292","293"]', JSON.stringify(tela.brincosFicam));
+  t.conferir('o botão diz o tamanho do estrago', /3 animais e 2 pesagens/.test(tela.botao), tela.botao);
+  t.conferir('botão liberado quando há o que apagar', tela.desabilitado === false);
+
+  // Data sem pesagem nenhuma apagaria o rebanho inteiro: o botão trava.
+  await pagina.fill('#lm-date', '2026-01-01');
+  await pagina.waitForTimeout(120);
+  t.conferir('data sem pesagem trava o botão', await pagina.evaluate(() => $('lm-confirm').disabled),
+    await pagina.evaluate(() => $('lm-confirm').textContent));
+  t.conferir('e o botão travado não mostra número de estrago',
+    await pagina.evaluate(() => $('lm-confirm').textContent) === 'Confira a data',
+    await pagina.evaluate(() => $('lm-confirm').textContent));
+  t.conferir('e avisa que ninguém foi pesado nesse dia',
+    /Nenhum animal foi pesado/.test(await pagina.evaluate(() => $('lm-resumo').textContent)));
+
+  const limpar = async resposta => {
+    await montarRebanho();
+    await pagina.fill('#lm-date', '2026-08-13'); await pagina.waitForTimeout(120);
+    const h = async d => { d.type() === 'confirm' ? await d.accept() : (resposta === null ? await d.dismiss() : await d.accept(resposta)); };
+    pagina.on('dialog', h);
+    await pagina.click('#lm-confirm'); await pagina.waitForTimeout(150);
+    pagina.removeListener('dialog', h);
+    return pagina.evaluate(() => ({
+      ops: window._ops, brincos: animals.map(a => a.ident), pesagens: weighings.length
+    }));
+  };
+  let res = await limpar('errado');
+  t.conferir('palavra errada não apaga nada', res.ops === null && res.brincos.length === 5, res.brincos.join(','));
+  res = await limpar(null);
+  t.conferir('cancelar não apaga nada', res.ops === null && res.brincos.length === 5, res.brincos.join(','));
+
+  res = await limpar('APAGAR');
+  t.conferir('sobra só quem foi pesado no dia', JSON.stringify(res.brincos) === '["292","293"]', JSON.stringify(res.brincos));
+  t.conferir('o histórico de quem ficou é preservado', res.pesagens === 3, res.pesagens + ' pesagem(ns)');
+  t.conferir('a pesagem antiga do 292 continua lá',
+    await pagina.evaluate(() => weighings.some(w => w.animalId === 'k1' && w.date === '2026-06-18')));
+  const apagados = (res.ops || []).map(o => o.col + ':' + o.del);
+  t.conferir('manda apagar as 2 pesagens dos que saíram',
+    apagados.filter(x => x.startsWith('weighings')).length === 2, apagados.join(' '));
+  t.conferir('manda apagar os 3 animais que saíram',
+    apagados.filter(x => x.startsWith('animals')).length === 3, apagados.join(' '));
+  t.conferir('não manda apagar nada de quem ficou',
+    !apagados.some(x => ['animals:k1', 'animals:k2', 'weighings:kw1', 'weighings:kw2', 'weighings:kw3'].includes(x)), apagados.join(' '));
+  t.conferir('a cópia local do aparelho também foi atualizada',
+    await pagina.evaluate(() => {
+      const e = JSON.parse(localStorage.getItem('fjs-espelho') || '{}');
+      const an = (e.dados || e).animals || [];
+      return an.length === 2;
+    }));
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;

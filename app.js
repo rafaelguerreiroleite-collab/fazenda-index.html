@@ -1501,6 +1501,87 @@ $('menu-clear').addEventListener('click', async () => {
   toast('Apagando…');
   try { await batchWrite(ops); toast('Dados apagados'); } catch (e) { toast('Falha ao apagar — verifique a conexão'); }
 });
+// ===== Limpeza: manter só quem foi pesado num dia =====
+// Serve para acertar o rebanho depois de uma venda em lote: quem passou pela
+// balança fica com todo o histórico, o resto sai. Como é irreversível, a tela
+// mostra brinco por brinco quem sai antes de qualquer coisa acontecer.
+function limpezaSeparar(data) {
+  const idsFicam = new Set(weighings.filter(w => w.date === data).map(w => w.animalId));
+  const ficam = animals.filter(a => idsFicam.has(a.id)).sort(porBrinco);
+  const saem = animals.filter(a => !idsFicam.has(a.id)).sort(porBrinco);
+  return { ficam, saem };
+}
+function renderLimpeza() {
+  const data = $('lm-date').value;
+  const btn = $('lm-confirm');
+  if (!data) {
+    $('lm-resumo').innerHTML = '<p class="lm-vazio mono">Escolha a data da pesagem.</p>';
+    $('lm-listas').innerHTML = ''; $('lm-aviso').hidden = true;
+    btn.disabled = true; btn.textContent = 'Apagar'; return;
+  }
+  const { ficam, saem } = limpezaSeparar(data);
+  $('lm-resumo').innerHTML = `
+    <div class="lm-numeros">
+      <div class="lm-num"><span class="v">${ficam.length}</span><span class="r mono">ficam</span></div>
+      <div class="lm-num saem"><span class="v">${saem.length}</span><span class="r mono">saem</span></div>
+    </div>
+    ${!ficam.length ? '<p class="lm-vazio mono">Nenhum animal foi pesado nesta data — confira o dia antes de continuar.</p>' : ''}`;
+  const linha = a => {
+    const ws = wOf(a.id);
+    const ult = ws[ws.length - 1];
+    return `<div class="lm-linha"><span class="brinco">${esc(a.ident)}</span>` +
+      `<span class="info mono">${ult ? fmtN(ult.weight, ult.weight % 1 ? 1 : 0) + ' kg · ' + fmtBR(ult.date) : 'sem pesagem'}` +
+      `${ws.length ? ` · ${ws.length} pesagem${ws.length > 1 ? 's' : ''}` : ''}</span></div>`;
+  };
+  $('lm-listas').innerHTML =
+    (saem.length ? `<details open class="lm-bloco"><summary>Serão apagados (${saem.length})</summary>${saem.map(linha).join('')}</details>` : '') +
+    (ficam.length ? `<details class="lm-bloco"><summary>Continuam no rebanho (${ficam.length})</summary>${ficam.map(linha).join('')}</details>` : '');
+  const pesagensSaem = saem.reduce((s, a) => s + wOf(a.id).length, 0);
+  $('lm-aviso').hidden = !saem.length;
+  // Sem nada para apagar, ou sem ninguém sobrando, o botão nem liga: apagar o
+  // rebanho inteiro por engano de data seria a pior forma de descobrir o erro.
+  btn.disabled = !saem.length || !ficam.length;
+  btn.textContent = !ficam.length ? 'Confira a data' :
+    !saem.length ? 'Nada a apagar' :
+    `Apagar ${saem.length} ${saem.length === 1 ? 'animal' : 'animais'} e ${pesagensSaem} ${pesagensSaem === 1 ? 'pesagem' : 'pesagens'}`;
+}
+$('menu-limpeza').addEventListener('click', () => {
+  closeAllM();
+  $('lm-date').value = todayISO();
+  renderLimpeza();
+  openM('modal-limpeza');
+});
+$('lm-date').addEventListener('change', renderLimpeza);
+$('lm-backup').addEventListener('click', () => $('menu-backup').click());
+$('lm-confirm').addEventListener('click', async () => {
+  const data = $('lm-date').value;
+  const { ficam, saem } = limpezaSeparar(data);
+  if (!saem.length || !ficam.length) return;
+  const pesagensSaem = saem.flatMap(a => wOf(a.id));
+  if (!confirm(`Apagar ${saem.length} animais e ${pesagensSaem.length} pesagens, em todos os aparelhos?\n\n`
+    + `Ficam os ${ficam.length} pesados em ${fmtBR(data)}, com o histórico completo.\n\n`
+    + 'Recomendado baixar o backup antes.')) return;
+  const typed = prompt('Esta ação NÃO pode ser desfeita.\n\nPara confirmar, digite a palavra:\n\nAPAGAR');
+  if (typed == null) return;
+  if (typed.trim().toUpperCase() !== 'APAGAR') { toast('Confirmação incorreta — nada foi apagado'); return; }
+  const ops = [
+    ...pesagensSaem.map(w => ({ col: 'weighings', del: w.id })),
+    ...saem.map(a => ({ col: 'animals', del: a.id }))
+  ];
+  // Tira do aparelho na hora. Sem isso, quem estivesse sem sinal continuaria
+  // vendo o rebanho antigo até a nuvem responder — e no curral isso confunde.
+  const idsSaem = new Set(saem.map(a => a.id));
+  animals = animals.filter(a => !idsSaem.has(a.id));
+  weighings = weighings.filter(w => !idsSaem.has(w.animalId));
+  detailAnimal = null; closeAllM();
+  salvarEspelho(true); render();
+  toast('Apagando…');
+  try {
+    await batchWrite(ops);
+    toast(`${saem.length} animais apagados · ${ficam.length} no rebanho`);
+  } catch (e) { toast('Apagado no aparelho — a nuvem atualiza quando a internet voltar'); }
+});
+
 $('menu-migrate').addEventListener('click', () => { closeAllM(); migrateLegacy(); });
 $('menu-leave').addEventListener('click', () => {
   if (!confirm('Desconectar este aparelho? Os dados na nuvem permanecem. Você precisará colar a configuração e o código da fazenda novamente.')) return;
