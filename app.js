@@ -1118,25 +1118,41 @@ $('btn-delete-move').addEventListener('click', () => {
 
 // ===== Modo pesagem =====
 let wmCount = 0;
-let wmSessao = [];   // o que já foi pesado nesta sessão, do mais recente para o mais antigo
+// A lista sai das pesagens realmente gravadas naquela data, não de uma lista
+// guardada em memória: sair e voltar ao modo pesagem mantém tudo à vista, e
+// fechar o app também.
+function pesagensDoDia(data) {
+  return weighings
+    .filter(w => w.date === data)
+    .map(w => {
+      const a = animals.find(x => x.id === w.animalId);
+      const anterior = wOf(w.animalId).filter(x => x.date < data).pop();
+      const dias = anterior ? daysBetween(anterior.date, data) : 0;
+      return {
+        id: w.id, ident: a ? a.ident : '?', peso: w.weight,
+        gmd: anterior && dias > 0 ? (w.weight - anterior.weight) / dias : null
+      };
+    })
+    .reverse();   // o último pesado aparece em cima
+}
 
 function renderSessao() {
   const el = $('wm-sessao');
-  if (!wmSessao.length) { el.hidden = true; return; }
-  const gmds = wmSessao.map(p => p.gmd).filter(Number.isFinite);
+  const lista = pesagensDoDia($('wm-date').value);
+  if (!lista.length) { el.hidden = true; return; }
+  const gmds = lista.map(p => p.gmd).filter(Number.isFinite);
   const media = gmds.length ? gmds.reduce((s, g) => s + g, 0) / gmds.length : null;
-  const pesos = wmSessao.map(p => p.peso);
-  const mediaPeso = pesos.reduce((s, p) => s + p, 0) / pesos.length;
+  const mediaPeso = lista.reduce((s, p) => s + p.peso, 0) / lista.length;
   el.innerHTML = `
     <div class="ws-media">
-      <span class="rot">GMD médio da pesagem${gmds.length < wmSessao.length ? ` · ${gmds.length} de ${wmSessao.length}` : ''}</span>
+      <span class="rot">GMD médio do dia${gmds.length < lista.length ? ` · ${gmds.length} de ${lista.length}` : ''}</span>
       <span class="val ${media != null ? gmdFaixa(media) : ''}">${media != null ? fmtN(media, 3) : '—'}</span>
     </div>
     <div class="ws-media">
-      <span class="rot">Peso médio · ${wmSessao.length} ${wmSessao.length === 1 ? 'animal' : 'animais'}</span>
+      <span class="rot">Peso médio · ${lista.length} ${lista.length === 1 ? 'animal' : 'animais'}</span>
       <span class="val">${fmtN(mediaPeso, 0)} kg</span>
     </div>
-    ${wmSessao.map(p => `
+    ${lista.map(p => `
       <div class="ws-linha">
         <span class="brinco">${esc(p.ident)}</span>
         <span>${fmtN(p.peso, p.peso % 1 ? 1 : 0)} kg</span>
@@ -1175,11 +1191,10 @@ function pesagemSuspeita(ident, peso, gmd, anterior, dias) {
 function openWeighMode() {
   wmCount = 0;
   $('wm-date').value = todayISO();
-  $('wm-jejum').checked = false;
   $('wm-ident').value = ''; $('wm-peso').value = '';
   $('wm-last').textContent = ''; $('wm-count').textContent = '';
   $('wm-previa').hidden = true;
-  wmSessao = []; renderSessao();
+  renderSessao();
   esconderSugestoes();
   refreshIdentList();
   $('weigh-mode').hidden = false;
@@ -1212,8 +1227,7 @@ function atualizarPreviaPesagem() {
       <p class="wp-nota">${animal ? 'Primeira pesagem deste animal — sem GMD ainda' : 'Brinco novo — o animal será cadastrado'}</p>`;
   } else {
     const ganho = peso - anterior.weight;
-    const jejumAgora = $('wm-jejum').checked;
-    const misturado = !mesmaCondicao(anterior, { jejum: jejumAgora });
+    const misturado = !mesmaCondicao(anterior, { jejum: false });
     el.innerHTML = `
       <div class="wp-topo">
         <div class="wp-gmd ${gmdFaixa(gmd)}">${fmtN(gmd, 3)}<span class="un">kg/dia</span></div>
@@ -1235,9 +1249,9 @@ function atualizarSugestoes() {
   const busca = $('wm-ident').value.trim().toLowerCase();
   const ativos = animals.filter(a => !a.sold).sort(porBrinco);
   // Começa pelos que começam com o que foi digitado; depois os que apenas contêm
-  const comeca = ativos.filter(a => a.ident.toLowerCase().startsWith(busca));
-  const contem = busca ? ativos.filter(a => !a.ident.toLowerCase().startsWith(busca) && a.ident.toLowerCase().includes(busca)) : [];
-  const lista = [...comeca, ...contem].slice(0, 200);
+  // Só por início do número: digitar "5" traz 5, 50, 592 — nunca 295 ou 405.
+  // Assim dá para escrever um brinco novo sem a lista atrapalhar.
+  const lista = ativos.filter(a => a.ident.toLowerCase().startsWith(busca)).slice(0, 200);
   // Não sugere nada quando já é exatamente um brinco existente
   if (!lista.length || (lista.length === 1 && lista[0].ident.toLowerCase() === busca)) { el.hidden = true; return; }
   const data = $('wm-date').value;
@@ -1253,8 +1267,7 @@ function atualizarSugestoes() {
 }
 function esconderSugestoes() { const el = $('wm-sugestoes'); if (el) el.hidden = true; }
 ['wm-ident', 'wm-peso'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
-$('wm-date').addEventListener('change', () => { atualizarPreviaPesagem(); atualizarSugestoes(); });
-$('wm-jejum').addEventListener('change', atualizarPreviaPesagem);
+$('wm-date').addEventListener('change', () => { atualizarPreviaPesagem(); atualizarSugestoes(); renderSessao(); });
 $('wm-ident').addEventListener('input', atualizarSugestoes);
 $('wm-ident').addEventListener('focus', atualizarSugestoes);
 $('wm-peso').addEventListener('focus', esconderSugestoes);
@@ -1294,7 +1307,7 @@ $('wm-save').addEventListener('click', () => {
     a = { id: uid(), ident, cat: '', entryDate: date, entryWeight: null, notes: '' };
     animals.push(a); upsert('animals', a); createdNew = true; refreshIdentList();
   }
-  const jejum = $('wm-jejum').checked;
+  const jejum = false;
   const ws = wOf(a.id);
   const sameDay = ws.find(w => w.date === date);
   let replaced = false, w;
@@ -1304,9 +1317,6 @@ $('wm-save').addEventListener('click', () => {
   const g = prev ? gmdBetween(prev, { date, weight: peso }) : null;
   upsert('weighings', w);
   wmCount++;
-  // a mais recente entra no topo; repesar o mesmo animal atualiza a linha dele
-  wmSessao = wmSessao.filter(p => p.id !== a.id);
-  wmSessao.unshift({ id: a.id, ident: a.ident, peso, gmd: g });
   renderSessao();
   $('wm-count').textContent = `${wmCount} pesagen${wmCount > 1 ? 's' : ''} nesta sessão`;
   $('wm-last').textContent = `✓ ${a.ident} · ${fmtN(peso, 1)} kg` +

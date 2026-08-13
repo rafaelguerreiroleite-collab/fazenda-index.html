@@ -65,12 +65,12 @@ export default async function () {
     doDia292.length + ' registro(s), peso ' + doDia292[0].peso);
   t.conferir('a pesagem antiga de 01/06 permanece', lista.some(x => x.animal === '292' && x.data === '2026-06-01'));
 
-  // ---------- jejum ----------
-  t.secao('pesagem em jejum');
-  await pagina.check('#wm-jejum');
+  // ---------- a fazenda não pesa em jejum: o curral grava sempre peso cheio ----------
+  t.secao('modo pesagem grava sempre peso cheio');
+  t.conferir('a opção de jejum saiu da tela do curral', await pagina.evaluate(() => !document.getElementById('wm-jejum')));
   await pesar('293', '410');
-  t.conferir('marca de jejum é gravada', (await gravadas()).find(x => x.animal === '293' && x.data === '2026-08-12').jejum === true);
-  await pagina.uncheck('#wm-jejum');
+  t.conferir('pesagem do curral gravada como peso cheio',
+    (await gravadas()).find(x => x.animal === '293' && x.data === '2026-08-12').jejum === false);
   await pagina.evaluate(() => { $('weigh-mode').hidden = true; render(); });
 
   // ---------- GMD ----------
@@ -246,7 +246,7 @@ export default async function () {
   await pagina.evaluate(() => {
     animals = [{ id: 'x1', ident: '293' }];
     weighings = [{ id: 'xw1', animalId: 'x1', date: '2026-06-18', weight: 147 }];
-    wmSessao = []; render(); openWeighMode();
+    render(); openWeighMode();
   });
   await pagina.waitForTimeout(250);
   await pagina.fill('#wm-date', '2026-08-12');
@@ -303,6 +303,26 @@ export default async function () {
   await pesarS('294', '300');   // repesa o mesmo animal
   const dep = await pagina.evaluate(() => [...document.querySelectorAll('#wm-sessao .ws-linha')].map(l => l.children[0].textContent));
   t.conferir('repesar atualiza a linha, não duplica', dep.length === 3 && dep[0] === '294', dep.join(','));
+
+  // Sair do modo pesagem e voltar no mesmo dia: a lista vem do que está gravado,
+  // então tudo que já foi pesado continua na tela.
+  await pagina.evaluate(() => { $('weigh-mode').hidden = true; render(); });
+  await pagina.evaluate(() => openWeighMode());
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');
+  await pagina.waitForTimeout(80);
+  const volta = await pagina.evaluate(() => ({
+    escondida: $('wm-sessao').hidden,
+    linhas: [...document.querySelectorAll('#wm-sessao .ws-linha')].map(l => l.children[0].textContent),
+    media: (document.querySelector('#wm-sessao .ws-media .val') || {}).textContent
+  }));
+  t.conferir('saindo e voltando, a lista do dia continua na tela', volta.escondida === false && volta.linhas.length === 3,
+    volta.escondida ? 'lista sumiu' : volta.linhas.join(','));
+  t.conferir('e os 3 brincos do dia estão lá', ['292', '293', '294'].every(b => volta.linhas.includes(b)), volta.linhas.join(','));
+  const esperado2 = (1 + 1 + 50 / 55) / 3;   // 294 foi repesado para 300 kg: +50 em 55 dias
+  t.conferir('média do dia recalculada com o que está gravado', volta.media === fmt3(esperado2),
+    volta.media + ' (esperado ' + fmt3(esperado2) + ')');
+  await pagina.evaluate(() => { $('weigh-mode').hidden = true; render(); });
   function fmt3(n) { return n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }); }
 
   // ---------- intervalo curto: GMD nao serve, vale a variacao do peso ----------
@@ -310,7 +330,7 @@ export default async function () {
   await pagina.evaluate(() => {
     animals = [{ id: 'c1', ident: '500' }];
     weighings = [{ id: 'cw1', animalId: 'c1', date: '2026-08-12', weight: 400 }];
-    wmSessao = []; render(); openWeighMode();
+    render(); openWeighMode();
   });
   await pagina.waitForTimeout(250);
   await pagina.fill('#wm-date', '2026-08-14');   // 2 dias depois
@@ -319,12 +339,12 @@ export default async function () {
   aviso = await tentar('500', '520', false);      // +30% em 2 dias: erro de digitação
   t.conferir('variação absurda em poucos dias alarma', /% de diferença/.test(aviso || ''), (aviso || 'sem alarme').split('\n')[0]);
 
-  // ---------- jejum influencia a leitura do ganho ----------
-  t.secao('jejum × cheio');
+  // ---------- histórico antigo em jejum ainda precisa avisar ----------
+  t.secao('pesagem antiga em jejum');
   await pagina.evaluate(() => {
     animals = [{ id: 'j1', ident: '700' }];
     weighings = [{ id: 'jw1', animalId: 'j1', date: '2026-06-01', weight: 300, jejum: true }];
-    wmSessao = []; render(); openWeighMode();
+    render(); openWeighMode();
   });
   await pagina.waitForTimeout(250);
   await pagina.fill('#wm-date', '2026-08-12');
@@ -334,11 +354,14 @@ export default async function () {
   let prev = await pagina.evaluate(() => $('wm-previa').textContent.replace(/\s+/g, ' '));
   t.conferir('avisa que compara jejum com cheio', /comparando jejum com cheio/.test(prev), prev.slice(-60));
   t.conferir('indica o sentido do erro', /ganho real é menor/.test(prev));
-  await pagina.check('#wm-jejum'); await pagina.waitForTimeout(120);
-  prev = await pagina.evaluate(() => $('wm-previa').textContent.replace(/\s+/g, ' '));
-  t.conferir('mesma condição não gera aviso', !/comparando/.test(prev));
   t.conferir('anota que a anterior era em jejum', /\(jejum\)/.test(prev));
-  await pagina.uncheck('#wm-jejum');
+  await pagina.evaluate(() => {
+    weighings = [{ id: 'jw1', animalId: 'j1', date: '2026-06-01', weight: 300, jejum: false }];
+    $('wm-peso').dispatchEvent(new Event('input'));
+  });
+  await pagina.waitForTimeout(120);
+  prev = await pagina.evaluate(() => $('wm-previa').textContent.replace(/\s+/g, ' '));
+  t.conferir('histórico de peso cheio não gera aviso', !/comparando/.test(prev), prev.slice(-60));
 
   // ---------- peso de entrada editado corrige o histórico ----------
   t.secao('peso de entrada e histórico');
