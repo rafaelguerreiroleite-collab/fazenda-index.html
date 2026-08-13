@@ -30,7 +30,7 @@ const opcoesNavegador = existsSync(CHROMIUM) ? { executablePath: CHROMIUM } : {}
 
 export async function abrirApp(url, { locale = 'pt-BR' } = {}) {
   const navegador = await chromium.launch(opcoesNavegador);
-  const ctx = await navegador.newContext({ viewport: { width: 390, height: 900 }, locale });
+  const ctx = await navegador.newContext({ viewport: { width: 390, height: 900 }, locale, serviceWorkers: 'block' });
   const pagina = await ctx.newPage();
   const errosJS = [];
   pagina.on('pageerror', e => errosJS.push(e.message));

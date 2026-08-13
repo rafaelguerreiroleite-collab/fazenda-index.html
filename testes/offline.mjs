@@ -10,7 +10,9 @@ const CHROMIUM = '/opt/pw-browsers/chromium';
 export default async function () {
   const s = await servir();
   const navegador = await chromium.launch(existsSync(CHROMIUM) ? { executablePath: CHROMIUM } : {});
-  const ctx = await navegador.newContext({ viewport: { width: 390, height: 900 }, locale: 'pt-BR' });
+  // Service worker desligado de propósito: força o pior caso, o aparelho que
+  // nem sequer tem o SDK guardado. Se nada se perde aqui, não se perde nunca.
+  const ctx = await navegador.newContext({ viewport: { width: 390, height: 900 }, locale: 'pt-BR', serviceWorkers: 'block' });
   const pagina = await ctx.newPage();
   const errosJS = [];
   pagina.on('pageerror', e => errosJS.push(e.message));
