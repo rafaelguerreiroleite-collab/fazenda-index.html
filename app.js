@@ -1512,15 +1512,22 @@ $('menu-clear').addEventListener('click', async () => {
 function diasDePesagem() {
   const porDia = new Map();
   for (const w of weighings) {
-    if (!porDia.has(w.date)) porDia.set(w.date, { data: w.date, animais: new Set(), entrada: 0, importado: 0 });
-    const d = porDia.get(w.date);
-    d.animais.add(w.animalId);
-    if (w.notes === 'Peso de entrada') d.entrada++;
-    else if (w.notes === 'Importado') d.importado++;
+    if (!porDia.has(w.date)) porDia.set(w.date, { data: w.date, origem: new Map() });
+    const origem = porDia.get(w.date).origem;
+    // Conta ANIMAIS, não registros: o mesmo animal com duas pesagens no mesmo
+    // dia (corrida entre aparelhos) conta uma vez. Somando registros de um lado
+    // e animais do outro, "do curral" saía menor do que é, e com sujeira
+    // bastante virava número negativo — justo na linha que serve para explicar
+    // de onde veio a contagem do dia.
+    const o = w.notes === 'Peso de entrada' ? 'entrada' : w.notes === 'Importado' ? 'importado' : 'curral';
+    // Passou pela balança, vale a balança: curral ganha de cadastro e de importação.
+    if (origem.get(w.animalId) !== 'curral') origem.set(w.animalId, o === 'curral' ? 'curral' : (origem.get(w.animalId) || o));
   }
-  return [...porDia.values()]
-    .map(d => ({ ...d, total: d.animais.size, curral: d.animais.size - d.entrada - d.importado }))
-    .sort((a, b) => b.data.localeCompare(a.data));
+  return [...porDia.values()].map(d => {
+    const vals = [...d.origem.values()];
+    const conta = tipo => vals.reduce((n, v) => n + (v === tipo ? 1 : 0), 0);
+    return { data: d.data, total: d.origem.size, curral: conta('curral'), entrada: conta('entrada'), importado: conta('importado') };
+  }).sort((a, b) => b.data.localeCompare(a.data));
 }
 let lmDias = new Set();
 function limpezaSeparar(datas) {

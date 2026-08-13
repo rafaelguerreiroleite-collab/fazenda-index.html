@@ -215,6 +215,42 @@ export default async function () {
   t.conferir('ja vem marcado o ultimo dia e o anterior',
     JSON.stringify(diasNaTela.map(d => d.marcado)) === '[true,true,false]', JSON.stringify(diasNaTela.map(d => d.marcado)));
 
+  // A separacao por origem e o que explica um dia com mais animais do que
+  // passaram no curral. As partes tem de fechar com o total, sempre — inclusive
+  // com o mesmo animal gravado duas vezes no mesmo dia.
+  const origens = await pagina.evaluate(() => {
+    const antesW = weighings.slice(), antesA = animals.slice();
+    animals = Array.from({ length: 10 }, (_, i) => ({ id: 'o' + i, ident: 'O' + i }));
+    weighings = [];
+    for (let i = 0; i < 3; i++) weighings.push({ id: 'oc' + i, animalId: 'o' + i, date: '2026-08-13', weight: 400 });
+    for (let i = 3; i < 8; i++) weighings.push({ id: 'oe' + i, animalId: 'o' + i, date: '2026-08-13', weight: 300, notes: 'Peso de entrada' });
+    for (let i = 8; i < 10; i++) weighings.push({ id: 'oi' + i, animalId: 'o' + i, date: '2026-08-13', weight: 320, notes: 'Importado' });
+    const limpo = diasDePesagem()[0];
+    // Sujeira real: o mesmo animal gravado duas vezes no mesmo dia.
+    weighings.push({ id: 'od1', animalId: 'o3', date: '2026-08-13', weight: 305, notes: 'Peso de entrada' });
+    weighings.push({ id: 'od2', animalId: 'o4', date: '2026-08-13', weight: 305, notes: 'Peso de entrada' });
+    // E um animal de cadastro que depois passou mesmo pela balanca.
+    weighings.push({ id: 'od3', animalId: 'o5', date: '2026-08-13', weight: 410 });
+    const sujo = diasDePesagem()[0];
+    // Devolve o rebanho de teste exatamente como estava e redesenha a tela.
+    weighings = antesW; animals = antesA;
+    renderDiasLimpeza(); renderLimpeza();
+    return { limpo, sujo };
+  });
+  t.conferir('separa curral, cadastro e importacao',
+    `${origens.limpo.curral}/${origens.limpo.entrada}/${origens.limpo.importado}` === '3/5/2',
+    `${origens.limpo.curral}/${origens.limpo.entrada}/${origens.limpo.importado}`);
+  t.conferir('as partes fecham com o total',
+    origens.limpo.curral + origens.limpo.entrada + origens.limpo.importado === origens.limpo.total);
+  t.conferir('pesagem repetida no mesmo dia nao infla a conta',
+    origens.sujo.total === 10 && origens.sujo.curral + origens.sujo.entrada + origens.sujo.importado === 10,
+    `total ${origens.sujo.total} · ${origens.sujo.curral}/${origens.sujo.entrada}/${origens.sujo.importado}`);
+  t.conferir('quem passou pela balanca conta como curral, nao como cadastro',
+    origens.sujo.curral === 4 && origens.sujo.entrada === 4,
+    `curral ${origens.sujo.curral} · cadastro ${origens.sujo.entrada}`);
+  t.conferir('nenhuma parte fica negativa',
+    [origens.sujo.curral, origens.sujo.entrada, origens.sujo.importado].every(n => n >= 0));
+
   // Desmarca 01/07 para conferir so o dia de hoje.
   await pagina.uncheck('#lm-dias input[data-dia="2026-07-01"]');
   await pagina.waitForTimeout(120);
