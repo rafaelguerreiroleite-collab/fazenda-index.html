@@ -319,6 +319,61 @@ export default async function () {
   aviso = await tentar('500', '520', false);      // +30% em 2 dias: erro de digitação
   t.conferir('variação absurda em poucos dias alarma', /% de diferença/.test(aviso || ''), (aviso || 'sem alarme').split('\n')[0]);
 
+  // ---------- jejum influencia a leitura do ganho ----------
+  t.secao('jejum × cheio');
+  await pagina.evaluate(() => {
+    animals = [{ id: 'j1', ident: '700' }];
+    weighings = [{ id: 'jw1', animalId: 'j1', date: '2026-06-01', weight: 300, jejum: true }];
+    wmSessao = []; render(); openWeighMode();
+  });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');
+  await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', '700');
+  await pagina.fill('#wm-peso', ''); await pagina.type('#wm-peso', '360');
+  await pagina.waitForTimeout(120);
+  let prev = await pagina.evaluate(() => $('wm-previa').textContent.replace(/\s+/g, ' '));
+  t.conferir('avisa que compara jejum com cheio', /comparando jejum com cheio/.test(prev), prev.slice(-60));
+  t.conferir('indica o sentido do erro', /ganho real é menor/.test(prev));
+  await pagina.check('#wm-jejum'); await pagina.waitForTimeout(120);
+  prev = await pagina.evaluate(() => $('wm-previa').textContent.replace(/\s+/g, ' '));
+  t.conferir('mesma condição não gera aviso', !/comparando/.test(prev));
+  t.conferir('anota que a anterior era em jejum', /\(jejum\)/.test(prev));
+  await pagina.uncheck('#wm-jejum');
+
+  // ---------- peso de entrada editado corrige o histórico ----------
+  t.secao('peso de entrada e histórico');
+  await pagina.evaluate(() => { $('weigh-mode').hidden = true; animals = []; weighings = []; render(); openAnimal(); });
+  await pagina.fill('#an-ident', 'E1');
+  await pagina.fill('#an-entry-date', '2026-05-01');
+  await pagina.fill('#an-entry-weight', ''); await pagina.type('#an-entry-weight', '250');
+  await pagina.click('#form-animal button[type="submit"]'); await pagina.waitForTimeout(120);
+  t.conferir('cadastro cria a pesagem de entrada', await pagina.evaluate(() => weighings.length) === 1);
+  await pagina.evaluate(() => openAnimal(animals[0]));
+  await pagina.fill('#an-entry-weight', ''); await pagina.type('#an-entry-weight', '270');
+  await pagina.click('#form-animal button[type="submit"]'); await pagina.waitForTimeout(120);
+  let hist = await pagina.evaluate(() => weighings.map(w => w.weight));
+  t.conferir('corrigir o peso corrige a pesagem, sem duplicar', JSON.stringify(hist) === '[270]', JSON.stringify(hist));
+  await pagina.evaluate(() => openAnimal(animals[0]));
+  await pagina.fill('#an-entry-weight', '');
+  await pagina.click('#form-animal button[type="submit"]'); await pagina.waitForTimeout(120);
+  t.conferir('apagar o peso remove a pesagem de entrada', await pagina.evaluate(() => weighings.length) === 0);
+
+  // ---------- aparelho sem memória ----------
+  t.secao('memória do aparelho cheia');
+  let alerta = null;
+  const ouvirAlerta = async d => { alerta = d.message(); await d.accept(); };
+  pagina.on('dialog', ouvirAlerta);
+  await pagina.evaluate(() => {
+    espelhoFalhou = false;
+    LS.s = () => false;              // como se o aparelho recusasse gravar
+    animals = [{ id: 'q1', ident: '800' }]; weighings = [];
+    salvarEspelho(true);
+  });
+  await pagina.waitForTimeout(150);
+  pagina.removeListener('dialog', ouvirAlerta);
+  t.conferir('avisa em alto e bom som que não está guardando', /não está conseguindo guardar/.test(alerta || ''), (alerta || 'sem aviso').split('\n')[0]);
+  await pagina.evaluate(() => { LS.s = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }; });
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;

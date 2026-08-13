@@ -2,7 +2,9 @@
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
-  s: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  // devolve false quando não conseguiu gravar (memória do aparelho cheia, por
+  // exemplo) — quem chama precisa saber, senão o dado some sem ninguém ver
+  s: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
   del: k => { try { localStorage.removeItem(k); } catch (e) {} }
 };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -60,10 +62,21 @@ const colRef = name => db.collection('farms').doc(farm).collection(name);
 // app abra com os dados no curral mesmo que a nuvem esteja fora de alcance —
 // inclusive quando o próprio SDK do Firebase não pôde ser carregado.
 const ESPELHO = 'fjs-espelho';
-let espelhoTimer = null;
+let espelhoTimer = null, espelhoFalhou = false;
 function salvarEspelho(agora) {
   clearTimeout(espelhoTimer);
-  const gravar = () => LS.s(ESPELHO, { farm, animals, weighings, bovT, avT, items, moves, settings, custo: custoParams });
+  const gravar = () => {
+    const ok = LS.s(ESPELHO, { farm, animals, weighings, bovT, avT, items, moves, settings, custo: custoParams });
+    // Falhar aqui significa que o aparelho não está guardando nada — o pior
+    // cenário possível no campo. Precisa ser gritado, não engolido.
+    if (!ok && !espelhoFalhou) {
+      espelhoFalhou = true;
+      alert('⚠️ ATENÇÃO\n\nO aparelho não está conseguindo guardar os dados (memória cheia).\n\nO que você registrar agora pode se perder ao fechar o app. Libere espaço no aparelho ou faça um backup pelo menu (⋯) antes de continuar.');
+    } else if (ok && espelhoFalhou) {
+      espelhoFalhou = false;
+      toast('Voltou a guardar os dados neste aparelho');
+    }
+  };
   agora ? gravar() : (espelhoTimer = setTimeout(gravar, 600));
 }
 function carregarEspelho(codigo) {
@@ -284,6 +297,9 @@ function findDupTrans(list, data, book, ignoreId) {
 // ===== Cálculos =====
 const wOf = aid => weighings.filter(w => w.animalId === aid).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 function gmdBetween(a, b) { const d = daysBetween(a.date, b.date); return d > 0 ? (b.weight - a.weight) / d : null; }
+// Peso em jejum é menor que o mesmo animal cheio (rúmen vazio). Comparar as
+// duas condições distorce o ganho, então isso precisa ficar visível.
+const mesmaCondicao = (a, b) => !!a.jejum === !!b.jejum;
 function gmdTotal(ws) { return ws.length >= 2 ? gmdBetween(ws[0], ws[ws.length - 1]) : null; }
 function gmdRecent(ws) { return ws.length >= 2 ? gmdBetween(ws[ws.length - 2], ws[ws.length - 1]) : null; }
 const gmdCls = g => !Number.isFinite(g) ? '' : g < 0.4 ? 'gmd-low' : g < 0.8 ? 'gmd-mid' : g < 1.2 ? 'gmd-good' : 'gmd-great';
@@ -629,11 +645,12 @@ function renderAnimalDetail() {
     const idx = ws.indexOf(w);
     const prev = idx > 0 ? ws[idx - 1] : null;
     const g = prev ? gmdBetween(prev, w) : null;
+    const misto = prev && !mesmaCondicao(prev, w);
     return `<div class="wt-row" data-weighing="${w.id}">
       <span class="date">${fmtBR(w.date)}</span>
       <span class="weight">${fmtN(w.weight, 1)} kg</span>
       <span class="flag">${w.jejum ? 'jejum' : ''}</span>
-      <span class="gmd ${gmdCls(g)}">${Number.isFinite(g) ? fmtN(g, 3) : '—'}</span>
+      <span class="gmd ${gmdCls(g)}" ${misto ? 'title="comparação entre jejum e cheio"' : ''}>${Number.isFinite(g) ? fmtN(g, 3) + (misto ? ' ⚠' : '') : '—'}</span>
     </div>`;
   }).join('');
   $('weighings-table').innerHTML = `<div class="wt-header"><span>Data</span><span>Peso</span><span>Jejum</span><span style="text-align:right">GMD</span></div>` + (rows || '<div class="chart-empty">Sem pesagens</div>');
@@ -833,11 +850,26 @@ $('form-animal').addEventListener('submit', e => {
     isNew = true;
   }
   syncAnimalSaleTrans(a);
-  upsert('animals', a);
-  if (isNew && a.entryDate && a.entryWeight) {
-    const w = { id: uid(), animalId: a.id, date: a.entryDate, weight: a.entryWeight, jejum: false, notes: 'Peso de entrada' };
-    weighings.push(w); upsert('weighings', w);
+  // A pesagem de entrada acompanha o cadastro: corrigir a data ou o peso ali
+  // precisa corrigir o histórico, senão os dois passam a discordar.
+  const entradaOk = a.entryDate && Number.isFinite(a.entryWeight) && a.entryWeight > 0;
+  let entrada = a.entryWeighingId ? weighings.find(w => w.id === a.entryWeighingId) : null;
+  if (!entrada && !isNew) entrada = weighings.find(w => w.animalId === a.id && w.notes === 'Peso de entrada');
+  if (entradaOk) {
+    if (entrada) {
+      Object.assign(entrada, { date: a.entryDate, weight: a.entryWeight });
+      a.entryWeighingId = entrada.id;
+      upsert('weighings', entrada);
+    } else {
+      const w = { id: uid(), animalId: a.id, date: a.entryDate, weight: a.entryWeight, jejum: false, notes: 'Peso de entrada' };
+      weighings.push(w); a.entryWeighingId = w.id; upsert('weighings', w);
+    }
+  } else if (entrada) {
+    weighings = weighings.filter(w => w.id !== entrada.id);
+    remove('weighings', entrada.id);
+    a.entryWeighingId = null;
   }
+  upsert('animals', a);
   closeAllM(); render(); toast('Animal salvo');
 });
 $('btn-delete-animal').addEventListener('click', () => {
@@ -1180,12 +1212,15 @@ function atualizarPreviaPesagem() {
       <p class="wp-nota">${animal ? 'Primeira pesagem deste animal — sem GMD ainda' : 'Brinco novo — o animal será cadastrado'}</p>`;
   } else {
     const ganho = peso - anterior.weight;
+    const jejumAgora = $('wm-jejum').checked;
+    const misturado = !mesmaCondicao(anterior, { jejum: jejumAgora });
     el.innerHTML = `
       <div class="wp-topo">
         <div class="wp-gmd ${gmdFaixa(gmd)}">${fmtN(gmd, 3)}<span class="un">kg/dia</span></div>
         <div class="wp-lado">${pesoTxt}<br>${ganho >= 0 ? '+' : ''}${fmtN(ganho, ganho % 1 ? 1 : 0)} kg em ${dias} dias</div>
       </div>
-      <p class="wp-nota">anterior ${fmtN(anterior.weight, anterior.weight % 1 ? 1 : 0)} kg em ${fmtBR(anterior.date)}</p>`;
+      <p class="wp-nota">anterior ${fmtN(anterior.weight, anterior.weight % 1 ? 1 : 0)} kg em ${fmtBR(anterior.date)}${anterior.jejum ? ' (jejum)' : ''}</p>
+      ${misturado ? `<p class="wp-alerta">⚠ comparando ${anterior.jejum ? 'jejum com cheio' : 'cheio com jejum'} — o ganho real é ${anterior.jejum ? 'menor' : 'maior'} que este</p>` : ''}`;
   }
   el.hidden = false;
 }
@@ -1219,6 +1254,7 @@ function atualizarSugestoes() {
 function esconderSugestoes() { const el = $('wm-sugestoes'); if (el) el.hidden = true; }
 ['wm-ident', 'wm-peso'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
 $('wm-date').addEventListener('change', () => { atualizarPreviaPesagem(); atualizarSugestoes(); });
+$('wm-jejum').addEventListener('change', atualizarPreviaPesagem);
 $('wm-ident').addEventListener('input', atualizarSugestoes);
 $('wm-ident').addEventListener('focus', atualizarSugestoes);
 $('wm-peso').addEventListener('focus', esconderSugestoes);
@@ -1321,8 +1357,19 @@ $('csv-input').addEventListener('change', e => {
       const a = animals.find(x => !x.sold && x.ident.toLowerCase() === r.ident.toLowerCase());
       if (a && weighings.some(w => w.animalId === a.id && w.date === r.date)) dupes++;
     });
+    // Mesma checagem do modo pesagem: arquivo ruim não pode contaminar o histórico
+    const suspeitas = [];
+    rows.forEach(r => {
+      const a = animals.find(x => !x.sold && x.ident.toLowerCase() === r.ident.toLowerCase());
+      const ant = a ? wOf(a.id).filter(w => w.date < r.date).pop() : null;
+      const d = ant ? daysBetween(ant.date, r.date) : 0;
+      const g = ant && d > 0 ? (r.peso - ant.weight) / d : null;
+      const aviso = pesagemSuspeita(r.ident, r.peso, g, ant, d);
+      if (aviso) suspeitas.push(aviso.split('\n')[0]);
+    });
     pendingRows = rows;
-    $('preview-stats').innerHTML = `<b>${rows.length}</b> pesagens válidas · <b>${newIdents.size}</b> animais novos serão criados · <b>${dupes}</b> duplicatas serão ignoradas${errors.length ? ` · <b>${errors.length}</b> linhas com erro` : ''}`;
+    $('preview-stats').innerHTML = `<b>${rows.length}</b> pesagens válidas · <b>${newIdents.size}</b> animais novos serão criados · <b>${dupes}</b> duplicatas serão ignoradas${errors.length ? ` · <b>${errors.length}</b> linhas com erro` : ''}`
+      + (suspeitas.length ? `<br><span class="aviso-suspeita">⚠ <b>${suspeitas.length}</b> pesagem(ns) com número fora do esperado: ${suspeitas.slice(0, 3).map(esc).join(' · ')}${suspeitas.length > 3 ? ' …' : ''}</span>` : '');
     $('preview-errors').hidden = !errors.length;
     $('preview-errors').innerHTML = errors.slice(0, 10).join('<br>') + (errors.length > 10 ? `<br>… e mais ${errors.length - 10}` : '');
     $('import-preview').hidden = false;

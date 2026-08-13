@@ -236,6 +236,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .import-body input[type="file"] { margin-top: 0.75rem; }
 #import-preview { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e7e5e4; }
 #import-preview h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+#preview-stats .aviso-suspeita { display: block; margin-top: 0.4rem; color: #b45309; }
 #preview-stats { background: #f5f5f4; padding: 0.75rem; border-radius: 3px; margin-bottom: 0.5rem; font-size: 0.85rem; }
 #preview-errors { background: #fef3c7; padding: 0.75rem; border-radius: 3px; font-size: 0.78rem; color: #92400e; max-height: 8rem; overflow-y: auto; }
 
@@ -348,6 +349,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .wp-gmd.g-bom { color: #a7f3d0; }   .wp-gmd.g-otimo { color: #6ee7b7; }
 .wp-lado { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: #cfe3d6; text-align: right; line-height: 1.5; }
 .wp-nota { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: #9dbcaa; margin: 0.5rem 0 0; }
+.wp-alerta { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: #fcd34d; margin: 0.35rem 0 0; }
 
 .wm-last { color: #a7f3d0; font-size: 0.9rem; margin: 1rem 0 0; min-height: 1.4em; }
 .wm-count { color: #78716c; font-size: 0.78rem; margin: 0.25rem 0 0; }
