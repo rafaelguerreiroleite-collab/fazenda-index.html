@@ -296,6 +296,25 @@ function findDupTrans(list, data, book, ignoreId) {
 
 // ===== Cálculos =====
 const wOf = aid => weighings.filter(w => w.animalId === aid).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+
+// "292", " 292" e "292 " são o mesmo brinco. Sem normalizar, um espaço a mais
+// digitado no curral criava um animal novo e o GMD desaparecia.
+const chaveBrinco = s => String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase();
+// Acha o animal do brinco digitado. Quando existe mais de um com o mesmo brinco
+// — um vendido e outro ativo, ou uma duplicata criada por engano — fica com o
+// que tem histórico de pesagem, porque é dele que sai o GMD. Antes a busca
+// pegava o primeiro da lista e ignorava os vendidos: a pesagem grudava num
+// animal sem passado e a tela mostrava "—" no lugar do ganho.
+function animalDoBrinco(ident) {
+  const chave = chaveBrinco(ident);
+  if (!chave) return null;
+  const iguais = animals.filter(a => chaveBrinco(a.ident) === chave);
+  if (!iguais.length) return null;
+  const ativos = iguais.filter(a => !a.sold);
+  return (ativos.length ? ativos : iguais)
+    .slice()
+    .sort((a, b) => wOf(b.id).length - wOf(a.id).length)[0];
+}
 function gmdBetween(a, b) { const d = daysBetween(a.date, b.date); return d > 0 ? (b.weight - a.weight) / d : null; }
 // Peso em jejum é menor que o mesmo animal cheio (rúmen vazio). Comparar as
 // duas condições distorce o ganho, então isso precisa ficar visível.
@@ -1130,7 +1149,10 @@ function pesagensDoDia(data) {
       const dias = anterior ? daysBetween(anterior.date, data) : 0;
       return {
         id: w.id, ident: a ? a.ident : '?', peso: w.weight,
-        gmd: anterior && dias > 0 ? (w.weight - anterior.weight) / dias : null
+        gmd: anterior && dias > 0 ? (w.weight - anterior.weight) / dias : null,
+        // Sem GMD tem motivo, e o motivo precisa aparecer: um traço sozinho
+        // faz parecer defeito quando na verdade o animal não tem histórico.
+        motivo: !anterior ? '1ª pesagem' : dias <= 0 ? 'mesmo dia' : ''
       };
     })
     .reverse();   // o último pesado aparece em cima
@@ -1156,7 +1178,7 @@ function renderSessao() {
       <div class="ws-linha">
         <span class="brinco">${esc(p.ident)}</span>
         <span>${fmtN(p.peso, p.peso % 1 ? 1 : 0)} kg</span>
-        <span class="gmd ${Number.isFinite(p.gmd) ? gmdFaixa(p.gmd) : ''}">${Number.isFinite(p.gmd) ? fmtN(p.gmd, 3) : '—'}</span>
+        <span class="gmd ${Number.isFinite(p.gmd) ? gmdFaixa(p.gmd) : 'g-sem'}">${Number.isFinite(p.gmd) ? fmtN(p.gmd, 3) : esc(p.motivo || '—')}</span>
       </div>`).join('')}`;
   el.hidden = false;
 }
@@ -1195,8 +1217,6 @@ function openWeighMode() {
   $('wm-last').textContent = ''; $('wm-count').textContent = '';
   $('wm-previa').hidden = true;
   renderSessao();
-  esconderSugestoes();
-  refreshIdentList();
   $('weigh-mode').hidden = false;
   setTimeout(() => $('wm-ident').focus(), 100);
 }
@@ -1212,7 +1232,7 @@ function atualizarPreviaPesagem() {
 
   const arrobas = peso * (settings.yield / 100) / 15;
   const pesoTxt = `${fmtN(peso, peso % 1 ? 1 : 0)} kg · ${fmtN(arrobas, 1)} @`;
-  const animal = animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase());
+  const animal = animalDoBrinco(ident);
   // Mesma regra do salvamento: compara com a última pesagem anterior a esta data
   const anterior = animal ? wOf(animal.id).filter(w => w.date < data).pop() : null;
   const dias = anterior ? daysBetween(anterior.date, data) : 0;
@@ -1239,48 +1259,13 @@ function atualizarPreviaPesagem() {
   el.hidden = false;
 }
 
-// Sugestões de brinco em lista própria. A lista nativa do navegador atrapalha
-// a digitação no iPad — assume o campo assim que se digita o primeiro número.
+// No curral não há lista de brincos: o campo é só para digitar. Qualquer lista
+// que abre por cima atrapalha quem está com o gado na balança e ainda arrisca
+// gravar no animal errado por um toque sem querer. Quem confere o brinco é a
+// prévia abaixo, que mostra o peso anterior assim que o número está completo.
 const porBrinco = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true });
-function refreshIdentList() { atualizarSugestoes(); }
-function atualizarSugestoes() {
-  const el = $('wm-sugestoes');
-  if (!el || $('weigh-mode').hidden) return;
-  const busca = $('wm-ident').value.trim().toLowerCase();
-  const ativos = animals.filter(a => !a.sold).sort(porBrinco);
-  // Começa pelos que começam com o que foi digitado; depois os que apenas contêm
-  // Só por início do número: digitar "5" traz 5, 50, 592 — nunca 295 ou 405.
-  // Assim dá para escrever um brinco novo sem a lista atrapalhar.
-  const lista = ativos.filter(a => a.ident.toLowerCase().startsWith(busca)).slice(0, 200);
-  // Não sugere nada quando já é exatamente um brinco existente
-  if (!lista.length || (lista.length === 1 && lista[0].ident.toLowerCase() === busca)) { el.hidden = true; return; }
-  const data = $('wm-date').value;
-  el.innerHTML = lista.map(a => {
-    const ws = wOf(a.id).filter(w => w.date < data);
-    const ult = ws[ws.length - 1];
-    return `<div class="wm-sug" data-sug="${esc(a.ident)}">
-      <span class="brinco">${esc(a.ident)}</span>
-      <span class="info">${ult ? fmtN(ult.weight, ult.weight % 1 ? 1 : 0) + ' kg · ' + fmtBR(ult.date) : 'sem pesagem'}</span>
-    </div>`;
-  }).join('');
-  el.hidden = false;
-}
-function esconderSugestoes() { const el = $('wm-sugestoes'); if (el) el.hidden = true; }
 ['wm-ident', 'wm-peso'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
-$('wm-date').addEventListener('change', () => { atualizarPreviaPesagem(); atualizarSugestoes(); renderSessao(); });
-$('wm-ident').addEventListener('input', atualizarSugestoes);
-$('wm-ident').addEventListener('focus', atualizarSugestoes);
-$('wm-peso').addEventListener('focus', esconderSugestoes);
-// pointerdown com preventDefault: escolhe sem tirar o foco do campo antes da hora
-$('wm-sugestoes').addEventListener('pointerdown', e => {
-  const alvo = e.target.closest('[data-sug]');
-  if (!alvo) return;
-  e.preventDefault();
-  $('wm-ident').value = alvo.dataset.sug;
-  esconderSugestoes();
-  atualizarPreviaPesagem();
-  $('wm-peso').focus();
-});
+$('wm-date').addEventListener('change', () => { atualizarPreviaPesagem(); renderSessao(); });
 $('btn-weigh-mode').addEventListener('click', openWeighMode);
 $('wm-close').addEventListener('click', () => { $('weigh-mode').hidden = true; render(); });
 $('wm-save').addEventListener('click', () => {
@@ -1291,7 +1276,7 @@ $('wm-save').addEventListener('click', () => {
 
   // Confere a plausibilidade ANTES de gravar: com o animal ainda na balança dá
   // para corrigir; depois, o número errado já contaminou o histórico.
-  const existente = animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase());
+  const existente = animalDoBrinco(ident);
   const anteriorCheck = existente ? wOf(existente.id).filter(x => x.date < date).pop() : null;
   const diasCheck = anteriorCheck ? daysBetween(anteriorCheck.date, date) : 0;
   const gmdCheck = anteriorCheck && diasCheck > 0 ? (peso - anteriorCheck.weight) / diasCheck : null;
@@ -1300,12 +1285,19 @@ $('wm-save').addEventListener('click', () => {
     $('wm-peso').select(); $('wm-peso').focus();
     return;
   }
+  // Brinco de animal vendido: avisa em vez de criar uma cópia escondida do
+  // animal. A pesagem entra no histórico verdadeiro, então o GMD continua.
+  if (existente && existente.sold &&
+      !confirm(`O brinco ${existente.ident} está marcado como VENDIDO.\n\nGravar a pesagem no histórico dele mesmo assim?`)) {
+    $('wm-ident').select(); $('wm-ident').focus();
+    return;
+  }
 
   let a = existente;
   let createdNew = false;
   if (!a) {
     a = { id: uid(), ident, cat: '', entryDate: date, entryWeight: null, notes: '' };
-    animals.push(a); upsert('animals', a); createdNew = true; refreshIdentList();
+    animals.push(a); upsert("animals", a); createdNew = true;
   }
   const jejum = false;
   const ws = wOf(a.id);
@@ -1322,9 +1314,8 @@ $('wm-save').addEventListener('click', () => {
   $('wm-last').textContent = `✓ ${a.ident} · ${fmtN(peso, 1)} kg` +
     (Number.isFinite(g) ? ` · GMD ${fmtN(g, 3)} (desde ${fmtBR(prev.date)})` : createdNew ? ' · novo animal' : replaced ? ' · atualizada' : ' · 1ª pesagem');
   $('wm-ident').value = ''; $('wm-peso').value = '';
-  $('wm-previa').hidden = true;
-  esconderSugestoes();
-  $('wm-ident').focus();
+  $("wm-previa").hidden = true;
+  $("wm-ident").focus();
 });
 
 // ===== Importar CSV =====

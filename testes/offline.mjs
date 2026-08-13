@@ -81,10 +81,14 @@ export default async function () {
   await pagina.evaluate(() => openWeighMode());
   await pagina.waitForTimeout(250);
   await pagina.click('#wm-ident'); await pagina.waitForTimeout(120);
-  const sugeridos = await pagina.evaluate(() => [...document.querySelectorAll('#wm-sugestoes .brinco')].map(e => e.textContent));
-  t.conferir('lista de brincos traz todos os 92 sem sinal', sugeridos.length === 92, 'sugeriu ' + sugeridos.length);
-  t.conferir('e em ordem numérica', sugeridos[0] === '292' && sugeridos[91] === '383', sugeridos[0] + ' … ' + sugeridos[91]);
-  await pagina.evaluate(() => esconderSugestoes());
+  // Sem sinal o histórico continua no aparelho: digitar o brinco traz o peso
+  // anterior na prévia, que é o que confirma o animal certo no curral.
+  await pagina.type('#wm-ident', '383');
+  await pagina.fill('#wm-peso', ''); await pagina.type('#wm-peso', '400');
+  await pagina.waitForTimeout(120);
+  const conferencia = await pagina.evaluate(() => $('wm-previa').textContent.replace(/\s+/g, ' '));
+  t.conferir('sem sinal a prévia confirma o animal pelo peso anterior', /391 kg/.test(conferencia), conferencia.slice(-70));
+  await pagina.fill('#wm-ident', ''); await pagina.fill('#wm-peso', '');
 
   await pagina.fill('#wm-date', '2026-08-12');
   const pesar = async (brinco, peso) => {

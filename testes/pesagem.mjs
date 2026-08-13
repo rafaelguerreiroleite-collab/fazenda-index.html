@@ -207,8 +207,8 @@ export default async function () {
   t.conferir('prévia some depois de salvar', await pagina.evaluate(() => $('wm-previa').hidden));
   await pagina.evaluate(() => { $('weigh-mode').hidden = true; render(); });
 
-  // ---------- sugestões de brinco ----------
-  t.secao('lista de brincos');
+  // ---------- campo do brinco: só digitação, nada abrindo por cima ----------
+  t.secao('campo do brinco sem lista');
   await pagina.evaluate(() => {
     animals = [{ id: 's1', ident: '292' }, { id: 's2', ident: '9' }, { id: 's3', ident: '405' },
                { id: 's4', ident: '295' }, { id: 's5', ident: '1200' }, { id: 's6', ident: '30', sold: true }];
@@ -217,29 +217,98 @@ export default async function () {
   });
   await pagina.waitForTimeout(250);
   await pagina.fill('#wm-date', '2026-08-12');
-  const sugestoes = () => pagina.evaluate(() => [...document.querySelectorAll('#wm-sugestoes .brinco')].map(e => e.textContent));
+  t.conferir('nao existe mais lista de brincos na tela', await pagina.evaluate(() => !document.getElementById('wm-sugestoes')));
   await pagina.click('#wm-ident'); await pagina.waitForTimeout(80);
-  let sug = await sugestoes();
-  t.conferir('ordem numérica do menor para o maior', JSON.stringify(sug) === '["9","292","295","405","1200"]', JSON.stringify(sug));
-  t.conferir('animal vendido fora da lista', !sug.includes('30'));
+  t.conferir('tocar no campo nao abre nada por cima',
+    await pagina.evaluate(() => document.querySelectorAll('#weigh-mode [data-sug]').length) === 0);
 
-  await pagina.type('#wm-ident', '29');
-  await pagina.waitForTimeout(80);
-  sug = await sugestoes();
-  t.conferir('filtra pelo que foi digitado, em ordem', JSON.stringify(sug) === '["292","295"]', JSON.stringify(sug));
-  t.conferir('o que foi digitado permanece no campo', await pagina.inputValue('#wm-ident') === '29');
+  // O que se digita fica exatamente como foi digitado, dígito por dígito.
+  const digitado = [];
+  for (const d of ['2', '9', '2']) { await pagina.type('#wm-ident', d); await pagina.waitForTimeout(60);
+    digitado.push(await pagina.inputValue('#wm-ident')); }
+  t.conferir('o texto digitado nunca é trocado', JSON.stringify(digitado) === '["2","29","292"]', JSON.stringify(digitado));
 
-  await pagina.type('#wm-ident', '2');
+  // Brinco que não existe: dá para escrever inteiro sem nada atrapalhar.
+  await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', '5001');
   await pagina.waitForTimeout(80);
-  t.conferir('digitar até o brinco exato mantém o texto', await pagina.inputValue('#wm-ident') === '292');
-  t.conferir('lista some quando o brinco está completo', await pagina.evaluate(() => $('wm-sugestoes').hidden));
+  t.conferir('brinco novo pode ser escrito inteiro', await pagina.inputValue('#wm-ident') === '5001');
 
-  await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', '4');
-  await pagina.waitForTimeout(80);
-  await pagina.evaluate(() => document.querySelector('[data-sug="405"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
-  await pagina.waitForTimeout(80);
-  t.conferir('tocar na sugestão preenche o brinco', await pagina.inputValue('#wm-ident') === '405');
-  t.conferir('lista fecha depois de escolher', await pagina.evaluate(() => $('wm-sugestoes').hidden));
+  // A conferência do brinco passa a ser a prévia: ela mostra o peso anterior.
+  await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', '292');
+  await pagina.fill('#wm-peso', ''); await pagina.type('#wm-peso', '250');
+  await pagina.waitForTimeout(120);
+  const conf = await pagina.evaluate(() => $('wm-previa').textContent.replace(/\s+/g, ' '));
+  t.conferir('a prévia confirma que é o animal certo', /203 kg/.test(conf) && /18\/06\/26/.test(conf), conf.slice(-70));
+  await pagina.fill('#wm-ident', ''); await pagina.fill('#wm-peso', '');
+
+  // ---------- por que o GMD sumia de alguns brincos ----------
+  t.secao('GMD não pode sumir do brinco certo');
+  const pesarD = async (b, p, aceitar = true) => {
+    const h = async d => { await (aceitar ? d.accept() : d.dismiss()); };
+    pagina.on('dialog', h);
+    await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', b);
+    await pagina.fill('#wm-peso', ''); await pagina.type('#wm-peso', p);
+    await pagina.click('#wm-save'); await pagina.waitForTimeout(120);
+    pagina.removeListener('dialog', h);
+    return pagina.evaluate(() => $('wm-last').textContent);
+  };
+
+  // Espaço a mais no brinco criava um animal novo e zerava o histórico.
+  await pagina.evaluate(() => {
+    animals = [{ id: 'e1', ident: '292' }];
+    weighings = [{ id: 'ew1', animalId: 'e1', date: '2026-06-18', weight: 200 }];
+    render(); openWeighMode();
+  });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');   // 55 dias depois
+  let saida = await pesarD(' 292 ', '255');
+  t.conferir('brinco com espaço acha o mesmo animal, com GMD', /GMD 1,000/.test(saida), saida);
+  t.conferir('e não cria um animal duplicado', await pagina.evaluate(() => animals.length) === 1,
+    await pagina.evaluate(() => animals.length) + ' animal(is)');
+
+  // Animal vendido: antes virava uma cópia escondida, sem histórico e sem GMD.
+  await pagina.evaluate(() => {
+    animals = [{ id: 'v1', ident: '700', sold: true }];
+    weighings = [{ id: 'vw1', animalId: 'v1', date: '2026-06-18', weight: 300 }];
+    render(); openWeighMode();
+  });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');
+  let avisoVendido = null;
+  const ouvirVendido = async d => { avisoVendido = d.message(); await d.dismiss(); };
+  pagina.on('dialog', ouvirVendido);
+  await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', '700');
+  await pagina.fill('#wm-peso', ''); await pagina.type('#wm-peso', '355');
+  await pagina.click('#wm-save'); await pagina.waitForTimeout(120);
+  pagina.removeListener('dialog', ouvirVendido);
+  t.conferir('brinco vendido avisa antes de gravar', /VENDIDO/.test(avisoVendido || ''), (avisoVendido || 'sem aviso').split('\n')[0]);
+  t.conferir('recusando o aviso, nada é gravado', await pagina.evaluate(() => weighings.length) === 1,
+    await pagina.evaluate(() => weighings.length) + ' pesagem(ns)');
+
+  saida = await pesarD('700', '355');
+  t.conferir('aceitando, grava no histórico dele e o GMD sai', /GMD 1,000/.test(saida), saida);
+  t.conferir('e continua um só animal no rebanho', await pagina.evaluate(() => animals.length) === 1,
+    await pagina.evaluate(() => animals.length) + ' animal(is)');
+
+  // Duplicata no rebanho: a pesagem tem de cair no que tem passado.
+  await pagina.evaluate(() => {
+    animals = [{ id: 'd1', ident: '800' }, { id: 'd2', ident: '800' }];
+    weighings = [{ id: 'dw1', animalId: 'd2', date: '2026-06-18', weight: 250 }];
+    render(); openWeighMode();
+  });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');
+  saida = await pesarD('800', '305');
+  t.conferir('brinco duplicado usa o animal que tem histórico', /GMD 1,000/.test(saida), saida);
+
+  // Sem GMD tem de vir escrito o motivo, não um traço solto.
+  await pagina.evaluate(() => { animals = [{ id: 'n1', ident: '900' }]; weighings = []; render(); openWeighMode(); });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');
+  await pesarD('900', '280');
+  const semGmd = await pagina.evaluate(() => document.querySelector('#wm-sessao .ws-linha .gmd').textContent);
+  t.conferir('sem histórico a tela escreve o motivo', semGmd === '1ª pesagem', semGmd);
+  await pagina.evaluate(() => { $('weigh-mode').hidden = true; render(); });
 
   // ---------- alarme de pesagem implausível ----------
   t.secao('alarme de erro de digitação');
