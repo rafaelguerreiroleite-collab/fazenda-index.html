@@ -1086,6 +1086,60 @@ $('btn-delete-move').addEventListener('click', () => {
 
 // ===== Modo pesagem =====
 let wmCount = 0;
+let wmSessao = [];   // o que já foi pesado nesta sessão, do mais recente para o mais antigo
+
+function renderSessao() {
+  const el = $('wm-sessao');
+  if (!wmSessao.length) { el.hidden = true; return; }
+  const gmds = wmSessao.map(p => p.gmd).filter(Number.isFinite);
+  const media = gmds.length ? gmds.reduce((s, g) => s + g, 0) / gmds.length : null;
+  const pesos = wmSessao.map(p => p.peso);
+  const mediaPeso = pesos.reduce((s, p) => s + p, 0) / pesos.length;
+  el.innerHTML = `
+    <div class="ws-media">
+      <span class="rot">GMD médio da pesagem${gmds.length < wmSessao.length ? ` · ${gmds.length} de ${wmSessao.length}` : ''}</span>
+      <span class="val ${media != null ? gmdFaixa(media) : ''}">${media != null ? fmtN(media, 3) : '—'}</span>
+    </div>
+    <div class="ws-media">
+      <span class="rot">Peso médio · ${wmSessao.length} ${wmSessao.length === 1 ? 'animal' : 'animais'}</span>
+      <span class="val">${fmtN(mediaPeso, 0)} kg</span>
+    </div>
+    ${wmSessao.map(p => `
+      <div class="ws-linha">
+        <span class="brinco">${esc(p.ident)}</span>
+        <span>${fmtN(p.peso, p.peso % 1 ? 1 : 0)} kg</span>
+        <span class="gmd ${Number.isFinite(p.gmd) ? gmdFaixa(p.gmd) : ''}">${Number.isFinite(p.gmd) ? fmtN(p.gmd, 3) : '—'}</span>
+      </div>`).join('')}`;
+  el.hidden = false;
+}
+
+// Trava contra erro de digitação: um bovino não ganha 3 kg por dia nem pesa 8 kg.
+// Em intervalo curto o GMD não diz nada (o enchimento do rúmen sozinho move
+// dezenas de quilos no mesmo dia), então ali a checagem é pela variação do peso.
+const GMD_MAX = 2.5, GMD_MIN = -1.0, PESO_MIN = 20, PESO_MAX = 1500;
+const DIAS_MIN_GMD = 7, VARIACAO_MAX_CURTA = 0.15;
+function pesagemSuspeita(ident, peso, gmd, anterior, dias) {
+  if (peso < PESO_MIN || peso > PESO_MAX) {
+    return `${ident}: ${fmtN(peso, 1)} kg está fora do esperado para um bovino.`;
+  }
+  if (!anterior || dias <= 0) return null;
+  const antes = anterior.weight;
+  const trecho = `${fmtN(antes, 1)} kg em ${fmtBR(anterior.date)} → ${fmtN(peso, 1)} kg em ${dias} ${dias === 1 ? 'dia' : 'dias'}`;
+  if (dias < DIAS_MIN_GMD) {
+    const variacao = antes > 0 ? Math.abs(peso - antes) / antes : 0;
+    if (variacao > VARIACAO_MAX_CURTA) {
+      return `${ident}: ${fmtN(variacao * 100, 0)}% de diferença em ${dias} ${dias === 1 ? 'dia' : 'dias'}`
+        + `\n${trecho}\n\nVariação grande demais para tão pouco tempo — confira o peso e o brinco.`;
+    }
+    return null;
+  }
+  if (Number.isFinite(gmd) && (gmd > GMD_MAX || gmd < GMD_MIN)) {
+    return `${ident}: isso daria ${fmtN(gmd, 3)} kg por dia\n${trecho}`
+      + `\n\n${gmd > GMD_MAX ? 'Ganho alto demais para um bovino' : 'Perda de peso muito grande'}`
+      + ' — confira o peso digitado e o brinco.';
+  }
+  return null;
+}
 function openWeighMode() {
   wmCount = 0;
   $('wm-date').value = todayISO();
@@ -1093,6 +1147,8 @@ function openWeighMode() {
   $('wm-ident').value = ''; $('wm-peso').value = '';
   $('wm-last').textContent = ''; $('wm-count').textContent = '';
   $('wm-previa').hidden = true;
+  wmSessao = []; renderSessao();
+  esconderSugestoes();
   refreshIdentList();
   $('weigh-mode').hidden = false;
   setTimeout(() => $('wm-ident').focus(), 100);
@@ -1134,11 +1190,48 @@ function atualizarPreviaPesagem() {
   el.hidden = false;
 }
 
-function refreshIdentList() {
-  $('wm-idents').innerHTML = animals.filter(a => !a.sold).map(a => `<option value="${esc(a.ident)}"></option>`).join('');
+// Sugestões de brinco em lista própria. A lista nativa do navegador atrapalha
+// a digitação no iPad — assume o campo assim que se digita o primeiro número.
+const porBrinco = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true });
+function refreshIdentList() { atualizarSugestoes(); }
+function atualizarSugestoes() {
+  const el = $('wm-sugestoes');
+  if (!el || $('weigh-mode').hidden) return;
+  const busca = $('wm-ident').value.trim().toLowerCase();
+  const ativos = animals.filter(a => !a.sold).sort(porBrinco);
+  // Começa pelos que começam com o que foi digitado; depois os que apenas contêm
+  const comeca = ativos.filter(a => a.ident.toLowerCase().startsWith(busca));
+  const contem = busca ? ativos.filter(a => !a.ident.toLowerCase().startsWith(busca) && a.ident.toLowerCase().includes(busca)) : [];
+  const lista = [...comeca, ...contem].slice(0, 200);
+  // Não sugere nada quando já é exatamente um brinco existente
+  if (!lista.length || (lista.length === 1 && lista[0].ident.toLowerCase() === busca)) { el.hidden = true; return; }
+  const data = $('wm-date').value;
+  el.innerHTML = lista.map(a => {
+    const ws = wOf(a.id).filter(w => w.date < data);
+    const ult = ws[ws.length - 1];
+    return `<div class="wm-sug" data-sug="${esc(a.ident)}">
+      <span class="brinco">${esc(a.ident)}</span>
+      <span class="info">${ult ? fmtN(ult.weight, ult.weight % 1 ? 1 : 0) + ' kg · ' + fmtBR(ult.date) : 'sem pesagem'}</span>
+    </div>`;
+  }).join('');
+  el.hidden = false;
 }
+function esconderSugestoes() { const el = $('wm-sugestoes'); if (el) el.hidden = true; }
 ['wm-ident', 'wm-peso'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
-$('wm-date').addEventListener('change', atualizarPreviaPesagem);
+$('wm-date').addEventListener('change', () => { atualizarPreviaPesagem(); atualizarSugestoes(); });
+$('wm-ident').addEventListener('input', atualizarSugestoes);
+$('wm-ident').addEventListener('focus', atualizarSugestoes);
+$('wm-peso').addEventListener('focus', esconderSugestoes);
+// pointerdown com preventDefault: escolhe sem tirar o foco do campo antes da hora
+$('wm-sugestoes').addEventListener('pointerdown', e => {
+  const alvo = e.target.closest('[data-sug]');
+  if (!alvo) return;
+  e.preventDefault();
+  $('wm-ident').value = alvo.dataset.sug;
+  esconderSugestoes();
+  atualizarPreviaPesagem();
+  $('wm-peso').focus();
+});
 $('btn-weigh-mode').addEventListener('click', openWeighMode);
 $('wm-close').addEventListener('click', () => { $('weigh-mode').hidden = true; render(); });
 $('wm-save').addEventListener('click', () => {
@@ -1146,7 +1239,20 @@ $('wm-save').addEventListener('click', () => {
   const peso = parseNum($('wm-peso').value);
   const date = $('wm-date').value;
   if (!ident || !Number.isFinite(peso) || peso <= 0 || !date) { toast('Preencha brinco e peso'); return; }
-  let a = animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase());
+
+  // Confere a plausibilidade ANTES de gravar: com o animal ainda na balança dá
+  // para corrigir; depois, o número errado já contaminou o histórico.
+  const existente = animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase());
+  const anteriorCheck = existente ? wOf(existente.id).filter(x => x.date < date).pop() : null;
+  const diasCheck = anteriorCheck ? daysBetween(anteriorCheck.date, date) : 0;
+  const gmdCheck = anteriorCheck && diasCheck > 0 ? (peso - anteriorCheck.weight) / diasCheck : null;
+  const suspeita = pesagemSuspeita(ident, peso, gmdCheck, anteriorCheck, diasCheck);
+  if (suspeita && !confirm(`⚠️ CONFIRA ESTA PESAGEM\n\n${suspeita}\n\nGravar assim mesmo?`)) {
+    $('wm-peso').select(); $('wm-peso').focus();
+    return;
+  }
+
+  let a = existente;
   let createdNew = false;
   if (!a) {
     a = { id: uid(), ident, cat: '', entryDate: date, entryWeight: null, notes: '' };
@@ -1162,11 +1268,16 @@ $('wm-save').addEventListener('click', () => {
   const g = prev ? gmdBetween(prev, { date, weight: peso }) : null;
   upsert('weighings', w);
   wmCount++;
+  // a mais recente entra no topo; repesar o mesmo animal atualiza a linha dele
+  wmSessao = wmSessao.filter(p => p.id !== a.id);
+  wmSessao.unshift({ id: a.id, ident: a.ident, peso, gmd: g });
+  renderSessao();
   $('wm-count').textContent = `${wmCount} pesagen${wmCount > 1 ? 's' : ''} nesta sessão`;
   $('wm-last').textContent = `✓ ${a.ident} · ${fmtN(peso, 1)} kg` +
     (Number.isFinite(g) ? ` · GMD ${fmtN(g, 3)} (desde ${fmtBR(prev.date)})` : createdNew ? ' · novo animal' : replaced ? ' · atualizada' : ' · 1ª pesagem');
   $('wm-ident').value = ''; $('wm-peso').value = '';
   $('wm-previa').hidden = true;
+  esconderSugestoes();
   $('wm-ident').focus();
 });
 

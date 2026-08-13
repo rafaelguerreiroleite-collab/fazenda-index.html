@@ -207,6 +207,118 @@ export default async function () {
   t.conferir('prévia some depois de salvar', await pagina.evaluate(() => $('wm-previa').hidden));
   await pagina.evaluate(() => { $('weigh-mode').hidden = true; render(); });
 
+  // ---------- sugestões de brinco ----------
+  t.secao('lista de brincos');
+  await pagina.evaluate(() => {
+    animals = [{ id: 's1', ident: '292' }, { id: 's2', ident: '9' }, { id: 's3', ident: '405' },
+               { id: 's4', ident: '295' }, { id: 's5', ident: '1200' }, { id: 's6', ident: '30', sold: true }];
+    weighings = [{ id: 'sw1', animalId: 's1', date: '2026-06-18', weight: 203 }];
+    render(); openWeighMode();
+  });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');
+  const sugestoes = () => pagina.evaluate(() => [...document.querySelectorAll('#wm-sugestoes .brinco')].map(e => e.textContent));
+  await pagina.click('#wm-ident'); await pagina.waitForTimeout(80);
+  let sug = await sugestoes();
+  t.conferir('ordem numérica do menor para o maior', JSON.stringify(sug) === '["9","292","295","405","1200"]', JSON.stringify(sug));
+  t.conferir('animal vendido fora da lista', !sug.includes('30'));
+
+  await pagina.type('#wm-ident', '29');
+  await pagina.waitForTimeout(80);
+  sug = await sugestoes();
+  t.conferir('filtra pelo que foi digitado, em ordem', JSON.stringify(sug) === '["292","295"]', JSON.stringify(sug));
+  t.conferir('o que foi digitado permanece no campo', await pagina.inputValue('#wm-ident') === '29');
+
+  await pagina.type('#wm-ident', '2');
+  await pagina.waitForTimeout(80);
+  t.conferir('digitar até o brinco exato mantém o texto', await pagina.inputValue('#wm-ident') === '292');
+  t.conferir('lista some quando o brinco está completo', await pagina.evaluate(() => $('wm-sugestoes').hidden));
+
+  await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', '4');
+  await pagina.waitForTimeout(80);
+  await pagina.evaluate(() => document.querySelector('[data-sug="405"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+  await pagina.waitForTimeout(80);
+  t.conferir('tocar na sugestão preenche o brinco', await pagina.inputValue('#wm-ident') === '405');
+  t.conferir('lista fecha depois de escolher', await pagina.evaluate(() => $('wm-sugestoes').hidden));
+
+  // ---------- alarme de pesagem implausível ----------
+  t.secao('alarme de erro de digitação');
+  await pagina.evaluate(() => {
+    animals = [{ id: 'x1', ident: '293' }];
+    weighings = [{ id: 'xw1', animalId: 'x1', date: '2026-06-18', weight: 147 }];
+    wmSessao = []; render(); openWeighMode();
+  });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');
+  const tentar = async (brinco, peso, aceitar) => {
+    let msg = null;
+    const h = async d => { msg = d.message(); await (aceitar ? d.accept() : d.dismiss()); };
+    pagina.once('dialog', h);
+    await pagina.fill('#wm-ident', ''); await pagina.type('#wm-ident', brinco);
+    await pagina.fill('#wm-peso', ''); await pagina.type('#wm-peso', peso);
+    await pagina.click('#wm-save'); await pagina.waitForTimeout(120);
+    pagina.removeListener('dialog', h);
+    return msg;
+  };
+  let aviso = await tentar('293', '330', false);   // 3,327 kg/dia: impossível
+  t.conferir('GMD impossível dispara alarme', /CONFIRA/.test(aviso || '') && /3,327/.test(aviso || ''), (aviso || 'sem alarme').split('\n')[2] || '');
+  t.conferir('recusando, nada é gravado', await pagina.evaluate(() => weighings.length) === 1);
+  aviso = await tentar('293', '200', false);        // 0,964: plausível
+  t.conferir('ganho plausível não incomoda', aviso === null);
+  t.conferir('e é gravado normalmente', await pagina.evaluate(() => weighings.length) === 2);
+  aviso = await tentar('293', '8', false);          // peso absurdo
+  t.conferir('peso absurdo dispara alarme', /fora do esperado/.test(aviso || ''), '');
+  aviso = await tentar('293', '330', true);         // aceita mesmo assim
+  t.conferir('aceitando o alarme, grava', await pagina.evaluate(() => weighings.some(w => w.weight === 330)));
+
+  // ---------- lista da sessão ----------
+  t.secao('lista da sessão abaixo do botão');
+  await pagina.evaluate(() => {
+    animals = [{ id: 'm1', ident: '292' }, { id: 'm2', ident: '293' }, { id: 'm3', ident: '294' }];
+    weighings = [{ id: 'mw1', animalId: 'm1', date: '2026-06-18', weight: 200 },
+                 { id: 'mw2', animalId: 'm2', date: '2026-06-18', weight: 300 },
+                 { id: 'mw3', animalId: 'm3', date: '2026-06-18', weight: 250 }];
+    render(); openWeighMode();
+  });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-12');   // 55 dias depois
+  t.conferir('lista começa escondida', await pagina.evaluate(() => $('wm-sessao').hidden));
+  const pesarS = async (b, p) => { await pagina.fill('#wm-ident',''); await pagina.type('#wm-ident', b);
+    await pagina.fill('#wm-peso',''); await pagina.type('#wm-peso', p);
+    await pagina.click('#wm-save'); await pagina.waitForTimeout(100); };
+  await pesarS('292', '255');   // +55 em 55d = 1,000
+  await pesarS('293', '355');   // +55 em 55d = 1,000
+  await pesarS('294', '277');   // +27 em 55d = 0,491
+  const sessao = await pagina.evaluate(() => ({
+    media: document.querySelector('#wm-sessao .ws-media .val').textContent,
+    cabecalhos: [...document.querySelectorAll('#wm-sessao .ws-media')].map(e => e.querySelector('.val').textContent),
+    linhas: [...document.querySelectorAll('#wm-sessao .ws-linha')].map(l => [...l.children].map(c => c.textContent))
+  }));
+  const esperado = (1 + 1 + 27 / 55) / 3;
+  t.conferir('média do GMD da sessão', sessao.media === fmt3(esperado), sessao.media + ' (esperado ' + fmt3(esperado) + ')');
+  t.conferir('peso médio da sessão', sessao.cabecalhos[1] === '296 kg', sessao.cabecalhos[1]);
+  t.conferir('três animais na lista', sessao.linhas.length === 3);
+  t.conferir('mais recente no topo', sessao.linhas[0][0] === '294', sessao.linhas[0][0]);
+  t.conferir('GMD individual por linha', sessao.linhas[0][2] === '0,491' && sessao.linhas[1][2] === '1,000', sessao.linhas.map(l => l[2]).join(' '));
+  await pesarS('294', '300');   // repesa o mesmo animal
+  const dep = await pagina.evaluate(() => [...document.querySelectorAll('#wm-sessao .ws-linha')].map(l => l.children[0].textContent));
+  t.conferir('repesar atualiza a linha, não duplica', dep.length === 3 && dep[0] === '294', dep.join(','));
+  function fmt3(n) { return n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 }); }
+
+  // ---------- intervalo curto: GMD nao serve, vale a variacao do peso ----------
+  t.secao('intervalo curto entre pesagens');
+  await pagina.evaluate(() => {
+    animals = [{ id: 'c1', ident: '500' }];
+    weighings = [{ id: 'cw1', animalId: 'c1', date: '2026-08-12', weight: 400 }];
+    wmSessao = []; render(); openWeighMode();
+  });
+  await pagina.waitForTimeout(250);
+  await pagina.fill('#wm-date', '2026-08-14');   // 2 dias depois
+  aviso = await tentar('500', '410', false);      // +2,5%: repesagem normal
+  t.conferir('repesar em 2 dias com pequena diferença não alarma', aviso === null, aviso || '');
+  aviso = await tentar('500', '520', false);      // +30% em 2 dias: erro de digitação
+  t.conferir('variação absurda em poucos dias alarma', /% de diferença/.test(aviso || ''), (aviso || 'sem alarme').split('\n')[0]);
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;

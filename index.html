@@ -257,12 +257,15 @@
     </label>
   </div>
   <label class="mono">Brinco / identificação</label>
-  <input type="text" id="wm-ident" list="wm-idents" placeholder="BR001" autocomplete="off" autocapitalize="characters" />
-  <datalist id="wm-idents"></datalist>
+  <div class="wm-campo">
+    <input type="text" id="wm-ident" placeholder="BR001" autocomplete="off" autocorrect="off" spellcheck="false" autocapitalize="characters" />
+    <div class="wm-sugestoes" id="wm-sugestoes" hidden></div>
+  </div>
   <label class="mono">Peso (kg)</label>
   <input type="text" inputmode="decimal" step="0.1" id="wm-peso" placeholder="415" />
   <div class="wm-previa" id="wm-previa" hidden></div>
   <button class="wm-save" id="wm-save">Salvar e próximo →</button>
+  <div class="wm-sessao" id="wm-sessao" hidden></div>
   <p class="wm-last mono" id="wm-last"></p>
   <p class="wm-count mono" id="wm-count"></p>
   <p class="wm-hint">Animal não cadastrado é criado automaticamente. Pesagem repetida no mesmo dia substitui a anterior. Funciona sem sinal — sincroniza quando a internet voltar.</p>

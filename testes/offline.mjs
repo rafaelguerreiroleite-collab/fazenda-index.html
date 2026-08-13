@@ -80,9 +80,11 @@ export default async function () {
 
   await pagina.evaluate(() => openWeighMode());
   await pagina.waitForTimeout(250);
-  t.conferir('lista de brincos traz todos os 92',
-    await pagina.evaluate(() => $('wm-idents').querySelectorAll('option').length) === 92,
-    'sugeriu ' + await pagina.evaluate(() => $('wm-idents').querySelectorAll('option').length));
+  await pagina.click('#wm-ident'); await pagina.waitForTimeout(120);
+  const sugeridos = await pagina.evaluate(() => [...document.querySelectorAll('#wm-sugestoes .brinco')].map(e => e.textContent));
+  t.conferir('lista de brincos traz todos os 92 sem sinal', sugeridos.length === 92, 'sugeriu ' + sugeridos.length);
+  t.conferir('e em ordem numérica', sugeridos[0] === '292' && sugeridos[91] === '383', sugeridos[0] + ' … ' + sugeridos[91]);
+  await pagina.evaluate(() => esconderSugestoes());
 
   await pagina.fill('#wm-date', '2026-08-12');
   const pesar = async (brinco, peso) => {

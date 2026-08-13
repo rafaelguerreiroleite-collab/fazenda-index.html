@@ -296,6 +296,45 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
   font-family: 'Fraunces', serif; font-size: 1.2rem; font-weight: 700;
 }
 .wm-save:active { opacity: 0.85; }
+/* Sugestões de brinco: lista própria, porque a nativa do iPad rouba a digitação */
+.wm-campo { position: relative; }
+.wm-sugestoes {
+  position: absolute; top: calc(100% + 0.25rem); left: 0; right: 0; z-index: 30;
+  max-height: 15rem; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: #1d3f2c; border: 1px solid rgba(255,255,255,0.22); border-radius: 4px;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+}
+.wm-sugestoes[hidden] { display: none; }
+.wm-sug {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem;
+  padding: 0.7rem 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.08); cursor: pointer;
+}
+.wm-sug:last-child { border-bottom: none; }
+.wm-sug:active { background: rgba(255,255,255,0.12); }
+.wm-sug .brinco { font-family: 'Fraunces', serif; font-weight: 700; font-size: 1.05rem; color: #fafaf9; }
+.wm-sug .info { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: #9dbcaa; }
+
+/* Pesagens já feitas nesta sessão */
+.wm-sessao { margin-top: 1rem; border: 1px solid rgba(255,255,255,0.18); border-radius: 4px; overflow: hidden; }
+.wm-sessao[hidden] { display: none; }
+.ws-media {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem;
+  padding: 0.65rem 0.85rem; background: rgba(255,255,255,0.1);
+  border-bottom: 1px solid rgba(255,255,255,0.18);
+}
+.ws-media .rot { font-family: 'DM Mono', monospace; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; color: #9dbcaa; }
+.ws-media .val { font-family: 'Fraunces', serif; font-weight: 800; font-size: 1.15rem; color: #cfe3d6; }
+.ws-linha {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 0.75rem; align-items: baseline;
+  padding: 0.5rem 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.07);
+  font-family: 'DM Mono', monospace; font-size: 0.76rem; color: #cfe3d6;
+}
+.ws-linha:last-child { border-bottom: none; }
+.ws-linha .brinco { font-family: 'Fraunces', serif; font-weight: 600; font-size: 0.95rem; color: #fafaf9; }
+.ws-linha .gmd { text-align: right; min-width: 4.5rem; }
+.g-baixo { color: #fca5a5; } .g-medio { color: #fcd34d; }
+.g-bom { color: #a7f3d0; }   .g-otimo { color: #6ee7b7; }
+
 /* Prévia mostrada com o animal ainda na balança, antes de salvar */
 .wm-previa {
   margin-top: 0.9rem; padding: 0.75rem 0.9rem; border-radius: 4px;
