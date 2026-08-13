@@ -1505,27 +1505,61 @@ $('menu-clear').addEventListener('click', async () => {
 // Serve para acertar o rebanho depois de uma venda em lote: quem passou pela
 // balança fica com todo o histórico, o resto sai. Como é irreversível, a tela
 // mostra brinco por brinco quem sai antes de qualquer coisa acontecer.
-function limpezaSeparar(data) {
-  const idsFicam = new Set(weighings.filter(w => w.date === data).map(w => w.animalId));
+// Cada dia em que houve pesagem, com quantos animais passaram pela balança.
+// Serve de conferência antes de apagar: se um dia mostra muito mais animais do
+// que passaram no curral, o número não veio de pesagem — veio de peso de
+// entrada de cadastro ou de importação de CSV, e isso aparece separado aqui.
+function diasDePesagem() {
+  const porDia = new Map();
+  for (const w of weighings) {
+    if (!porDia.has(w.date)) porDia.set(w.date, { data: w.date, animais: new Set(), entrada: 0, importado: 0 });
+    const d = porDia.get(w.date);
+    d.animais.add(w.animalId);
+    if (w.notes === 'Peso de entrada') d.entrada++;
+    else if (w.notes === 'Importado') d.importado++;
+  }
+  return [...porDia.values()]
+    .map(d => ({ ...d, total: d.animais.size, curral: d.animais.size - d.entrada - d.importado }))
+    .sort((a, b) => b.data.localeCompare(a.data));
+}
+let lmDias = new Set();
+function limpezaSeparar(datas) {
+  const idsFicam = new Set(weighings.filter(w => datas.has(w.date)).map(w => w.animalId));
   const ficam = animals.filter(a => idsFicam.has(a.id)).sort(porBrinco);
   const saem = animals.filter(a => !idsFicam.has(a.id)).sort(porBrinco);
   return { ficam, saem };
 }
+function renderDiasLimpeza() {
+  const dias = diasDePesagem();
+  $('lm-dias').innerHTML = !dias.length
+    ? '<p class="lm-vazio mono">Nenhuma pesagem registrada.</p>'
+    : dias.slice(0, 20).map(d => {
+      const origem = d.entrada || d.importado
+        ? `<span class="origem">${d.curral} do curral` +
+          `${d.entrada ? ` · ${d.entrada} de cadastro` : ''}` +
+          `${d.importado ? ` · ${d.importado} importados` : ''}</span>`
+        : '';
+      return `<label class="lm-dia">
+        <input type="checkbox" data-dia="${d.data}"${lmDias.has(d.data) ? ' checked' : ''} />
+        <span class="d">${fmtBR(d.data)}</span>
+        <span class="n mono">${d.total} ${d.total === 1 ? 'animal' : 'animais'}${origem}</span>
+      </label>`;
+    }).join('') + (dias.length > 20 ? `<p class="lm-vazio mono">+ ${dias.length - 20} dia(s) mais antigos, não listados.</p>` : '');
+}
 function renderLimpeza() {
-  const data = $('lm-date').value;
   const btn = $('lm-confirm');
-  if (!data) {
-    $('lm-resumo').innerHTML = '<p class="lm-vazio mono">Escolha a data da pesagem.</p>';
+  if (!lmDias.size) {
+    $('lm-resumo').innerHTML = '<p class="lm-vazio mono">Marque ao menos um dia de pesagem.</p>';
     $('lm-listas').innerHTML = ''; $('lm-aviso').hidden = true;
-    btn.disabled = true; btn.textContent = 'Apagar'; return;
+    btn.disabled = true; btn.textContent = 'Marque os dias'; return;
   }
-  const { ficam, saem } = limpezaSeparar(data);
+  const { ficam, saem } = limpezaSeparar(lmDias);
   $('lm-resumo').innerHTML = `
     <div class="lm-numeros">
       <div class="lm-num"><span class="v">${ficam.length}</span><span class="r mono">ficam</span></div>
       <div class="lm-num saem"><span class="v">${saem.length}</span><span class="r mono">saem</span></div>
     </div>
-    ${!ficam.length ? '<p class="lm-vazio mono">Nenhum animal foi pesado nesta data — confira o dia antes de continuar.</p>' : ''}`;
+    ${!ficam.length ? '<p class="lm-vazio mono">Nenhum animal foi pesado nos dias marcados — confira antes de continuar.</p>' : ''}`;
   const linha = a => {
     const ws = wOf(a.id);
     const ult = ws[ws.length - 1];
@@ -1539,27 +1573,33 @@ function renderLimpeza() {
   const pesagensSaem = saem.reduce((s, a) => s + wOf(a.id).length, 0);
   $('lm-aviso').hidden = !saem.length;
   // Sem nada para apagar, ou sem ninguém sobrando, o botão nem liga: apagar o
-  // rebanho inteiro por engano de data seria a pior forma de descobrir o erro.
+  // rebanho inteiro por engano de dia seria a pior forma de descobrir o erro.
   btn.disabled = !saem.length || !ficam.length;
-  btn.textContent = !ficam.length ? 'Confira a data' :
+  btn.textContent = !ficam.length ? 'Confira os dias' :
     !saem.length ? 'Nada a apagar' :
     `Apagar ${saem.length} ${saem.length === 1 ? 'animal' : 'animais'} e ${pesagensSaem} ${pesagensSaem === 1 ? 'pesagem' : 'pesagens'}`;
 }
 $('menu-limpeza').addEventListener('click', () => {
   closeAllM();
-  $('lm-date').value = todayISO();
-  renderLimpeza();
+  // Já vem marcado o que foi pedido no curral: o último dia de pesagem e o
+  // anterior. Continua sendo uma sugestão — o que vale é o que estiver marcado.
+  lmDias = new Set(diasDePesagem().slice(0, 2).map(d => d.data));
+  renderDiasLimpeza(); renderLimpeza();
   openM('modal-limpeza');
 });
-$('lm-date').addEventListener('change', renderLimpeza);
+$('lm-dias').addEventListener('change', e => {
+  const cx = e.target.closest('[data-dia]');
+  if (!cx) return;
+  cx.checked ? lmDias.add(cx.dataset.dia) : lmDias.delete(cx.dataset.dia);
+  renderLimpeza();
+});
 $('lm-backup').addEventListener('click', () => $('menu-backup').click());
 $('lm-confirm').addEventListener('click', async () => {
-  const data = $('lm-date').value;
-  const { ficam, saem } = limpezaSeparar(data);
+  const { ficam, saem } = limpezaSeparar(lmDias);
   if (!saem.length || !ficam.length) return;
   const pesagensSaem = saem.flatMap(a => wOf(a.id));
   if (!confirm(`Apagar ${saem.length} animais e ${pesagensSaem.length} pesagens, em todos os aparelhos?\n\n`
-    + `Ficam os ${ficam.length} pesados em ${fmtBR(data)}, com o histórico completo.\n\n`
+    + `Ficam os ${ficam.length} pesados em ${[...lmDias].sort().reverse().map(fmtBR).join(' e ')}, com o histórico completo.\n\n`
     + 'Recomendado baixar o backup antes.')) return;
   const typed = prompt('Esta ação NÃO pode ser desfeita.\n\nPara confirmar, digite a palavra:\n\nAPAGAR');
   if (typed == null) return;

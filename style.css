@@ -407,3 +407,9 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .lm-bloco > summary + .lm-linha { border-top: 1px solid #e7e5e4; }
 .lm-aviso { font-size: 0.75rem; color: #991b1b; background: #fee2e2; border-radius: 3px; padding: 0.5rem 0.65rem; }
 #lm-listas { max-height: 45vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.lm-dia { display: flex; align-items: baseline; gap: 0.6rem; padding: 0.55rem 0.7rem; border: 1px solid #e7e5e4; border-radius: 3px; margin-bottom: 0.35rem; cursor: pointer; }
+.lm-dia input { width: 1.15rem; height: 1.15rem; flex-shrink: 0; accent-color: #225437; }
+.lm-dia .d { font-weight: 600; font-size: 0.9rem; }
+.lm-dia .n { margin-left: auto; text-align: right; font-size: 0.7rem; color: #57534e; }
+.lm-dia .origem { display: block; font-size: 0.62rem; color: #b45309; margin-top: 0.15rem; }
+.lm-dia:has(input:checked) { border-color: #225437; background: #f0f7f3; }

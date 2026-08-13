@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=8" />
+<link rel="stylesheet" href="style.css?v=9" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -496,9 +496,9 @@ BR002,15/01/2025,340</pre>
       <button class="close-btn" data-close>×</button>
     </header>
     <div class="import-body">
-      <p>Mantém no rebanho <b>apenas os animais pesados na data abaixo</b>, com todo o histórico deles. Os outros são apagados de vez, junto com as pesagens deles.</p>
-      <label class="mono">Data da pesagem que fica</label>
-      <input type="date" id="lm-date" />
+      <p>Mantém no rebanho <b>apenas os animais pesados nos dias marcados</b>, com todo o histórico deles. Os outros são apagados de vez, junto com as pesagens deles.</p>
+      <label class="mono">Dias de pesagem — marque os que ficam</label>
+      <div id="lm-dias"></div>
       <div id="lm-resumo"></div>
       <button type="button" class="btn-secondary" id="lm-backup">💾 Baixar backup antes de apagar</button>
       <div id="lm-listas"></div>
@@ -553,6 +553,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

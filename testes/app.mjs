@@ -202,7 +202,21 @@ export default async function () {
     render(); $('menu-limpeza').click();
   });
   await montarRebanho();
-  await pagina.fill('#lm-date', '2026-08-13');
+  await pagina.waitForTimeout(120);
+  // A tela abre listando os dias de pesagem, com o ultimo e o anterior ja marcados.
+  const diasNaTela = await pagina.evaluate(() => [...document.querySelectorAll('#lm-dias .lm-dia')].map(l => ({
+    data: l.querySelector('.d').textContent, n: l.querySelector('.n').textContent.trim(),
+    marcado: l.querySelector('input').checked
+  })));
+  t.conferir('lista os dias de pesagem, do mais novo para o mais velho',
+    diasNaTela.map(d => d.data).join(' ') === '13/08/26 01/07/26 18/06/26', diasNaTela.map(d => d.data).join(' '));
+  t.conferir('mostra quantos animais em cada dia',
+    diasNaTela[0].n.startsWith('2 animais') && diasNaTela[2].n.startsWith('2 animais'), diasNaTela.map(d => d.n).join(' | '));
+  t.conferir('ja vem marcado o ultimo dia e o anterior',
+    JSON.stringify(diasNaTela.map(d => d.marcado)) === '[true,true,false]', JSON.stringify(diasNaTela.map(d => d.marcado)));
+
+  // Desmarca 01/07 para conferir so o dia de hoje.
+  await pagina.uncheck('#lm-dias input[data-dia="2026-07-01"]');
   await pagina.waitForTimeout(120);
   const tela = await pagina.evaluate(() => ({
     numeros: [...document.querySelectorAll('#lm-resumo .lm-num .v')].map(e => e.textContent),
@@ -217,20 +231,33 @@ export default async function () {
   t.conferir('o botão diz o tamanho do estrago', /3 animais e 2 pesagens/.test(tela.botao), tela.botao);
   t.conferir('botão liberado quando há o que apagar', tela.desabilitado === false);
 
-  // Data sem pesagem nenhuma apagaria o rebanho inteiro: o botão trava.
-  await pagina.fill('#lm-date', '2026-01-01');
+  // Marcar hoje + o dia anterior mantem os dois grupos: e o que foi pedido.
+  await pagina.check('#lm-dias input[data-dia="2026-07-01"]');
   await pagina.waitForTimeout(120);
-  t.conferir('data sem pesagem trava o botão', await pagina.evaluate(() => $('lm-confirm').disabled),
+  const doisDias = await pagina.evaluate(() => ({
+    numeros: [...document.querySelectorAll('#lm-resumo .lm-num .v')].map(e => e.textContent),
+    ficam: [...[...document.querySelectorAll('#lm-listas details')][1].querySelectorAll('.lm-linha .brinco')].map(e => e.textContent)
+  }));
+  t.conferir('marcar dois dias soma os animais dos dois',
+    JSON.stringify(doisDias.ficam) === '["292","293","295"]', JSON.stringify(doisDias.ficam));
+  t.conferir('e a conta acompanha', JSON.stringify(doisDias.numeros) === '["3","2"]', JSON.stringify(doisDias.numeros));
+
+  // Nenhum dia marcado apagaria o rebanho inteiro: o botão trava.
+  await pagina.evaluate(() => { lmDias = new Set(); renderDiasLimpeza(); renderLimpeza(); });
+  await pagina.waitForTimeout(120);
+  t.conferir('sem dia marcado o botão trava', await pagina.evaluate(() => $('lm-confirm').disabled),
     await pagina.evaluate(() => $('lm-confirm').textContent));
   t.conferir('e o botão travado não mostra número de estrago',
-    await pagina.evaluate(() => $('lm-confirm').textContent) === 'Confira a data',
+    await pagina.evaluate(() => $('lm-confirm').textContent) === 'Marque os dias',
     await pagina.evaluate(() => $('lm-confirm').textContent));
-  t.conferir('e avisa que ninguém foi pesado nesse dia',
-    /Nenhum animal foi pesado/.test(await pagina.evaluate(() => $('lm-resumo').textContent)));
+  t.conferir('e a tela pede para marcar um dia',
+    /Marque ao menos um dia/.test(await pagina.evaluate(() => $('lm-resumo').textContent)),
+    await pagina.evaluate(() => $('lm-resumo').textContent.trim()));
 
   const limpar = async resposta => {
     await montarRebanho();
-    await pagina.fill('#lm-date', '2026-08-13'); await pagina.waitForTimeout(120);
+    await pagina.evaluate(() => { lmDias = new Set(['2026-08-13']); renderDiasLimpeza(); renderLimpeza(); });
+    await pagina.waitForTimeout(120);
     const h = async d => { d.type() === 'confirm' ? await d.accept() : (resposta === null ? await d.dismiss() : await d.accept(resposta)); };
     pagina.on('dialog', h);
     await pagina.click('#lm-confirm'); await pagina.waitForTimeout(150);
