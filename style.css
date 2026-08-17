@@ -416,3 +416,8 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 /* Data da última pesagem na lista do rebanho: mostra de relance quem passou
    pela balança no dia e quem não passou, sem precisar abrir a ficha. */
 .item-quando { font-size: 0.66rem; color: #78716c; margin-top: 0.1rem; }
+/* Mortalidade: o cartão da taxa e o do peso perdido não podem parecer bons
+   números. Ficam com o mesmo vermelho claro já usado para GMD negativo. */
+#mortes-stats .stat-card:nth-child(2) .stat-value,
+#mortes-stats2 .stat-value { color: #fca5a5; }
+#an-dead-wrap { border-left: 2px solid #fca5a5; padding-left: 0.75rem; margin: 0.5rem 0 0.75rem; }

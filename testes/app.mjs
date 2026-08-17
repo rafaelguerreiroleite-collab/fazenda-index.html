@@ -84,6 +84,70 @@ export default async function () {
   t.conferir('média em arrobas', st[4] === '13,9 @', st[4]);
   t.conferir('total do rebanho em arrobas', st[5] === '28 @', st[5]);
 
+  // ---------- mortalidade ----------
+  // O que importa aqui: o animal morto tem de sair de TODOS os totais, não só
+  // da contagem. Um morto que continua somando peso estraga peso médio,
+  // arrobas e GMD médio — os números que decidem venda.
+  t.secao('mortalidade');
+  const comMorto = async morto => pagina.evaluate(m => {
+    animals = [{ id: 'v1', ident: '1' }, { id: 'v2', ident: '2' }, { id: 'v3', ident: '3' }];
+    if (m) Object.assign(animals[2], { dead: true, deadDate: '2026-08-10', deadCause: 'Picada de cobra' });
+    weighings = [{ id: 'vw1', animalId: 'v1', date: '2026-04-01', weight: 300 },
+                 { id: 'vw2', animalId: 'v2', date: '2026-04-01', weight: 400 },
+                 { id: 'vw3', animalId: 'v3', date: '2026-04-01', weight: 800 }];
+    settings.yield = 50; seg = 'rebanho'; detailAnimal = null; render();
+    return [...document.querySelectorAll('#bov-stats .stat-value')].map(x => x.textContent);
+  }, morto);
+  const vivos3 = await comMorto(false);
+  const vivos2 = await comMorto(true);
+  t.conferir('animal morto sai da contagem', vivos3[0] === '3' && vivos2[0] === '2', `${vivos3[0]} → ${vivos2[0]}`);
+  t.conferir('sai do peso médio', vivos3[3] === '500 kg' && vivos2[3] === '350 kg', `${vivos3[3]} → ${vivos2[3]}`);
+  t.conferir('sai do total em arrobas', vivos3[5] === '50 @' && vivos2[5] === '23 @', `${vivos3[5]} → ${vivos2[5]}`);
+  t.conferir('e some da lista do rebanho',
+    await pagina.evaluate(() => [...document.querySelectorAll('#animal-list .item-title')].map(e => e.textContent).join(',')) === '1,2');
+
+  const mortes = await pagina.evaluate(() => {
+    seg = 'mortes'; render();
+    return {
+      cartoes: [...document.querySelectorAll('#mortes-stats .stat-value')].map(x => x.textContent),
+      perdas: [...document.querySelectorAll('#mortes-stats2 .stat-value')].map(x => x.textContent),
+      linha: document.querySelector('#mortes-list .item-subtitle').textContent,
+      peso: document.querySelector('#mortes-list .item-side .value').textContent,
+      vazio: $('mortes-empty').hidden
+    };
+  });
+  t.conferir('a aba conta a morte', mortes.cartoes[0] === '1', mortes.cartoes[0]);
+  t.conferir('taxa = 1 morto ÷ (2 vivos + 1 morto)', mortes.cartoes[1] === '33,3%', mortes.cartoes[1]);
+  t.conferir('mostra quantos restam no rebanho', mortes.cartoes[2] === '2', mortes.cartoes[2]);
+  t.conferir('peso perdido é o último peso do morto', mortes.perdas[0] === '800 kg', mortes.perdas[0]);
+  t.conferir('arrobas perdidas com o rendimento aplicado', mortes.perdas[1] === '26,7 @', mortes.perdas[1]);
+  t.conferir('a linha traz data e causa', /10\/08\/26/.test(mortes.linha) && /cobra/i.test(mortes.linha), mortes.linha);
+  t.conferir('e o peso do animal', mortes.peso === '800 kg', mortes.peso);
+  t.conferir('aviso de lista vazia não aparece', mortes.vazio === true);
+
+  const semMortes = await pagina.evaluate(() => {
+    animals.forEach(a => { delete a.dead; delete a.deadDate; delete a.deadCause; });
+    render();
+    return { vazio: $('mortes-empty').hidden, taxa: document.querySelectorAll('#mortes-stats .stat-value')[1].textContent };
+  });
+  t.conferir('sem mortes a taxa é 0%', semMortes.taxa === '0,0%', semMortes.taxa);
+  t.conferir('e a tela avisa que não há mortes', semMortes.vazio === false);
+
+  // Vendido e morto não podem valer ao mesmo tempo: são saídas diferentes.
+  const exclusivo = await pagina.evaluate(() => {
+    openAnimal(animals[0]);
+    $('an-dead').checked = true; $('an-dead').dispatchEvent(new Event('change'));
+    $('an-sold').checked = true; $('an-sold').dispatchEvent(new Event('change'));
+    const r = { depoisDeVender: $('an-dead').checked };
+    $('an-dead').checked = true; $('an-dead').dispatchEvent(new Event('change'));
+    r.depoisDeMorrer = $('an-sold').checked;
+    closeAllM();
+    return r;
+  });
+  t.conferir('marcar vendido desmarca morto', exclusivo.depoisDeVender === false);
+  t.conferir('marcar morto desmarca vendido', exclusivo.depoisDeMorrer === false);
+  await pagina.evaluate(() => { seg = 'rebanho'; detailAnimal = null; render(); });
+
   // ---------- ordenação ----------
   t.secao('ordenação do rebanho');
   await pagina.evaluate(() => {

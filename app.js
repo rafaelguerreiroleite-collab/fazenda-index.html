@@ -297,6 +297,12 @@ function findDupTrans(list, data, book, ignoreId) {
 // ===== Cálculos =====
 const wOf = aid => weighings.filter(w => w.animalId === aid).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
 
+// Quem está no rebanho de verdade: nem vendido, nem morto. Um único lugar
+// decide isso, porque contagem, peso médio, arrobas, GMD médio e busca por
+// brinco precisam concordar — se cada tela filtrasse por conta própria, o
+// animal morto sumiria de uma e continuaria somando na outra.
+const noRebanho = a => !a.sold && !a.dead;
+
 // "292", " 292" e "292 " são o mesmo brinco. Sem normalizar, um espaço a mais
 // digitado no curral criava um animal novo e o GMD desaparecia.
 const chaveBrinco = s => String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase();
@@ -310,7 +316,7 @@ function animalDoBrinco(ident) {
   if (!chave) return null;
   const iguais = animals.filter(a => chaveBrinco(a.ident) === chave);
   if (!iguais.length) return null;
-  const ativos = iguais.filter(a => !a.sold);
+  const ativos = iguais.filter(noRebanho);
   return (ativos.length ? ativos : iguais)
     .slice()
     .sort((a, b) => wOf(b.id).length - wOf(a.id).length)[0];
@@ -351,19 +357,20 @@ function render() {
   $('view-aviarios').classList.toggle('active', tab === 'aviarios');
   if (tab === 'bovinos') {
     document.querySelectorAll('#bov-segs .seg').forEach(s => s.classList.toggle('active', s.dataset.seg === seg));
-    ['bov-rebanho', 'bov-detail', 'bov-vendidas', 'bov-estoque', 'stock-detail', 'bov-fin', 'bov-custos'].forEach(id => $(id).classList.remove('active'));
+    ['bov-rebanho', 'bov-detail', 'bov-vendidas', 'bov-mortes', 'bov-estoque', 'stock-detail', 'bov-fin', 'bov-custos'].forEach(id => $(id).classList.remove('active'));
     if (seg === 'rebanho') { $(detailAnimal ? 'bov-detail' : 'bov-rebanho').classList.add('active'); detailAnimal ? renderAnimalDetail() : renderRebanho(); }
     if (seg === 'vendidas') { $('bov-vendidas').classList.add('active'); renderVendidas(); }
+    if (seg === 'mortes') { $('bov-mortes').classList.add('active'); renderMortes(); }
     if (seg === 'custos') { $('bov-custos').classList.add('active'); renderCustos(); }
     if (seg === 'estoque') { $(detailItem ? 'stock-detail' : 'bov-estoque').classList.add('active'); detailItem ? renderStockDetail() : renderEstoque(); }
     if (seg === 'financeiro') { $('bov-fin').classList.add('active'); renderFin('bov'); }
   } else { renderFin('av'); }
-  // Vendidas e Custos não têm nada para adicionar pelo botão +
-  $('fab').hidden = tab === 'bovinos' && (seg === 'vendidas' || seg === 'custos');
+  // Vendidas, Mortalidade e Custos não têm nada para adicionar pelo botão +
+  $('fab').hidden = tab === 'bovinos' && ['vendidas', 'mortes', 'custos'].includes(seg);
 }
 
 function renderRebanho() {
-  const activeAnimals = animals.filter(a => !a.sold);
+  const activeAnimals = animals.filter(noRebanho);
   const activeIds = new Set(activeAnimals.map(a => a.id));
   const n = activeAnimals.length;
   const gmds = activeAnimals.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite);
@@ -421,6 +428,43 @@ function renderRebanho() {
     </div>`;
   }).join('');
   $('bov-empty').hidden = n > 0;
+}
+
+// Mortalidade. O peso perdido é o último peso conhecido de cada animal morto:
+// é exatamente o que saiu do total do rebanho quando ele foi marcado.
+function renderMortes() {
+  const mortos = animals.filter(a => a.dead).sort((a, b) => (b.deadDate || '').localeCompare(a.deadDate || ''));
+  const vivos = animals.filter(noRebanho).length;
+  // Denominador = quem está no rebanho hoje + quem morreu. Vendido saiu vivo,
+  // então não entra: incluí-lo diluiria a taxa e esconderia o problema.
+  const base = vivos + mortos.length;
+  const taxa = base ? (mortos.length / base) * 100 : null;
+  const pesoDe = a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; };
+  const pesos = mortos.map(pesoDe).filter(Number.isFinite);
+  const kgPerdidos = pesos.reduce((s, w) => s + w, 0);
+  const arrobasPerdidas = kgPerdidos * (settings.yield / 100) / 15;
+  $('mortes-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${mortos.length}</div><div class="stat-label">Mortes</div></div>
+    <div class="stat-card"><div class="stat-value">${taxa != null ? fmtN(taxa, 1) + '%' : '—'}</div><div class="stat-label">Taxa</div></div>
+    <div class="stat-card"><div class="stat-value">${vivos}</div><div class="stat-label">No rebanho</div></div>`;
+  $('mortes-stats2').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${pesos.length ? fmtN(kgPerdidos, 0) + ' kg' : '—'}</div><div class="stat-label">Peso perdido</div></div>
+    <div class="stat-card"><div class="stat-value">${pesos.length ? fmtN(arrobasPerdidas, 1) + ' @' : '—'}</div><div class="stat-label">Arrobas perdidas</div></div>`;
+  $('mortes-list').innerHTML = mortos.map(a => {
+    const peso = pesoDe(a);
+    return `<div class="list-item" data-animal-edit="${a.id}">
+      <div class="item-main">
+        <div class="item-title">${esc(a.ident)}</div>
+        <div class="item-subtitle">${a.deadDate ? fmtBR(a.deadDate) : 'sem data'} · ${esc(a.deadCause || 'causa não informada')}</div>
+        <div class="item-quando mono">${esc(a.cat || 'Sem categoria')}</div>
+      </div>
+      <div class="item-side">
+        <div class="value">${peso != null ? fmtN(peso, 0) + ' kg' : '—'}</div>
+        <div class="aux">${peso != null ? fmtN(peso * (settings.yield / 100) / 15, 1) + ' @' : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+  $('mortes-empty').hidden = mortos.length > 0;
 }
 
 function renderVendidas() {
@@ -817,14 +861,28 @@ function openAnimal(a) {
   $('an-sold-date').value = a && a.soldDate ? a.soldDate : todayISO();
   $('an-sold-weight').value = a ? numParaCampo(a.soldWeight) : '';
   $('an-sold-price').value = a ? numParaCampo(a.soldPrice) : '';
-  syncSoldWrap();
+  $('an-dead').checked = a ? !!a.dead : false;
+  $('an-dead-date').value = a && a.deadDate ? a.deadDate : todayISO();
+  $('an-dead-cause').value = a && a.deadCause ? a.deadCause : '';
+  syncSoldWrap(); syncDeadWrap();
   $('btn-delete-animal').hidden = !a;
   openM('modal-animal');
 }
 function syncSoldWrap() {
   $('an-sold-wrap').style.display = $('an-sold').checked ? '' : 'none';
 }
-$('an-sold').addEventListener('change', syncSoldWrap);
+function syncDeadWrap() {
+  $('an-dead-wrap').style.display = $('an-dead').checked ? '' : 'none';
+}
+$('an-sold').addEventListener('change', () => {
+  // Vendido e morto se excluem: o animal saiu do rebanho por um motivo só.
+  if ($('an-sold').checked) { $('an-dead').checked = false; syncDeadWrap(); }
+  syncSoldWrap();
+});
+$('an-dead').addEventListener('change', () => {
+  if ($('an-dead').checked) { $('an-sold').checked = false; syncSoldWrap(); }
+  syncDeadWrap();
+});
 function syncAnimalSaleTrans(a) {
   if (a.sold && Number.isFinite(a.soldPrice) && a.soldPrice > 0) {
     const saleData = { date: a.soldDate || todayISO(), type: 'entrada', amount: a.soldPrice, category: 'Venda de gado', notes: a.ident, lock: 'animal' };
@@ -854,9 +912,11 @@ $('form-animal').addEventListener('submit', e => {
   const ident = $('an-ident').value.trim();
   if (!ident) return;
   const sold = $('an-sold').checked;
-  // Brinco pode ser reutilizado depois da venda: só bloqueia se OUTRO animal
-  // ativo já usa a identificação — e só quando este também ficará ativo.
-  const dupe = !sold && animals.find(x => !x.sold && x.ident.toLowerCase() === ident.toLowerCase() && x.id !== id);
+  const dead = $('an-dead').checked;
+  const ativo = !sold && !dead;
+  // Brinco pode ser reutilizado depois que o animal sai do rebanho: só bloqueia
+  // se OUTRO animal ativo já usa a identificação — e só quando este ficará ativo.
+  const dupe = ativo && animals.find(x => noRebanho(x) && chaveBrinco(x.ident) === chaveBrinco(ident) && x.id !== id);
   if (dupe) { toast('Já existe animal ativo com essa identificação'); return; }
   const soldPriceRaw = parseNum($('an-sold-price').value);
   const data = {
@@ -869,7 +929,10 @@ $('form-animal').addEventListener('submit', e => {
     sold,
     soldDate: sold ? ($('an-sold-date').value || todayISO()) : null,
     soldWeight: sold ? (parseNum($('an-sold-weight').value) || null) : null,
-    soldPrice: sold && Number.isFinite(soldPriceRaw) && soldPriceRaw > 0 ? soldPriceRaw : null
+    soldPrice: sold && Number.isFinite(soldPriceRaw) && soldPriceRaw > 0 ? soldPriceRaw : null,
+    dead,
+    deadDate: dead ? ($('an-dead-date').value || todayISO()) : null,
+    deadCause: dead ? ($('an-dead-cause').value.trim() || null) : null
   };
   let a, isNew = false;
   if (id) {
@@ -1298,10 +1361,13 @@ $('wm-save').addEventListener('click', () => {
     $('wm-peso').select(); $('wm-peso').focus();
     return;
   }
-  // Brinco de animal vendido: avisa em vez de criar uma cópia escondida do
-  // animal. A pesagem entra no histórico verdadeiro, então o GMD continua.
-  if (existente && existente.sold &&
-      !confirm(`O brinco ${existente.ident} está marcado como VENDIDO.\n\nGravar a pesagem no histórico dele mesmo assim?`)) {
+  // Brinco de animal que saiu do rebanho: avisa em vez de criar uma cópia
+  // escondida. A pesagem entra no histórico verdadeiro, então o GMD continua.
+  // Um animal morto reaparecendo na balança quase sempre é brinco trocado.
+  const saiu = existente && (existente.sold || existente.dead) ? (existente.sold ? 'VENDIDO' : 'MORTO') : null;
+  if (saiu && !confirm(`O brinco ${existente.ident} está marcado como ${saiu}.\n\n`
+      + (saiu === 'MORTO' ? 'Confira se o brinco não foi trocado.\n\n' : '')
+      + 'Gravar a pesagem no histórico dele mesmo assim?')) {
     $('wm-ident').select(); $('wm-ident').focus();
     return;
   }
@@ -1364,17 +1430,17 @@ $('csv-input').addEventListener('change', e => {
       if (!Number.isFinite(peso) || peso <= 0) { errors.push(`Linha ${i + 1}: peso inválido "${cols[2]}"`); return; }
       rows.push({ ident, date, peso });
     });
-    const existingIdents = new Set(animals.filter(a => !a.sold).map(a => a.ident.toLowerCase()));
-    const newIdents = new Set(rows.map(r => r.ident.toLowerCase()).filter(x => !existingIdents.has(x)));
+    const existingIdents = new Set(animals.filter(noRebanho).map(a => chaveBrinco(a.ident)));
+    const newIdents = new Set(rows.map(r => chaveBrinco(r.ident)).filter(x => !existingIdents.has(x)));
     let dupes = 0;
     rows.forEach(r => {
-      const a = animals.find(x => !x.sold && x.ident.toLowerCase() === r.ident.toLowerCase());
+      const a = animalDoBrinco(r.ident);
       if (a && weighings.some(w => w.animalId === a.id && w.date === r.date)) dupes++;
     });
     // Mesma checagem do modo pesagem: arquivo ruim não pode contaminar o histórico
     const suspeitas = [];
     rows.forEach(r => {
-      const a = animals.find(x => !x.sold && x.ident.toLowerCase() === r.ident.toLowerCase());
+      const a = animalDoBrinco(r.ident);
       const ant = a ? wOf(a.id).filter(w => w.date < r.date).pop() : null;
       const d = ant ? daysBetween(ant.date, r.date) : 0;
       const g = ant && d > 0 ? (r.peso - ant.weight) / d : null;
@@ -1395,7 +1461,7 @@ $('btn-confirm-import').addEventListener('click', async () => {
   let added = 0, dup = 0, newA = 0;
   const ops = [];
   pendingRows.forEach(r => {
-    let a = animals.find(x => !x.sold && x.ident.toLowerCase() === r.ident.toLowerCase());
+    let a = animalDoBrinco(r.ident);
     if (!a) {
       a = { id: uid(), ident: r.ident, cat: '', entryDate: r.date, entryWeight: null, notes: '' };
       animals.push(a); ops.push({ col: 'animals', obj: a }); newA++;

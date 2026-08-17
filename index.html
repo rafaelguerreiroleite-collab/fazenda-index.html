@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=11" />
+<link rel="stylesheet" href="style.css?v=12" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -72,6 +72,7 @@
   <div class="seg-row" id="bov-segs">
     <button class="seg active" data-seg="rebanho">Rebanho</button>
     <button class="seg" data-seg="vendidas">Vendidas</button>
+    <button class="seg" data-seg="mortes">Mortalidade</button>
     <button class="seg" data-seg="estoque">Estoque</button>
     <button class="seg" data-seg="financeiro">Financeiro</button>
     <button class="seg" data-seg="custos">Custos</button>
@@ -103,6 +104,16 @@
     <div class="empty" id="vendidas-empty" hidden>
       <p class="eyebrow mono">Nenhum animal vendido ainda</p>
       <p>Marque "Animal vendido" na edição de um animal do Rebanho para ele aparecer aqui.</p>
+    </div>
+  </div>
+
+  <div class="subview" id="bov-mortes">
+    <div class="stats-row" id="mortes-stats"></div>
+    <div class="stats-row two" id="mortes-stats2"></div>
+    <div class="list" id="mortes-list"></div>
+    <div class="empty" id="mortes-empty" hidden>
+      <p class="eyebrow mono">Nenhuma morte registrada</p>
+      <p>Marque "Animal morto" na edição de um animal do Rebanho. Ele sai da contagem e dos totais de peso, e o histórico de pesagem dele fica guardado aqui.</p>
     </div>
   </div>
 
@@ -305,6 +316,19 @@
         <input type="text" inputmode="decimal" step="0.1" id="an-sold-weight" placeholder="Opcional — usa a última pesagem se vazio" />
         <label class="mono">Valor recebido (R$)</label>
         <input type="text" inputmode="decimal" step="0.01" id="an-sold-price" placeholder="Opcional — lança automaticamente no Financeiro" />
+      </div>
+      <label class="check-lbl"><input type="checkbox" id="an-dead" /> Animal morto</label>
+      <div id="an-dead-wrap">
+        <label class="mono">Data da morte</label>
+        <input type="date" id="an-dead-date" />
+        <label class="mono">Causa</label>
+        <input type="text" id="an-dead-cause" list="causas-morte" placeholder="Ex: Pneumonia, Acidente, Predador" />
+        <datalist id="causas-morte">
+          <option>Doença respiratória</option><option>Verminose</option><option>Timpanismo</option>
+          <option>Intoxicação/planta tóxica</option><option>Picada de cobra</option><option>Predador</option>
+          <option>Acidente</option><option>Parto</option><option>Raio</option><option>Causa não identificada</option>
+        </datalist>
+        <p class="small">O animal sai da contagem do rebanho e dos totais de peso e arroba. As pesagens dele continuam guardadas.</p>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn-danger" id="btn-delete-animal" hidden>Excluir</button>
@@ -555,6 +579,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
