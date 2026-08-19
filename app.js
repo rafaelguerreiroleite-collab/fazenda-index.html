@@ -399,6 +399,19 @@ function renderRebanho() {
       if (wb == null) return -1;
       return bovSort === 'peso-desc' ? wb - wa : wa - wb;
     }
+    // Por GMD: é a ordem que mostra quem está pagando o pasto e quem não está.
+    // Mesmo GMD do cartão da direita — o total, da primeira à última pesagem.
+    // Animal com uma pesagem só não tem GMD e vai para o fim nas duas ordens:
+    // ele não é o pior do rebanho, é o que ainda não dá para julgar.
+    if (bovSort === 'gmd-desc' || bovSort === 'gmd-asc') {
+      const ga = gmdTotal(wOf(a.id)), gb = gmdTotal(wOf(b.id));
+      const va = Number.isFinite(ga), vb = Number.isFinite(gb);
+      if (!va && !vb) return byIdent(a, b);
+      if (!va) return 1;
+      if (!vb) return -1;
+      if (ga === gb) return byIdent(a, b);
+      return bovSort === 'gmd-desc' ? gb - ga : ga - gb;
+    }
     // Por data da última pesagem: agrupa de um lado quem passou pela balança no
     // dia e do outro quem não passou — é assim que se enxerga o que sobrou de
     // um lote vendido sem precisar apagar nada para descobrir.

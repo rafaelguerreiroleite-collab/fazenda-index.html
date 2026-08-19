@@ -164,6 +164,23 @@ export default async function () {
   t.conferir('mais pesado primeiro, sem pesagem por último', await ordem('peso-desc') === '9,292,300,295');
   t.conferir('mais leve primeiro, sem pesagem por último', await ordem('peso-asc') === '300,292,9,295');
 
+  // Ordem por GMD: separa quem está pagando o pasto de quem não está.
+  await pagina.evaluate(() => {
+    weighings = [{ id: 'g1', animalId: 'a1', date: '2026-06-01', weight: 200 },
+                 { id: 'g2', animalId: 'a1', date: '2026-08-30', weight: 290 },   // 1,000
+                 { id: 'g3', animalId: 'a2', date: '2026-06-01', weight: 300 },
+                 { id: 'g4', animalId: 'a2', date: '2026-08-30', weight: 345 },   // 0,500
+                 { id: 'g5', animalId: 'a3', date: '2026-06-01', weight: 400 },
+                 { id: 'g6', animalId: 'a3', date: '2026-08-30', weight: 580 },   // 2,000
+                 { id: 'g7', animalId: 'a4', date: '2026-08-30', weight: 250 }];  // sem GMD
+    render();
+  });
+  t.conferir('melhor GMD primeiro, sem GMD por último', await ordem('gmd-desc') === '9,292,300,295', await ordem('gmd-desc'));
+  t.conferir('pior GMD primeiro, sem GMD por último', await ordem('gmd-asc') === '300,292,9,295', await ordem('gmd-asc'));
+  const gmdsNaTela = await pagina.evaluate(() => [...document.querySelectorAll('#animal-list .item-side .aux')].map(e => e.textContent));
+  t.conferir('a ordem bate com o GMD mostrado na linha',
+    gmdsNaTela.join(' ') === 'GMD 0,50 GMD 1,00 GMD 2,00 ', gmdsNaTela.join(' | '));
+
   // Ordem por data da última pesagem: é como se enxerga quem ficou de fora do
   // dia de pesagem sem apagar nada para descobrir.
   await pagina.evaluate(() => {
