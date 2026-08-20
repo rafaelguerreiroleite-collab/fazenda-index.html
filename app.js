@@ -392,6 +392,7 @@ function render() {
     if (seg === 'estoque') { $(detailItem ? 'stock-detail' : 'bov-estoque').classList.add('active'); detailItem ? renderStockDetail() : renderEstoque(); }
     if (seg === 'financeiro') { $('bov-fin').classList.add('active'); renderFin('bov'); }
   } else { renderFin('av'); }
+  renderLembrete();
   // Vendidas, Mortalidade e Custos não têm nada para adicionar pelo botão +
   $('fab').hidden = tab === 'bovinos' && ['vendidas', 'mortes', 'custos'].includes(seg);
 }
@@ -858,6 +859,86 @@ function sincronizarAviarios() {
   sel.dataset.montado = desejado;
   sel.value = [...sel.options].some(o => o.value === anterior) ? anterior : 'all';
 }
+// ===== Contas a pagar =====
+// Uma compra a prazo já é despesa no dia da compra (é assim que o custo da
+// arroba fica certo), mas o dinheiro só sai no vencimento. Por isso o saldo do
+// período continua contando tudo, e o que está em aberto ganha bloco próprio:
+// misturar as duas coisas num número só esconderia uma das duas.
+const AVISO_DIAS = 7;
+const emAberto = t => !!t.venc && !t.pago && t.type === 'saida';
+function contasAPagar(lista) {
+  const hoje = todayISO();
+  return lista.filter(emAberto)
+    .map(t => Object.assign({}, t, { dias: daysBetween(hoje, t.venc) }))
+    .sort((a, b) => a.venc.localeCompare(b.venc));
+}
+function renderAPagar(book) {
+  const el = $(book === 'av' ? 'av-apagar' : 'bfin-apagar');
+  const contas = contasAPagar(book === 'av' ? avT : bovT);
+  if (!contas.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = '';
+  const soma = c => c.reduce((s, t) => s + t.amount, 0);
+  const vencidas = contas.filter(t => t.dias < 0);
+  const total = soma(contas);
+  el.innerHTML = `
+    <div class="ap-cabeca">
+      <span class="ap-titulo mono">A pagar</span>
+      <span class="ap-total">${fmtRS(total)}</span>
+    </div>
+    ${vencidas.length ? `<div class="ap-vencidas mono">${vencidas.length} vencida${vencidas.length > 1 ? 's' : ''} · ${fmtRS(soma(vencidas))}</div>` : ''}
+    ${contas.map(t => {
+      const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
+      const quando = t.dias < 0 ? `venceu há ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
+        : t.dias === 0 ? 'vence hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
+      return `<div class="ap-linha ${estado}">
+        <div class="ap-quem">
+          <span class="cat">${esc(t.category || 'Sem categoria')}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
+          <span class="quando mono">${fmtBR(t.venc)} · ${quando}</span>
+        </div>
+        <span class="ap-valor">${fmtRS(t.amount)}</span>
+        <button type="button" class="ap-pagar" data-pagar="${t.id}" data-livro="${book}">Pagar</button>
+      </div>`;
+    }).join('')}`;
+}
+// O lembrete fica no topo do app, visível de qualquer aba: quem abre o
+// aplicativo para pesar não vai procurar por uma conta no Financeiro.
+function renderLembrete() {
+  const el = $('lembrete');
+  if (!el) return;
+  const todas = [...contasAPagar(bovT).map(t => ({ t, livro: 'bov' })),
+                 ...contasAPagar(avT).map(t => ({ t, livro: 'av' }))]
+    .filter(x => x.t.dias <= AVISO_DIAS)
+    .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
+  if (!todas.length || LS.g('fjs-lembrete-visto', '') === todayISO()) { el.hidden = true; return; }
+  const vencidas = todas.filter(x => x.t.dias < 0);
+  const soma = todas.reduce((s, x) => s + x.t.amount, 0);
+  const p = todas[0].t;
+  el.className = 'lembrete' + (vencidas.length ? ' urgente' : '');
+  el.innerHTML = `<div class="lb-texto">
+      <b>${vencidas.length ? `${vencidas.length} conta${vencidas.length > 1 ? 's' : ''} vencida${vencidas.length > 1 ? 's' : ''}` : 'Vence em breve'}</b>
+      <span class="mono">${todas.length > 1 ? `${todas.length} contas · ${fmtRS(soma)}` : `${esc(p.category || 'Conta')} · ${fmtRS(p.amount)} · ${fmtBR(p.venc)}`}</span>
+    </div>
+    <button type="button" class="lb-ver" id="lb-ver">Ver</button>
+    <button type="button" class="lb-fechar" id="lb-fechar" aria-label="Dispensar por hoje">×</button>`;
+  el.hidden = false;
+}
+$('lembrete').addEventListener('click', e => {
+  if (e.target.closest('#lb-fechar')) { LS.s('fjs-lembrete-visto', todayISO()); renderLembrete(); return; }
+  if (e.target.closest('#lb-ver')) { tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render(); }
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-pagar]');
+  if (!b) return;
+  const livro = b.dataset.livro;
+  const lista = livro === 'av' ? avT : bovT;
+  const t = lista.find(x => x.id === b.dataset.pagar);
+  if (!t) return sumiu('Este lançamento foi removido');
+  if (!confirm(`Marcar como PAGO?\n\n${t.category || 'Lançamento'} · ${fmtRS(t.amount)}\nVencimento ${fmtBRfull(t.venc)}`)) return;
+  t.pago = true; t.pagoEm = todayISO();
+  upsert(livro === 'av' ? 'avtrans' : 'bovtrans', t);
+  render(); toast('Marcado como pago');
+});
+
 function renderFin(book) {
   const isAv = book === 'av';
   const list = isAv ? avT : bovT;
@@ -902,6 +983,7 @@ function renderFin(book) {
     ? `<div class="cb-resto mono">+ ${sobra.length} outra${sobra.length > 1 ? 's' : ''} categoria${sobra.length > 1 ? 's' : ''} · ${fmtRS(somaSobra)}</div>`
     : '') : '';
   catEl.style.display = entries.length ? '' : 'none';
+  renderAPagar(book);
   const listEl = isAv ? $('av-list') : $('bfin-list');
   const sorted = [...filtered].sort((a, b) => a.date < b.date ? 1 : -1);
   listEl.innerHTML = sorted.map(t => `<div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
@@ -1110,6 +1192,10 @@ function openTrans(book, t) {
   if (book === 'av') $('t-aviary').value = t && t.aviary ? t.aviary : '5';
   $('t-category').value = t ? (t.category || '') : '';
   $('t-notes').value = t ? (t.notes || '') : '';
+  $('t-prazo').checked = !!(t && t.venc);
+  $('t-venc').value = t && t.venc ? t.venc : '';
+  $('t-pago').checked = !!(t && t.pago);
+  syncPrazoUI();
   const ctx = $('t-context');
   if (t && t.lock === 'stock') { ctx.hidden = false; ctx.textContent = 'Gerado pelo estoque — prefira editar pela movimentação de estoque.'; }
   else if (t && t.lock === 'animal') { ctx.hidden = false; ctx.textContent = 'Gerado pela venda do animal — prefira editar pelo cadastro do animal.'; }
@@ -1129,6 +1215,11 @@ $('form-transaction').addEventListener('submit', e => {
     category: $('t-category').value.trim(),
     notes: $('t-notes').value.trim()
   };
+  const ehSaida = data.type === 'saida';
+  const aPrazo = ehSaida && $('t-prazo').checked;
+  if (aPrazo && !$('t-venc').value) { toast('Informe o vencimento'); return; }
+  data.venc = aPrazo ? $('t-venc').value : null;
+  data.pago = aPrazo ? $('t-pago').checked : false;
   if (book === 'av') data.aviary = $('t-aviary').value;
   const arr = book === 'av' ? avT : bovT;
   const col = book === 'av' ? 'avtrans' : 'bovtrans';
@@ -1209,7 +1300,21 @@ function syncMoveCostUI() {
   const type = document.querySelector('input[name="m-type"]:checked').value;
   $('m-cost-wrap').style.display = type === 'entrada' ? '' : 'none';
 }
-document.querySelectorAll('input[name="m-type"]').forEach(r => r.addEventListener('change', syncMoveCostUI));
+document.querySelectorAll('input[name="m-type"]').forEach(r => r.addEventListener('change', () => { syncMoveCostUI(); syncPrazoUI(); }));
+// "A prazo" só faz sentido para saída de dinheiro: entrada a receber é outra
+// coisa, e prometer aqui o que não existe seria pior do que não oferecer.
+function syncPrazoUI() {
+  const mEnt = document.querySelector('input[name="m-type"]:checked');
+  const compra = mEnt && mEnt.value === 'entrada' && $('m-postfin').checked;
+  $('m-prazo').closest('.check-lbl').style.display = compra ? '' : 'none';
+  $('m-prazo-wrap').style.display = compra && $('m-prazo').checked ? '' : 'none';
+  const tSaida = document.querySelector('input[name="t-type"]:checked');
+  const ehSaida = !tSaida || tSaida.value === 'saida';
+  $('t-prazo-box').style.display = ehSaida ? '' : 'none';
+  $('t-prazo-wrap').style.display = ehSaida && $('t-prazo').checked ? '' : 'none';
+}
+['m-prazo', 'm-postfin', 't-prazo'].forEach(id => $(id).addEventListener('change', syncPrazoUI));
+document.querySelectorAll('input[name="t-type"]').forEach(r => r.addEventListener('change', syncPrazoUI));
 function openMove(itemId, presetType, m) {
   const it = items.find(x => x.id === itemId);
   if (!it) return;
@@ -1223,8 +1328,11 @@ function openMove(itemId, presetType, m) {
   $('m-cost').value = m ? numParaCampo(m.unitCost) : '';
   $('m-postfin').checked = m ? !!m.linkTrans : true;
   $('m-notes').value = m ? (m.notes || '') : '';
+  const tv = m && m.linkTrans ? bovT.find(x => x.id === m.linkTrans) : null;
+  $('m-prazo').checked = !!(tv && tv.venc);
+  $('m-venc').value = tv && tv.venc ? tv.venc : '';
   $('btn-delete-move').hidden = !m;
-  syncMoveCostUI();
+  syncMoveCostUI(); syncPrazoUI();
   openM('modal-move');
 }
 $('form-move').addEventListener('submit', e => {
@@ -1235,7 +1343,10 @@ $('form-move').addEventListener('submit', e => {
   const date = $('m-date').value, qty = parseNum($('m-qty').value);
   const unitCost = parseNum($('m-cost').value);
   const postFin = $('m-postfin').checked;
+  const aPrazo = $('m-prazo').checked;
+  const venc = $('m-venc').value;
   if (!date || !Number.isFinite(qty) || qty <= 0) return;
+  if (type === 'entrada' && postFin && aPrazo && !venc) { toast('Informe o vencimento da compra a prazo'); return; }
   const dupMv = moves.find(x => x.id !== id && x.itemId === itemId && x.date === date && x.type === type && Math.abs(x.qty - qty) < 0.0001);
   if (dupMv) {
     const tipo = type === 'entrada' ? 'entrada' : 'saída';
@@ -1254,11 +1365,17 @@ $('form-move').addEventListener('submit', e => {
     if (postFin && total) {
       if (mv.linkTrans) {
         const t = bovT.find(x => x.id === mv.linkTrans);
-        if (t) { Object.assign(t, { date, amount: total, notes: it.name + (mv.notes ? ' — ' + mv.notes : '') }); upsert('bovtrans', t); }
+        if (t) {
+          Object.assign(t, { date, amount: total, notes: it.name + (mv.notes ? ' — ' + mv.notes : ''),
+            venc: aPrazo ? venc : null, pago: aPrazo ? !!t.pago : false });
+          upsert('bovtrans', t);
+        }
         else mv.linkTrans = null;
       }
       if (!mv.linkTrans) {
-        const t = { id: uid(), date, type: 'saida', amount: total, category: 'Ração/insumos', notes: it.name + (mv.notes ? ' — ' + mv.notes : ''), lock: 'stock' };
+        const t = { id: uid(), date, type: 'saida', amount: total, category: 'Ração/insumos',
+          notes: it.name + (mv.notes ? ' — ' + mv.notes : ''), lock: 'stock',
+          venc: aPrazo ? venc : null, pago: false };
         bovT.push(t); upsert('bovtrans', t);
         mv.linkTrans = t.id;
       }

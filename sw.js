@@ -1,4 +1,4 @@
-const CACHE = 'fazendajs-v15';
+const CACHE = 'fazendajs-v16';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './logo.png', './icon-192.png', './icon-512.png'];
 // O SDK do Firebase precisa estar guardado desde a instalação: sem ele o app
 // abriria no curral sem conseguir gravar nada.

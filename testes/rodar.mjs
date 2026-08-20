@@ -5,8 +5,9 @@ import app from './app.mjs';
 import pesagem from './pesagem.mjs';
 import offline from './offline.mjs';
 import abas from './abas.mjs';
+import varredura from './varredura.mjs';
 
-const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline]];
+const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Varredura', varredura]];
 let total = 0;
 
 for (const [nome, rodar] of baterias) {

@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=15" />
+<link rel="stylesheet" href="style.css?v=16" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -59,6 +59,8 @@
     <button class="icon-btn" id="btn-menu" aria-label="Menu">⋯</button>
   </div>
 </header>
+
+<div class="lembrete" id="lembrete" hidden></div>
 
 <nav class="tabs">
   <button class="tab active" data-view="bovinos">Bovinos</button>
@@ -221,6 +223,7 @@
       </select>
     </div>
     <div class="balance-card" id="bfin-balance"></div>
+    <div id="bfin-apagar"></div>
     <div class="category-breakdown" id="bfin-cats"></div>
     <div class="list" id="bfin-list"></div>
   </div>
@@ -244,6 +247,7 @@
       </select>
     </div>
     <div class="balance-card" id="av-balance"></div>
+    <div id="av-apagar"></div>
     <div class="category-breakdown" id="av-cats"></div>
     <div class="list" id="av-list"></div>
     <div class="empty" id="av-empty" hidden>
@@ -410,6 +414,14 @@
         <option>Manutenção</option><option>Equipamentos</option>
         <option>Combustível</option><option>Impostos/Funrural</option><option>Outros</option>
       </datalist>
+      <div id="t-prazo-box">
+        <label class="check-lbl"><input type="checkbox" id="t-prazo" /> A prazo (pagar depois)</label>
+        <div id="t-prazo-wrap">
+          <label class="mono">Vencimento *</label>
+          <input type="date" id="t-venc" />
+          <label class="check-lbl"><input type="checkbox" id="t-pago" /> Já foi pago</label>
+        </div>
+      </div>
       <label class="mono">Descrição</label>
       <input type="text" id="t-notes" />
       <div class="modal-actions">
@@ -475,6 +487,12 @@
         <label class="mono">Custo unitário (R$)</label>
         <input type="text" inputmode="decimal" step="0.01" id="m-cost" placeholder="Por unidade" />
         <label class="check-lbl"><input type="checkbox" id="m-postfin" checked /> Lançar compra no financeiro (Bovinos)</label>
+        <label class="check-lbl"><input type="checkbox" id="m-prazo" /> Compra a prazo (pagar depois)</label>
+        <div id="m-prazo-wrap">
+          <label class="mono">Vencimento *</label>
+          <input type="date" id="m-venc" />
+          <p class="small">Entra em "A pagar" no Financeiro e avisa quando estiver perto de vencer.</p>
+        </div>
       </div>
       <label class="mono">Observações</label>
       <input type="text" id="m-notes" placeholder="Ex: consumo lote 3" />
@@ -581,6 +599,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

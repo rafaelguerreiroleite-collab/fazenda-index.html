@@ -426,3 +426,32 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
    sem estas duas linhas as barras não somam o saldo e quem lê conclui errado. */
 .cb-resto { font-size: 0.68rem; color: #78716c; padding: 0.5rem 0 0.15rem; border-top: 1px solid #e7e5e4; margin-top: 0.4rem; }
 .bc-nota { font-size: 0.68rem; color: #b45309; margin: 0.6rem 0 0; line-height: 1.35; }
+
+/* ===== Contas a pagar e lembrete de vencimento ===== */
+#bfin-apagar, #av-apagar { margin-bottom: 1rem; }
+.ap-cabeca { display: flex; justify-content: space-between; align-items: baseline; padding: 0.6rem 0.75rem; background: #225437; color: #fafaf9; border-radius: 3px 3px 0 0; }
+.ap-titulo { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: #9dbcaa; }
+.ap-total { font-weight: 800; font-size: 1.1rem; }
+.ap-vencidas { background: #fee2e2; color: #991b1b; font-size: 0.7rem; padding: 0.4rem 0.75rem; border-left: 1px solid #e7e5e4; border-right: 1px solid #e7e5e4; }
+.ap-linha { display: grid; grid-template-columns: 1fr auto auto; gap: 0.5rem; align-items: center; padding: 0.55rem 0.75rem; background: white; border: 1px solid #e7e5e4; border-top: none; }
+.ap-linha:last-child { border-radius: 0 0 3px 3px; }
+.ap-quem { min-width: 0; }
+.ap-quem .cat { display: block; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-quem .quando { display: block; font-size: 0.66rem; color: #78716c; margin-top: 0.1rem; }
+.ap-linha.venceu .quando { color: #991b1b; font-weight: 500; }
+.ap-linha.hoje .quando, .ap-linha.perto .quando { color: #b45309; font-weight: 500; }
+.ap-linha.venceu { border-left: 3px solid #991b1b; }
+.ap-linha.hoje, .ap-linha.perto { border-left: 3px solid #b45309; }
+.ap-valor { font-weight: 700; font-size: 0.9rem; white-space: nowrap; }
+.ap-pagar { background: #225437; color: #fafaf9; border: none; border-radius: 3px; padding: 0.35rem 0.6rem; font-family: 'DM Mono', monospace; font-size: 0.68rem; }
+.ap-pagar:active { opacity: 0.85; }
+
+.lembrete { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1.25rem; background: #fef3c7; border-bottom: 1px solid #fcd34d; }
+.lembrete.urgente { background: #fee2e2; border-bottom-color: #fca5a5; }
+.lembrete[hidden] { display: none; }
+.lb-texto { flex: 1; min-width: 0; line-height: 1.3; }
+.lb-texto b { display: block; font-size: 0.85rem; color: #7c2d12; }
+.lb-texto span { display: block; font-size: 0.68rem; color: #78716c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-ver { background: #225437; color: #fafaf9; border: none; border-radius: 3px; padding: 0.4rem 0.7rem; font-family: 'DM Mono', monospace; font-size: 0.7rem; flex-shrink: 0; }
+.lb-fechar { background: transparent; border: none; font-size: 1.3rem; color: #78716c; padding: 0 0.25rem; line-height: 1; flex-shrink: 0; }
+#m-prazo-wrap, #t-prazo-wrap { border-left: 2px solid #fcd34d; padding-left: 0.75rem; margin: 0.4rem 0 0.75rem; }

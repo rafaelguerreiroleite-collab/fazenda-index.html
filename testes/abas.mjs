@@ -189,6 +189,100 @@ export default async function () {
   t.conferir('guardar o custo não apaga o rendimento que ainda esperava internet',
     fila.guardaOsDois === true, JSON.stringify(fila));
 
+  // ---------- compra a prazo, vencimento e lembrete ----------
+  t.secao('compra a prazo e contas a pagar');
+  const hojeISO = await pagina.evaluate(() => todayISO());
+  const maisDias = (iso, n) => { const d = new Date(iso + 'T12:00'); d.setDate(d.getDate() + n);
+    const p = x => String(x).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+
+  const prazo = await pagina.evaluate(datas => {
+    bovT = [
+      { id: 'q1', date: '2026-04-01', type: 'saida', amount: 1000, category: 'Ração/insumos', venc: datas.vencida, pago: false },
+      { id: 'q2', date: '2026-04-02', type: 'saida', amount: 500, category: 'Sanidade', venc: datas.hoje, pago: false },
+      { id: 'q3', date: '2026-04-03', type: 'saida', amount: 300, category: 'Energia', venc: datas.perto, pago: false },
+      { id: 'q4', date: '2026-04-04', type: 'saida', amount: 200, category: 'Longe', venc: datas.longe, pago: false },
+      { id: 'q5', date: '2026-04-05', type: 'saida', amount: 700, category: 'Já paga', venc: datas.vencida, pago: true },
+      { id: 'q6', date: '2026-04-06', type: 'saida', amount: 900, category: 'À vista' },
+      { id: 'q7', date: '2026-04-07', type: 'entrada', amount: 5000, category: 'Venda' }
+    ];
+    avT = [];
+    localStorage.removeItem('fjs-lembrete-visto');
+    tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+    return {
+      total: document.querySelector('#bfin-apagar .ap-total').textContent,
+      vencidas: document.querySelector('#bfin-apagar .ap-vencidas') ? document.querySelector('#bfin-apagar .ap-vencidas').textContent : null,
+      linhas: [...document.querySelectorAll('#bfin-apagar .ap-linha')].map(l => ({
+        cat: l.querySelector('.cat').textContent, quando: l.querySelector('.quando').textContent, classe: l.className
+      })),
+      saldo: document.querySelector('#bfin-balance .bc-value').textContent,
+      lembrete: $('lembrete').hidden ? null : $('lembrete').textContent
+    };
+  }, { vencida: maisDias(hojeISO, -3), hoje: hojeISO, perto: maisDias(hojeISO, 4), longe: maisDias(hojeISO, 60) });
+
+  t.conferir('soma só o que está em aberto', prazo.total === 'R$ 2.000,00', prazo.total);
+  t.conferir('conta já paga fica de fora', !prazo.linhas.some(l => /Já paga/.test(l.cat)), prazo.linhas.map(l => l.cat).join(','));
+  t.conferir('compra à vista não entra em "a pagar"', !prazo.linhas.some(l => /À vista/.test(l.cat)));
+  t.conferir('entrada de dinheiro nunca vira conta a pagar', !prazo.linhas.some(l => /Venda/.test(l.cat)));
+  t.conferir('destaca o total vencido', /1 vencida/.test(prazo.vencidas || '') && /1\.000,00/.test(prazo.vencidas || ''), prazo.vencidas || 'sem destaque');
+  t.conferir('vencida diz há quantos dias', /venceu há 3 dias/.test(prazo.linhas[0].quando), prazo.linhas[0].quando);
+  t.conferir('e é marcada como vencida', /venceu/.test(prazo.linhas[0].classe), prazo.linhas[0].classe);
+  t.conferir('a que vence hoje diz "vence hoje"', /vence hoje/.test(prazo.linhas[1].quando), prazo.linhas[1].quando);
+  t.conferir('as contas saem em ordem de vencimento',
+    prazo.linhas.map(l => l.cat).join(',') === 'Ração/insumos,Sanidade,Energia,Longe', prazo.linhas.map(l => l.cat).join(','));
+  t.conferir('o saldo do período continua contando a despesa toda',
+    prazo.saldo === 'R$ 1.400,00', prazo.saldo);
+  t.conferir('o lembrete aparece no topo do app', prazo.lembrete !== null, 'escondido');
+  t.conferir('e avisa que há conta vencida', /vencida/.test(prazo.lembrete || ''), prazo.lembrete || '');
+  t.conferir('a conta que vence longe não entra no lembrete',
+    !/Longe/.test(prazo.lembrete || ''), prazo.lembrete || '');
+
+  // Marcar como pago tira da lista e do total
+  const depoisPago = await pagina.evaluate(() => {
+    const t = bovT.find(x => x.id === 'q1'); t.pago = true; t.pagoEm = todayISO(); render();
+    return { total: document.querySelector('#bfin-apagar .ap-total').textContent,
+      linhas: document.querySelectorAll('#bfin-apagar .ap-linha').length,
+      vencidas: document.querySelector('#bfin-apagar .ap-vencidas'),
+      saldo: document.querySelector('#bfin-balance .bc-value').textContent };
+  });
+  t.conferir('pagar tira a conta da lista', depoisPago.linhas === 3, String(depoisPago.linhas));
+  t.conferir('e do total a pagar', depoisPago.total === 'R$ 1.000,00', depoisPago.total);
+  t.conferir('e o aviso de vencidas some', depoisPago.vencidas === null);
+  t.conferir('pagar NÃO mexe no saldo do período (a despesa já era do dia da compra)',
+    depoisPago.saldo === 'R$ 1.400,00', depoisPago.saldo);
+
+  // Dispensar o lembrete vale só pelo dia
+  const dispensa = await pagina.evaluate(() => {
+    $('lb-fechar').click();
+    const sumiu = $('lembrete').hidden;
+    localStorage.setItem('fjs-lembrete-visto', JSON.stringify('2020-01-01'));
+    renderLembrete();
+    return { sumiu, voltaNoDiaSeguinte: !$('lembrete').hidden };
+  });
+  t.conferir('dispensar o lembrete o esconde', dispensa.sumiu === true);
+  t.conferir('mas ele volta no dia seguinte', dispensa.voltaNoDiaSeguinte === true);
+
+  // A compra a prazo pelo estoque gera a conta com vencimento
+  const pelaCompra = await pagina.evaluate(datas => {
+    items = [{ id: 'ci1', name: 'Proteinado', unit: 'kg' }];
+    moves = []; bovT = []; seg = 'estoque'; detailItem = 'ci1'; render();
+    openMove('ci1', 'entrada');
+    $('m-date').value = '2026-08-01';
+    $('m-qty').value = '100'; $('m-cost').value = '4,50';
+    $('m-postfin').checked = true;
+    $('m-prazo').checked = true; $('m-prazo').dispatchEvent(new Event('change'));
+    $('m-venc').value = datas.perto;
+    $('form-move').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    const t = bovT[0];
+    return { qtd: bovT.length, valor: t && t.amount, venc: t && t.venc, pago: t && t.pago,
+      cat: t && t.category, ligada: moves[0] && moves[0].linkTrans === (t && t.id) };
+  }, { perto: maisDias(hojeISO, 4) });
+  t.conferir('compra a prazo lança uma conta no financeiro', pelaCompra.qtd === 1, String(pelaCompra.qtd));
+  t.conferir('com o valor total da compra (100 × 4,50)', pelaCompra.valor === 450, String(pelaCompra.valor));
+  t.conferir('com o vencimento informado', pelaCompra.venc === maisDias(hojeISO, 4), String(pelaCompra.venc));
+  t.conferir('nascendo como não paga', pelaCompra.pago === false, String(pelaCompra.pago));
+  t.conferir('e continua ligada à movimentação do estoque', pelaCompra.ligada === true);
+
   // ---------- backup e restauração: a volta tem de trazer tudo ----------
   // Nunca havia sido testado, e é a última linha de defesa contra perda de
   // dados: se a restauração não trouxer tudo de volta, o backup não vale nada.

@@ -26,6 +26,7 @@ jobs:
         run: node testes/rodar.mjs
         env:
           CENARIOS: '20000'
+          VARREDURA: '20000'
 
   deploy:
     needs: testes
