@@ -144,6 +144,65 @@ export default async function () {
       regra('ganho normal não dispara alarme',
         pesagemSuspeita('x', pesoOk, gOk, { date: '2026-01-01', weight: pesoOk - gOk * diasOk }, diasOk) === null,
         `${gOk} kg/dia em ${diasOk}d`);
+
+      // --- texto feio no campo de número: nunca pode virar número ---
+      const lixo = ['', ' ', '-', ',', '.', 'abc', '1,2,3', '1..2', 'R$ 5', '5%', 'e10', 'Infinity',
+        'NaN', '--5', '1e309', '0x10', '١٢٣', '5 5', '\n', '\t7'][ent(0, 18)];
+      const lido = parseNum(lixo);
+      regra('texto inválido nunca vira número',
+        Number.isNaN(lido) || Number.isFinite(lido), `"${lixo}" → ${lido}`);
+      regra('nenhum campo produz infinito', lido !== Infinity && lido !== -Infinity, `"${lixo}" → ${lido}`);
+
+      // --- o que a tela mostra nunca pode ser "NaN" ---
+      const qq = [NaN, Infinity, -Infinity, null, undefined, 0, -0, 1e15, -1e15, dec(-1e6, 1e6, 2)][ent(0, 9)];
+      regra('a tela nunca escreve NaN nem Infinity',
+        !/NaN|Infinity/.test(fmtN(qq, 2) + fmtRS(qq) + fmtN(qq, 0)), `${qq} → ${fmtN(qq, 2)} / ${fmtRS(qq)}`);
+
+      // --- viradas de mês, ano e bissexto ---
+      const viradas = [['2024-02-28', '2024-03-01', 2], ['2025-02-28', '2025-03-01', 1],
+        ['2026-12-31', '2027-01-01', 1], ['2026-01-31', '2026-02-01', 1],
+        ['2024-02-29', '2024-03-01', 1], ['2026-10-17', '2026-10-18', 1]][ent(0, 5)];
+      regra('viradas de mês, ano e 29 de fevereiro contam certo',
+        daysBetween(viradas[0], viradas[1]) === viradas[2],
+        `${viradas[0]}→${viradas[1]}: ${daysBetween(viradas[0], viradas[1])} (esperado ${viradas[2]})`);
+
+      // --- período: um filtro mais estreito nunca aceita o que o largo recusa ---
+      const dq = dataAleatoria();
+      regra('este mês está contido em este ano',
+        !inPeriod(dq, 'this-month') || inPeriod(dq, 'this-year'), dq);
+      regra('todo período contém qualquer filtro',
+        !(inPeriod(dq, 'this-month') || inPeriod(dq, 'this-year') || inPeriod(dq, 'last-month')) || inPeriod(dq, 'all'), dq);
+
+      // --- ordenar o rebanho nunca perde nem duplica animal ---
+      const antes = animals.filter(noRebanho).map(a => a.id).sort().join(',');
+      for (const modo of ['ident-asc', 'ident-desc', 'peso-desc', 'peso-asc', 'gmd-desc', 'gmd-asc', 'data-desc', 'data-asc']) {
+        bovSort = modo; seg = 'rebanho'; tab = 'bovinos'; detailAnimal = null; render();
+        const depois = [...document.querySelectorAll('#animal-list .list-item')].map(e => e.dataset.animal).sort().join(',');
+        regra('nenhuma ordenação perde ou duplica animal', depois === antes, `${modo}: ${depois} vs ${antes}`);
+      }
+
+      // --- contas a pagar ---
+      const cts = [];
+      let emAbertoSoma = 0;
+      for (let k = 0; k < ent(0, 6); k++) {
+        const aberto = rnd() < 0.6, val = dec(1, 9999, 2);
+        const c = { id: `c${i}_${k}`, date: dataAleatoria(), type: rnd() < 0.85 ? 'saida' : 'entrada',
+          amount: val, category: 'C' + k };
+        if (aberto) { c.venc = dataAleatoria(); c.pago = rnd() < 0.4; }
+        if (c.venc && !c.pago && c.type === 'saida') emAbertoSoma += val;
+        cts.push(c);
+      }
+      const ap = contasAPagar(cts);
+      regra('a pagar soma exatamente o que está em aberto',
+        Math.abs(ap.reduce((s, x) => s + x.amount, 0) - emAbertoSoma) < 1e-6,
+        `${ap.reduce((s, x) => s + x.amount, 0)} vs ${emAbertoSoma}`);
+      regra('conta já paga nunca entra em a pagar', !ap.some(x => x.pago), '');
+      regra('entrada de dinheiro nunca entra em a pagar', !ap.some(x => x.type === 'entrada'), '');
+      regra('conta sem vencimento nunca entra em a pagar', !ap.some(x => !x.venc), '');
+      regra('a pagar sai em ordem de vencimento',
+        ap.every((x, k) => k === 0 || ap[k - 1].venc <= x.venc), ap.map(x => x.venc).join(' '));
+      regra('dias até o vencimento batem com a data',
+        ap.every(x => x.dias === daysBetween(todayISO(), x.venc)), '');
     }
     return falhas;
   }, N);
