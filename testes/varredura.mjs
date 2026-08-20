@@ -5,15 +5,19 @@
 import { servir, abrirApp, placar } from './apoio.mjs';
 
 const N = Number(process.env.VARREDURA || 4000);
+// Semente diferente a cada corrida: repetir a MESMA sequência mais vezes
+// explora sempre o mesmo terreno. A semente é impressa, então qualquer falha
+// se reproduz com SEMENTE=<n> node testes/varredura-solo.mjs
+const SEMENTE = Number(process.env.SEMENTE || (Date.now() % 2147483647));
 
 export default async function () {
   const s = await servir();
   const { navegador, pagina, errosJS } = await abrirApp(s.url);
-  const t = placar(`Varredura por propriedades (${N.toLocaleString('pt-BR')} sorteios por regra)`);
+  const t = placar(`Varredura por propriedades (${N.toLocaleString('pt-BR')} sorteios por regra · semente ${SEMENTE})`);
 
-  const r = await pagina.evaluate(n => {
+  const r = await pagina.evaluate(({ n, semente }) => {
     // Sorteio com semente: quando uma regra quebra, o caso é reproduzível.
-    let seed = 20260813;
+    let seed = semente;
     const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
     const ent = (a, b) => a + Math.floor(rnd() * (b - a + 1));
     const dec = (a, b, c = 2) => Number((a + rnd() * (b - a)).toFixed(c));
@@ -203,9 +207,70 @@ export default async function () {
         ap.every((x, k) => k === 0 || ap[k - 1].venc <= x.venc), ap.map(x => x.venc).join(' '));
       regra('dias até o vencimento batem com a data',
         ap.every(x => x.dias === daysBetween(todayISO(), x.venc)), '');
+
+      // --- parcelamento: centavo não some nem sobra ---
+      const totalP = dec(0.01, 999999, 2), nP = ent(1, 36);
+      const vs = parcelasDe(totalP, nP);
+      regra('as parcelas somam o total exato',
+        Math.abs(vs.reduce((a, b) => a + b, 0) - totalP) < 1e-9,
+        `${totalP} em ${nP}× soma ${vs.reduce((a, b) => a + b, 0)}`);
+      regra('sai o número de parcelas pedido', vs.length === nP, `${vs.length} vs ${nP}`);
+      regra('nenhuma parcela negativa', vs.every(v => v >= 0), `${totalP} em ${nP}×`);
+      // Comparação exata, não por tolerância: erro de ponto flutuante cresce
+      // com o valor, e uma folga fixa reprovaria R$ 294.605,96 sendo correto.
+      regra('cada parcela é múltiplo exato de um centavo',
+        vs.every(v => v === Math.round(v * 100) / 100), `${totalP} em ${nP}×: ${vs[0]}`);
+      // A conta que vale é em centavos inteiros, onde não existe erro de float.
+      regra('as parcelas somam o total exato, em centavos inteiros',
+        vs.reduce((a, b) => a + Math.round(b * 100), 0) === Math.round(totalP * 100),
+        `${totalP} em ${nP}×`);
+      regra('as parcelas diferem no máximo um centavo entre si',
+        Math.max(...vs.map(v => Math.round(v * 100))) - Math.min(...vs.map(v => Math.round(v * 100))) <= 1,
+        `${totalP} em ${nP}×: ${Math.min(...vs)}–${Math.max(...vs)}`);
+
+      // --- vencimentos: sempre data válida, sempre para a frente ---
+      const vBase = dataAleatoria(), kP = ent(0, 35);
+      const vRes = vencimentoParcela(vBase, kP);
+      regra('vencimento da parcela é uma data válida',
+        /^\d{4}-\d{2}-\d{2}$/.test(vRes) && !Number.isNaN(new Date(vRes + 'T12:00').getTime()), `${vBase}+${kP} → ${vRes}`);
+      regra('vencimento nunca anda para trás',
+        daysBetween(vBase, vRes) >= 0, `${vBase}+${kP} → ${vRes}`);
+      regra('parcela seguinte vence depois da anterior',
+        kP === 0 || vencimentoParcela(vBase, kP) > vencimentoParcela(vBase, kP - 1),
+        `${vencimentoParcela(vBase, kP - 1)} → ${vRes}`);
+      regra('o dia do vencimento nunca passa do dia escolhido',
+        Number(vRes.slice(8)) <= Number(vBase.slice(8)), `${vBase} → ${vRes}`);
+
+      // --- custo da arroba e simulação ---
+      custoParams = Object.assign({}, CUSTO_VAZIO, {
+        gmd: dec(0.1, 2, 3), salPct: dec(0, 1, 2), salPreco: dec(0.5, 20, 2),
+        sanidade: dec(0, 100, 2), mo: dec(0, 500, 2), terra: dec(0, 500, 2),
+        rend: ent(40, 65), pesoCompra: dec(100, 400, 1), pesoVenda: dec(401, 900, 1),
+        precoCompra: dec(1000, 6000, 2), precoVenda: dec(1000, 12000, 2)
+      });
+      const c = calcCusto();
+      regra('custo da arroba nunca é negativo',
+        c.custoArroba === null || c.custoArroba >= 0, String(c.custoArroba));
+      regra('custo por dia é a soma das partes',
+        Math.abs(c.custoDia - (c.salDia + c.sanDia + c.moDia + c.terraDia)) < 1e-9,
+        `${c.custoDia} vs ${c.salDia + c.sanDia + c.moDia + c.terraDia}`);
+      regra('custo da arroba = custo por dia ÷ arroba por dia',
+        c.custoArroba === null || Math.abs(c.custoArroba - c.custoDia / c.arrobaDia) < 1e-6,
+        `${c.custoArroba} vs ${c.custoDia / c.arrobaDia}`);
+      regra('nenhum número do custo sai NaN',
+        [c.custoDia, c.arrobaDia, c.salDia].every(x => x === null || Number.isFinite(x)),
+        JSON.stringify({ d: c.custoDia, a: c.arrobaDia, s: c.salDia }));
+      const sim = calcSimulacao(c);
+      if (sim) {
+        regra('a simulação não inventa nem perde arroba',
+          !Number.isFinite(sim.arrobasGanhas) || sim.arrobasGanhas >= 0, String(sim.arrobasGanhas));
+        regra('nenhum número da simulação sai NaN',
+          Object.values(sim).every(v => typeof v !== 'number' || Number.isFinite(v)),
+          JSON.stringify(sim).slice(0, 120));
+      }
     }
     return falhas;
-  }, N);
+  }, { n: N, semente: SEMENTE });
 
   const nomes = Object.keys(r);
   t.secao(`${nomes.length} regras conferidas em ${N.toLocaleString('pt-BR')} sorteios cada`);
