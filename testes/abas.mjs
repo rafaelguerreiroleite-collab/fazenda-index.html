@@ -283,6 +283,145 @@ export default async function () {
   t.conferir('nascendo como não paga', pelaCompra.pago === false, String(pelaCompra.pago));
   t.conferir('e continua ligada à movimentação do estoque', pelaCompra.ligada === true);
 
+  // ---------- parcelamento ----------
+  t.secao('compra parcelada');
+  const parc = await pagina.evaluate(() => {
+    const r = {};
+    // Centavo não pode sumir nem sobrar: as parcelas somadas dão o total exato.
+    r.divisoes = [[100, 3], [0.05, 3], [1234.56, 7], [999.99, 11], [10, 4], [0.01, 1], [7, 6]]
+      .map(([tot, n]) => {
+        const vs = parcelasDe(tot, n);
+        return { tot, n, soma: vs.reduce((s, v) => s + v, 0), qtd: vs.length,
+          fecha: Math.abs(vs.reduce((s, v) => s + v, 0) - tot) < 1e-9,
+          semNegativa: vs.every(v => v >= 0), primeira: vs[0], ultima: vs[vs.length - 1] };
+      });
+    // Vencimentos: mês a mês, e dia 31 cai no último dia do mês curto.
+    r.venc31 = [0, 1, 2, 3].map(k => vencimentoParcela('2026-01-31', k));
+    r.venc15 = [0, 1, 2].map(k => vencimentoParcela('2026-11-15', k));
+    r.vencAnoVira = [0, 1, 2].map(k => vencimentoParcela('2026-12-10', k));
+    r.vencBissexto = vencimentoParcela('2024-01-31', 1);
+    return r;
+  });
+  for (const d of parc.divisoes) {
+    t.conferir(`${d.n}× de ${d.tot}: as parcelas somam o total exato`, d.fecha, `${d.soma} vs ${d.tot}`);
+    t.conferir(`${d.n}× de ${d.tot}: nenhuma parcela negativa`, d.semNegativa);
+  }
+  t.conferir('dia 31 vira o último dia do mês curto',
+    parc.venc31.join(' ') === '2026-01-31 2026-02-28 2026-03-31 2026-04-30', parc.venc31.join(' '));
+  t.conferir('em ano bissexto o 31/01 cai em 29/02', parc.vencBissexto === '2024-02-29', parc.vencBissexto);
+  t.conferir('parcela mensal comum anda um mês por vez',
+    parc.venc15.join(' ') === '2026-11-15 2026-12-15 2027-01-15', parc.venc15.join(' '));
+  t.conferir('vira o ano corretamente',
+    parc.vencAnoVira.join(' ') === '2026-12-10 2027-01-10 2027-02-10', parc.vencAnoVira.join(' '));
+
+  // Compra de insumo parcelada em 3×
+  const compra3 = await pagina.evaluate(() => {
+    items = [{ id: 'p1', name: 'Proteinado', unit: 'kg' }];
+    moves = []; bovT = []; tab = 'bovinos'; seg = 'estoque'; detailItem = 'p1'; render();
+    openMove('p1', 'entrada');
+    $('m-date').value = '2026-08-10';
+    $('m-qty').value = '100'; $('m-cost').value = '4,50';
+    $('m-postfin').checked = true;
+    $('m-prazo').checked = true; $('m-prazo').dispatchEvent(new Event('change'));
+    $('m-venc').value = '2026-09-10';
+    $('m-parcelas').value = '3'; $('m-parcelas').dispatchEvent(new Event('input'));
+    const previa = $('m-parcelas-nota').textContent;
+    $('form-move').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+    return {
+      previa, qtd: bovT.length,
+      soma: bovT.reduce((s, x) => s + x.amount, 0),
+      vencs: bovT.slice().sort((a, b) => a.parcela - b.parcela).map(x => x.venc),
+      datas: [...new Set(bovT.map(x => x.date))],
+      rotulos: [...document.querySelectorAll('#bfin-apagar .ap-linha .cat')].map(e => e.textContent),
+      aPagar: document.querySelector('#bfin-apagar .ap-total').textContent,
+      saldo: document.querySelector('#bfin-balance .bc-value').textContent,
+      mesmoGrupo: new Set(bovT.map(x => x.grupo)).size === 1,
+      ligada: moves[0].linkGrupo === bovT[0].grupo
+    };
+  });
+  t.conferir('a prévia mostra o valor da prestação antes de salvar',
+    /3× de R\$ 150,00/.test(compra3.previa), compra3.previa);
+  t.conferir('e diz o primeiro e o último vencimento',
+    /10\/09\/26/.test(compra3.previa) && /10\/11\/26/.test(compra3.previa), compra3.previa);
+  t.conferir('cria 3 parcelas', compra3.qtd === 3, String(compra3.qtd));
+  t.conferir('que somam o valor total da compra', compra3.soma === 450, String(compra3.soma));
+  t.conferir('com vencimentos mês a mês',
+    compra3.vencs.join(' ') === '2026-09-10 2026-10-10 2026-11-10', compra3.vencs.join(' '));
+  t.conferir('a despesa fica toda no dia da compra',
+    compra3.datas.length === 1 && compra3.datas[0] === '2026-08-10', compra3.datas.join(','));
+  t.conferir('o saldo do período conta a compra uma vez só',
+    compra3.saldo === 'R$ -450,00', compra3.saldo);
+  t.conferir('"A pagar" mostra as 3 parcelas numeradas',
+    compra3.rotulos.filter(r => /1\/3|2\/3|3\/3/.test(r)).length === 3, compra3.rotulos.join(' | '));
+  t.conferir('e o total a pagar é o valor da compra', compra3.aPagar === 'R$ 450,00', compra3.aPagar);
+  t.conferir('as parcelas ficam no mesmo carnê', compra3.mesmoGrupo === true);
+  t.conferir('e o carnê fica ligado à movimentação do estoque', compra3.ligada === true);
+
+  // Editar a compra para 2× não pode deixar parcela órfã cobrando
+  const editada = await pagina.evaluate(() => {
+    seg = 'estoque'; detailItem = 'p1'; render();
+    openMove('p1', 'entrada', moves[0]);
+    const abriuCom = { prazo: $('m-prazo').checked, parcelas: $('m-parcelas').value, venc: $('m-venc').value };
+    $('m-parcelas').value = '2';
+    $('form-move').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+    return { abriuCom, qtd: bovT.length, soma: bovT.reduce((s, x) => s + x.amount, 0),
+      aPagar: document.querySelector('#bfin-apagar .ap-total').textContent };
+  });
+  t.conferir('reabrir a compra mostra o parcelamento que ela tem',
+    editada.abriuCom.prazo === true && editada.abriuCom.parcelas === '3' && editada.abriuCom.venc === '2026-09-10',
+    JSON.stringify(editada.abriuCom));
+  t.conferir('mudar de 3× para 2× não deixa parcela órfã', editada.qtd === 2, String(editada.qtd));
+  t.conferir('e o total continua batendo com a compra', editada.soma === 450, String(editada.soma));
+  t.conferir('sem cobrar dívida fantasma no "A pagar"', editada.aPagar === 'R$ 450,00', editada.aPagar);
+
+  // Apagar a compra apaga o carnê inteiro
+  const apagada = await pagina.evaluate(() => {
+    seg = 'estoque'; detailItem = 'p1'; render();
+    openMove('p1', 'entrada', moves[0]);
+    limparVinculoCompra(moves[0]);
+    render();
+    return { bov: bovT.length };
+  });
+  t.conferir('apagar a compra apaga o carnê inteiro', apagada.bov === 0, String(apagada.bov));
+
+  // ---------- a prazo também nos aviários ----------
+  t.secao('a prazo nos aviários');
+  const avPrazo = await pagina.evaluate(() => {
+    avT = []; bovT = []; tab = 'aviarios'; render();
+    openTrans('av');
+    document.querySelector('input[name="t-type"][value="saida"]').checked = true;
+    document.querySelector('input[name="t-type"][value="saida"]').dispatchEvent(new Event('change'));
+    const campoAparece = $('t-prazo-box').style.display !== 'none';
+    $('t-date').value = '2026-08-10';
+    $('t-amount').value = '900';
+    $('t-aviary').value = '5';
+    $('t-category').value = 'Ração';
+    $('t-prazo').checked = true; $('t-prazo').dispatchEvent(new Event('change'));
+    $('t-venc').value = '2026-09-05';
+    $('t-parcelas').value = '3'; $('t-parcelas').dispatchEvent(new Event('input'));
+    const previa = $('t-parcelas-nota').textContent;
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    $('av-period').value = 'all'; $('av-aviary').value = 'all'; render();
+    return { campoAparece, previa, qtd: avT.length,
+      soma: avT.reduce((s, x) => s + x.amount, 0),
+      aviario: [...new Set(avT.map(x => x.aviary))],
+      vencs: avT.slice().sort((a, b) => a.parcela - b.parcela).map(x => x.venc),
+      aPagar: document.querySelector('#av-apagar .ap-total').textContent,
+      lembrete: $('lembrete').textContent,
+      bovIntacto: bovT.length };
+  });
+  t.conferir('o campo "a prazo" aparece no lançamento de aviários', avPrazo.campoAparece === true);
+  t.conferir('a prévia mostra 3× de R$ 300,00', /3× de R\$ 300,00/.test(avPrazo.previa), avPrazo.previa);
+  t.conferir('cria as 3 parcelas no livro dos aviários', avPrazo.qtd === 3, String(avPrazo.qtd));
+  t.conferir('que somam o valor lançado', avPrazo.soma === 900, String(avPrazo.soma));
+  t.conferir('todas no aviário escolhido', avPrazo.aviario.join(',') === '5', avPrazo.aviario.join(','));
+  t.conferir('com vencimentos mês a mês',
+    avPrazo.vencs.join(' ') === '2026-09-05 2026-10-05 2026-11-05', avPrazo.vencs.join(' '));
+  t.conferir('"A pagar" dos aviários soma as parcelas', avPrazo.aPagar === 'R$ 900,00', avPrazo.aPagar);
+  t.conferir('e nada disso vaza para o livro dos bovinos', avPrazo.bovIntacto === 0, String(avPrazo.bovIntacto));
+
   // ---------- backup e restauração: a volta tem de trazer tudo ----------
   // Nunca havia sido testado, e é a última linha de defesa contra perda de
   // dados: se a restauração não trouxer tudo de volta, o backup não vale nada.

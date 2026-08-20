@@ -142,6 +142,9 @@ function upsert(col, obj) {
   if (!db) return enfileirar({ col, id: obj.id, obj: clean(obj) });
   colRef(col).doc(obj.id).set(clean(obj)).catch(() => enfileirar({ col, id: obj.id, obj: clean(obj) }));
 }
+// Grava vários registros de uma vez. Cada um passa pelo mesmo caminho seguro do
+// upsert, então sem internet o carnê inteiro entra na fila em vez de sumir.
+function escreverVarias(col, objs) { objs.forEach(o => upsert(col, o)); }
 function remove(col, id) {
   salvarEspelho(true);
   if (!db) return enfileirar({ col, id, del: true });
@@ -865,6 +868,36 @@ function sincronizarAviarios() {
 // período continua contando tudo, e o que está em aberto ganha bloco próprio:
 // misturar as duas coisas num número só esconderia uma das duas.
 const AVISO_DIAS = 7;
+// Divide o valor em N parcelas sem perder nem inventar centavo: o que sobra da
+// divisão vai para as primeiras, que vencem antes. Somadas, devolvem o total
+// exato — se sobrasse um centavo, a conta a pagar nunca fecharia com a compra.
+function parcelasDe(total, n) {
+  const cent = Math.round(total * 100);
+  const base = Math.floor(cent / n);
+  const resto = cent - base * n;
+  return Array.from({ length: n }, (_, i) => (base + (i < resto ? 1 : 0)) / 100);
+}
+// Vencimento da parcela seguinte: mesmo dia no mês seguinte. Dia 31 em mês de
+// 30 cai no último dia do mês, como fazem os boletos.
+function vencimentoParcela(iso, k) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const alvo = new Date(y, m - 1 + k, 1);
+  const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate();
+  alvo.setDate(Math.min(d, ultimo));
+  const p = x => String(x).padStart(2, '0');
+  return `${alvo.getFullYear()}-${p(alvo.getMonth() + 1)}-${p(alvo.getDate())}`;
+}
+// Monta as parcelas de uma compra. A despesa inteira fica no dia da compra —
+// é o que mantém o custo da arroba certo — e cada parcela carrega só o seu
+// vencimento, para o lembrete avisar uma de cada vez.
+function montarParcelas({ base, total, venc, n, grupo }) {
+  const valores = parcelasDe(total, n);
+  return valores.map((v, i) => Object.assign({}, base, {
+    id: uid(), amount: v, venc: vencimentoParcela(venc, i), pago: false,
+    grupo, parcela: i + 1, parcelas: n
+  }));
+}
+const rotuloParcela = t => t.parcelas > 1 ? ` ${t.parcela}/${t.parcelas}` : '';
 const emAberto = t => !!t.venc && !t.pago && t.type === 'saida';
 function contasAPagar(lista) {
   const hoje = todayISO();
@@ -892,7 +925,7 @@ function renderAPagar(book) {
         : t.dias === 0 ? 'vence hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
       return `<div class="ap-linha ${estado}">
         <div class="ap-quem">
-          <span class="cat">${esc(t.category || 'Sem categoria')}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
+          <span class="cat">${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
           <span class="quando mono">${fmtBR(t.venc)} · ${quando}</span>
         </div>
         <span class="ap-valor">${fmtRS(t.amount)}</span>
@@ -1194,8 +1227,11 @@ function openTrans(book, t) {
   $('t-notes').value = t ? (t.notes || '') : '';
   $('t-prazo').checked = !!(t && t.venc);
   $('t-venc').value = t && t.venc ? t.venc : '';
+  $('t-parcelas').value = 1;
+  // Uma parcela já criada não se re-parcela: editar a 2/3 mexe só nela.
+  $('t-parcelas').disabled = !!(t && t.parcelas > 1);
   $('t-pago').checked = !!(t && t.pago);
-  syncPrazoUI();
+  syncPrazoUI(); previewParcelas();
   const ctx = $('t-context');
   if (t && t.lock === 'stock') { ctx.hidden = false; ctx.textContent = 'Gerado pelo estoque — prefira editar pela movimentação de estoque.'; }
   else if (t && t.lock === 'animal') { ctx.hidden = false; ctx.textContent = 'Gerado pela venda do animal — prefira editar pelo cadastro do animal.'; }
@@ -1218,6 +1254,7 @@ $('form-transaction').addEventListener('submit', e => {
   const ehSaida = data.type === 'saida';
   const aPrazo = ehSaida && $('t-prazo').checked;
   if (aPrazo && !$('t-venc').value) { toast('Informe o vencimento'); return; }
+  const nParc = aPrazo ? Math.min(36, Math.max(1, Math.round(parseNum($('t-parcelas').value) || 1))) : 1;
   data.venc = aPrazo ? $('t-venc').value : null;
   data.pago = aPrazo ? $('t-pago').checked : false;
   if (book === 'av') data.aviary = $('t-aviary').value;
@@ -1234,21 +1271,50 @@ $('form-transaction').addEventListener('submit', e => {
   if (id) {
     t = arr.find(x => x.id === id);
     if (!t) return sumiu('Este lançamento foi removido');
-    Object.assign(t, data);
+    // Editar uma parcela mexe só nela: o resto do carnê continua de pé.
+    Object.assign(t, data, t.grupo ? { grupo: t.grupo, parcela: t.parcela, parcelas: t.parcelas } : {});
+    upsert(col, t);
+  } else if (nParc > 1) {
+    // Parcelado: a despesa inteira entra no dia do lançamento e cada parcela
+    // carrega só o seu vencimento.
+    const grupo = uid();
+    const partes = montarParcelas({ base: data, total: amount, venc: data.venc, n: nParc, grupo });
+    partes.forEach(p => arr.push(p));
+    escreverVarias(col, partes);
+    t = partes[0];
+  } else {
+    t = Object.assign({ id: uid() }, data); arr.push(t); upsert(col, t);
   }
-  else { t = Object.assign({ id: uid() }, data); arr.push(t); }
-  upsert(col, t);
   closeAllM(); render(); toast('Lançamento salvo');
 });
 $('btn-delete-transaction').addEventListener('click', () => {
   const id = $('t-id').value, book = $('t-book').value;
-  if (!id || !confirm('Excluir este lançamento?')) return;
-  if (book === 'av') { avT = avT.filter(x => x.id !== id); remove('avtrans', id); }
+  const arr = book === 'av' ? avT : bovT;
+  const col = book === 'av' ? 'avtrans' : 'bovtrans';
+  const alvo = arr.find(x => x.id === id);
+  if (!id || !alvo) return;
+  // Parcela de um carnê: perguntar qual das duas coisas, porque apagar só a
+  // parcela e apagar a compra inteira levam a saldos diferentes.
+  let ids = [id];
+  if (alvo.grupo) {
+    const irmas = arr.filter(x => x.grupo === alvo.grupo);
+    if (irmas.length > 1) {
+      const tudo = confirm(`Esta é a parcela ${alvo.parcela} de ${alvo.parcelas}.\n\n`
+        + `OK apaga as ${irmas.length} parcelas restantes (a compra inteira).\n`
+        + 'Cancelar apaga só esta parcela.');
+      ids = tudo ? irmas.map(x => x.id) : [id];
+    }
+  } else if (!confirm('Excluir este lançamento?')) return;
+  if (book === 'av') { avT = avT.filter(x => !ids.includes(x.id)); }
   else {
-    bovT = bovT.filter(x => x.id !== id); remove('bovtrans', id);
-    moves.forEach(m => { if (m.linkTrans === id) { delete m.linkTrans; upsert('moves', m); } });
-    animals.forEach(a => { if (a.linkTrans === id) { delete a.linkTrans; upsert('animals', a); } });
+    bovT = bovT.filter(x => !ids.includes(x.id));
+    moves.forEach(m => {
+      if (ids.includes(m.linkTrans)) { delete m.linkTrans; upsert('moves', m); }
+      if (m.linkGrupo && alvo.grupo === m.linkGrupo && ids.length > 1) { delete m.linkGrupo; upsert('moves', m); }
+    });
+    animals.forEach(a => { if (ids.includes(a.linkTrans)) { delete a.linkTrans; upsert('animals', a); } });
   }
+  ids.forEach(x => remove(col, x));
   closeAllM(); render(); toast('Lançamento excluído');
 });
 
@@ -1313,8 +1379,50 @@ function syncPrazoUI() {
   $('t-prazo-box').style.display = ehSaida ? '' : 'none';
   $('t-prazo-wrap').style.display = ehSaida && $('t-prazo').checked ? '' : 'none';
 }
+// Mostra em quanto fica cada parcela antes de salvar: quem parcela quer saber
+// o valor da prestação, não o total.
+function previewParcelas() {
+  const desenhar = (campoValor, campoN, campoVenc, alvo, prefixo) => {
+    const el = $(alvo); if (!el) return;
+    const total = parseNum($(campoValor).value);
+    const n = Math.min(36, Math.max(1, Math.round(parseNum($(campoN).value) || 1)));
+    const venc = $(campoVenc).value;
+    if (!Number.isFinite(total) || total <= 0 || n < 2 || !venc) { el.textContent = prefixo; return; }
+    const vs = parcelasDe(total, n);
+    const iguais = vs.every(v => v === vs[0]);
+    el.textContent = `${n}× de ${fmtRS(vs[0])}${iguais ? '' : ` (a última de ${fmtRS(vs[vs.length - 1])})`}`
+      + ` · 1º em ${fmtBR(venc)}, último em ${fmtBR(vencimentoParcela(venc, n - 1))}`;
+  };
+  const it = items.find(x => x.id === $('m-item-id').value);
+  const totalCompra = (parseNum($('m-qty').value) || 0) * (parseNum($('m-cost').value) || 0);
+  const elM = $('m-parcelas-nota');
+  if (elM) {
+    const n = Math.min(36, Math.max(1, Math.round(parseNum($('m-parcelas').value) || 1)));
+    const venc = $('m-venc').value;
+    elM.textContent = (n > 1 && totalCompra > 0 && venc)
+      ? (() => { const vs = parcelasDe(totalCompra, n); const iguais = vs.every(v => v === vs[0]);
+          return `${n}× de ${fmtRS(vs[0])}${iguais ? '' : ` (a última de ${fmtRS(vs[vs.length - 1])})`}`
+            + ` · 1º em ${fmtBR(venc)}, último em ${fmtBR(vencimentoParcela(venc, n - 1))}`; })()
+      : 'Entra em "A pagar" no Financeiro e avisa quando estiver perto de vencer.';
+  }
+  desenhar('t-amount', 't-parcelas', 't-venc', 't-parcelas-nota', '');
+}
 ['m-prazo', 'm-postfin', 't-prazo'].forEach(id => $(id).addEventListener('change', syncPrazoUI));
+['m-parcelas', 'm-venc', 'm-qty', 'm-cost', 't-parcelas', 't-venc', 't-amount']
+  .forEach(id => $(id).addEventListener('input', previewParcelas));
 document.querySelectorAll('input[name="t-type"]').forEach(r => r.addEventListener('change', syncPrazoUI));
+// Apaga os lançamentos que esta compra gerou — a parcela única ou o carnê
+// inteiro. Sem isso, editar uma compra parcelada deixaria parcelas órfãs
+// cobrando no "A pagar" uma dívida que não existe mais.
+function limparVinculoCompra(mv) {
+  const ids = [];
+  if (mv.linkTrans) ids.push(mv.linkTrans);
+  if (mv.linkGrupo) bovT.filter(x => x.grupo === mv.linkGrupo).forEach(x => ids.push(x.id));
+  if (!ids.length) return;
+  bovT = bovT.filter(x => !ids.includes(x.id));
+  ids.forEach(id => remove('bovtrans', id));
+  mv.linkTrans = null; mv.linkGrupo = null;
+}
 function openMove(itemId, presetType, m) {
   const it = items.find(x => x.id === itemId);
   if (!it) return;
@@ -1326,11 +1434,13 @@ function openMove(itemId, presetType, m) {
   $('m-date').value = m ? m.date : todayISO();
   $('m-qty').value = m ? numParaCampo(m.qty) : '';
   $('m-cost').value = m ? numParaCampo(m.unitCost) : '';
-  $('m-postfin').checked = m ? !!m.linkTrans : true;
+  $('m-postfin').checked = m ? !!(m.linkTrans || m.linkGrupo) : true;
   $('m-notes').value = m ? (m.notes || '') : '';
-  const tv = m && m.linkTrans ? bovT.find(x => x.id === m.linkTrans) : null;
+  const doGrupo = m && m.linkGrupo ? bovT.filter(x => x.grupo === m.linkGrupo).sort((a, b) => a.parcela - b.parcela) : [];
+  const tv = doGrupo.length ? doGrupo[0] : (m && m.linkTrans ? bovT.find(x => x.id === m.linkTrans) : null);
   $('m-prazo').checked = !!(tv && tv.venc);
   $('m-venc').value = tv && tv.venc ? tv.venc : '';
+  $('m-parcelas').value = doGrupo.length ? doGrupo.length : 1;
   $('btn-delete-move').hidden = !m;
   syncMoveCostUI(); syncPrazoUI();
   openM('modal-move');
@@ -1345,6 +1455,7 @@ $('form-move').addEventListener('submit', e => {
   const postFin = $('m-postfin').checked;
   const aPrazo = $('m-prazo').checked;
   const venc = $('m-venc').value;
+  const nParcM = aPrazo ? Math.min(36, Math.max(1, Math.round(parseNum($('m-parcelas').value) || 1))) : 1;
   if (!date || !Number.isFinite(qty) || qty <= 0) return;
   if (type === 'entrada' && postFin && aPrazo && !venc) { toast('Informe o vencimento da compra a prazo'); return; }
   const dupMv = moves.find(x => x.id !== id && x.itemId === itemId && x.date === date && x.type === type && Math.abs(x.qty - qty) < 0.0001);
@@ -1362,31 +1473,28 @@ $('form-move').addEventListener('submit', e => {
   if (type === 'entrada') {
     mv.unitCost = Number.isFinite(unitCost) && unitCost > 0 ? unitCost : null;
     const total = mv.unitCost ? qty * mv.unitCost : null;
+    // Refaz o vínculo do zero: com parcelamento o número de lançamentos pode
+    // mudar entre uma edição e outra, e sobrar parcela velha seria dívida
+    // fantasma no "A pagar".
+    limparVinculoCompra(mv);
     if (postFin && total) {
-      if (mv.linkTrans) {
-        const t = bovT.find(x => x.id === mv.linkTrans);
-        if (t) {
-          Object.assign(t, { date, amount: total, notes: it.name + (mv.notes ? ' — ' + mv.notes : ''),
-            venc: aPrazo ? venc : null, pago: aPrazo ? !!t.pago : false });
-          upsert('bovtrans', t);
-        }
-        else mv.linkTrans = null;
-      }
-      if (!mv.linkTrans) {
-        const t = { id: uid(), date, type: 'saida', amount: total, category: 'Ração/insumos',
-          notes: it.name + (mv.notes ? ' — ' + mv.notes : ''), lock: 'stock',
-          venc: aPrazo ? venc : null, pago: false };
+      const base = { date, type: 'saida', amount: total, category: 'Ração/insumos',
+        notes: it.name + (mv.notes ? ' — ' + mv.notes : ''), lock: 'stock' };
+      if (aPrazo && nParcM > 1) {
+        const grupo = uid();
+        const partes = montarParcelas({ base, total, venc, n: nParcM, grupo });
+        partes.forEach(p => bovT.push(p));
+        escreverVarias('bovtrans', partes);
+        mv.linkGrupo = grupo; mv.linkTrans = null;
+      } else {
+        const t = Object.assign({ id: uid() }, base, { venc: aPrazo ? venc : null, pago: false });
         bovT.push(t); upsert('bovtrans', t);
-        mv.linkTrans = t.id;
+        mv.linkTrans = t.id; mv.linkGrupo = null;
       }
-    } else if (mv.linkTrans) {
-      bovT = bovT.filter(x => x.id !== mv.linkTrans);
-      remove('bovtrans', mv.linkTrans);
-      mv.linkTrans = null;
     }
   } else {
     delete mv.unitCost;
-    if (mv.linkTrans) { bovT = bovT.filter(x => x.id !== mv.linkTrans); remove('bovtrans', mv.linkTrans); mv.linkTrans = null; }
+    limparVinculoCompra(mv);
   }
   upsert('moves', mv);
   closeAllM(); render(); toast('Movimentação salva');
@@ -1394,7 +1502,9 @@ $('form-move').addEventListener('submit', e => {
 $('btn-delete-move').addEventListener('click', () => {
   const id = $('m-id').value; if (!id || !confirm('Excluir esta movimentação?')) return;
   const mv = moves.find(x => x.id === id);
-  if (mv && mv.linkTrans) { bovT = bovT.filter(x => x.id !== mv.linkTrans); remove('bovtrans', mv.linkTrans); }
+  // Apagar a compra apaga o carnê inteiro: parcela órfã cobraria uma dívida
+  // que não existe mais.
+  if (mv) limparVinculoCompra(mv);
   moves = moves.filter(x => x.id !== id);
   remove('moves', id);
   closeAllM(); render(); toast('Movimentação excluída');

@@ -455,3 +455,5 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .lb-ver { background: #225437; color: #fafaf9; border: none; border-radius: 3px; padding: 0.4rem 0.7rem; font-family: 'DM Mono', monospace; font-size: 0.7rem; flex-shrink: 0; }
 .lb-fechar { background: transparent; border: none; font-size: 1.3rem; color: #78716c; padding: 0 0.25rem; line-height: 1; flex-shrink: 0; }
 #m-prazo-wrap, #t-prazo-wrap { border-left: 2px solid #fcd34d; padding-left: 0.75rem; margin: 0.4rem 0 0.75rem; }
+#m-parcelas-nota, #t-parcelas-nota { color: #7c2d12; }
+#m-parcelas, #t-parcelas { max-width: 7rem; }

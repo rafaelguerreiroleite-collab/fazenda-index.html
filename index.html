@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=16" />
+<link rel="stylesheet" href="style.css?v=17" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -417,8 +417,11 @@
       <div id="t-prazo-box">
         <label class="check-lbl"><input type="checkbox" id="t-prazo" /> A prazo (pagar depois)</label>
         <div id="t-prazo-wrap">
-          <label class="mono">Vencimento *</label>
+          <label class="mono">1º vencimento *</label>
           <input type="date" id="t-venc" />
+          <label class="mono">Em quantas vezes</label>
+          <input type="number" inputmode="numeric" min="1" max="36" step="1" id="t-parcelas" value="1" />
+          <p class="small" id="t-parcelas-nota"></p>
           <label class="check-lbl"><input type="checkbox" id="t-pago" /> Já foi pago</label>
         </div>
       </div>
@@ -489,9 +492,11 @@
         <label class="check-lbl"><input type="checkbox" id="m-postfin" checked /> Lançar compra no financeiro (Bovinos)</label>
         <label class="check-lbl"><input type="checkbox" id="m-prazo" /> Compra a prazo (pagar depois)</label>
         <div id="m-prazo-wrap">
-          <label class="mono">Vencimento *</label>
+          <label class="mono">1º vencimento *</label>
           <input type="date" id="m-venc" />
-          <p class="small">Entra em "A pagar" no Financeiro e avisa quando estiver perto de vencer.</p>
+          <label class="mono">Em quantas vezes</label>
+          <input type="number" inputmode="numeric" min="1" max="36" step="1" id="m-parcelas" value="1" />
+          <p class="small" id="m-parcelas-nota">Entra em "A pagar" no Financeiro e avisa quando estiver perto de vencer.</p>
         </div>
       </div>
       <label class="mono">Observações</label>
@@ -599,6 +604,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=16"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>
