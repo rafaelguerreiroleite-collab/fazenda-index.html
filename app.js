@@ -481,7 +481,7 @@ function renderMortes() {
 }
 
 function renderVendidas() {
-  const sold = animals.filter(a => a.sold).sort((a, b) => (b.soldDate || '').localeCompare(a.soldDate || ''));
+  const sold = animals.filter(a => a.sold && !a.dead).sort((a, b) => (b.soldDate || '').localeCompare(a.soldDate || ''));
   const totalRevenue = sold.reduce((s, a) => s + (Number.isFinite(a.soldPrice) ? a.soldPrice : 0), 0);
   $('vendidas-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${sold.length}</div><div class="stat-label">Vendidos</div></div>
@@ -1508,10 +1508,11 @@ function download(name, content, mime) {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
 }
 $('menu-exp-pes').addEventListener('click', () => {
-  const rows = ['identificacao;data;peso_kg;jejum;observacoes'];
+  const rows = ['identificacao;data;peso_kg;jejum;situacao;observacoes'];
   weighings.slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(w => {
     const a = animals.find(x => x.id === w.animalId);
-    rows.push([csv(a ? a.ident : '?'), fmtBRfull(w.date), String(w.weight).replace('.', ','), w.jejum ? 'sim' : 'nao', csv(w.notes)].join(';'));
+    const situacao = !a ? 'desconhecido' : a.dead ? 'morto' : a.sold ? 'vendido' : 'rebanho';
+    rows.push([csv(a ? a.ident : '?'), fmtBRfull(w.date), String(w.weight).replace('.', ','), w.jejum ? 'sim' : 'nao', situacao, csv(w.notes)].join(';'));
   });
   download('pesagens-fazendajs.csv', rows.join('\n'), 'text/csv');
   closeAllM(); toast('CSV de pesagens exportado');
@@ -1624,9 +1625,15 @@ function diasDePesagem() {
 let lmDias = new Set();
 function limpezaSeparar(datas) {
   const idsFicam = new Set(weighings.filter(w => datas.has(w.date)).map(w => w.animalId));
-  const ficam = animals.filter(a => idsFicam.has(a.id)).sort(porBrinco);
-  const saem = animals.filter(a => !idsFicam.has(a.id)).sort(porBrinco);
-  return { ficam, saem };
+  // A limpeza é do REBANHO. Vendido e morto já saíram dele e têm registro
+  // próprio nas abas Vendidas e Mortalidade — se entrassem aqui seriam
+  // apagados por não terem pesagem no dia, e junto iriam o histórico da venda
+  // e a causa da morte. Ficam de fora dos dois lados da conta.
+  const rebanho = animals.filter(noRebanho);
+  const ficam = rebanho.filter(a => idsFicam.has(a.id)).sort(porBrinco);
+  const saem = rebanho.filter(a => !idsFicam.has(a.id)).sort(porBrinco);
+  const fora = animals.length - rebanho.length;
+  return { ficam, saem, fora };
 }
 function renderDiasLimpeza() {
   const dias = diasDePesagem();
@@ -1652,13 +1659,14 @@ function renderLimpeza() {
     $('lm-listas').innerHTML = ''; $('lm-aviso').hidden = true;
     btn.disabled = true; btn.textContent = 'Marque os dias'; return;
   }
-  const { ficam, saem } = limpezaSeparar(lmDias);
+  const { ficam, saem, fora } = limpezaSeparar(lmDias);
   $('lm-resumo').innerHTML = `
     <div class="lm-numeros">
       <div class="lm-num"><span class="v">${ficam.length}</span><span class="r mono">ficam</span></div>
       <div class="lm-num saem"><span class="v">${saem.length}</span><span class="r mono">saem</span></div>
     </div>
-    ${!ficam.length ? '<p class="lm-vazio mono">Nenhum animal foi pesado nos dias marcados — confira antes de continuar.</p>' : ''}`;
+    ${!ficam.length ? '<p class="lm-vazio mono">Nenhum animal foi pesado nos dias marcados — confira antes de continuar.</p>' : ''}
+    ${fora ? `<p class="lm-fora mono">${fora} animal(is) já vendidos ou mortos ficam de fora desta limpeza — o registro deles é preservado.</p>` : ''}`;
   const linha = a => {
     const ws = wOf(a.id);
     const ult = ws[ws.length - 1];

@@ -421,3 +421,4 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 #mortes-stats .stat-card:nth-child(2) .stat-value,
 #mortes-stats2 .stat-value { color: #fca5a5; }
 #an-dead-wrap { border-left: 2px solid #fca5a5; padding-left: 0.75rem; margin: 0.5rem 0 0.75rem; }
+.lm-fora { font-size: 0.7rem; color: #57534e; background: #f5f5f4; border-radius: 3px; padding: 0.45rem 0.6rem; margin: 0.5rem 0 0; }

@@ -423,6 +423,96 @@ export default async function () {
       return an.length === 2;
     }));
 
+  // ---------- coerência entre as telas ----------
+  // Um conjunto de dados só, e todas as telas têm de concordar. Cada tela
+  // sozinha parece certa; o erro aparece quando se comparam duas.
+  t.secao('coerência entre as telas');
+  const coer = await pagina.evaluate(() => {
+    const num = x => parseFloat(String(x).replace(/[^\d,-]/g, '').replace(',', '.'));
+    animals = []; weighings = [];
+    for (let i = 1; i <= 6; i++) {
+      animals.push({ id: 'h' + i, ident: String(100 + i) });
+      weighings.push({ id: 'hw' + i, animalId: 'h' + i, date: '2026-06-01', weight: 200 + i * 10 });
+      weighings.push({ id: 'hx' + i, animalId: 'h' + i, date: '2026-08-13', weight: 260 + i * 10 });
+    }
+    for (let i = 1; i <= 3; i++) {   // no rebanho, mas fora do dia de pesagem
+      animals.push({ id: 'n' + i, ident: String(200 + i) });
+      weighings.push({ id: 'nw' + i, animalId: 'n' + i, date: '2026-06-01', weight: 300 + i });
+    }
+    animals.push({ id: 'z1', ident: '301' });   // sem pesagem nenhuma
+    for (let i = 1; i <= 2; i++) {
+      animals.push({ id: 's' + i, ident: String(400 + i), sold: true, soldDate: '2026-07-01', soldPrice: 5000 });
+      weighings.push({ id: 'sw' + i, animalId: 's' + i, date: '2026-06-20', weight: 480 });
+      animals.push({ id: 'm' + i, ident: String(500 + i), dead: true, deadDate: '2026-07-15', deadCause: 'Cobra' });
+      weighings.push({ id: 'mw' + i, animalId: 'm' + i, date: '2026-06-20', weight: 380 });
+    }
+    settings.yield = 52; seg = 'rebanho'; detailAnimal = null; render();
+
+    const vivos = animals.filter(noRebanho);
+    const ultimos = vivos.map(a => { const w = wOf(a.id); return w.length ? w[w.length - 1].weight : null; }).filter(Number.isFinite);
+    const somaKg = ultimos.reduce((s, w) => s + w, 0);
+    const cards = [...document.querySelectorAll('#bov-stats .stat-value')].map(x => x.textContent);
+    const naLista = [...document.querySelectorAll('#animal-list .item-title')].map(e => e.textContent);
+    seg = 'vendidas'; render();
+    const nVendTela = document.querySelectorAll('#vendidas-list .list-item').length;
+    seg = 'mortes'; render();
+    const cm = [...document.querySelectorAll('#mortes-stats .stat-value')].map(x => x.textContent);
+    const nMortosTela = document.querySelectorAll('#mortes-list .list-item').length;
+
+    lmDias = new Set(['2026-08-13']);
+    const sep = limpezaSeparar(lmDias);
+
+    // Registro antigo com as duas marcas não pode contar duas vezes.
+    animals.push({ id: 'x9', ident: '999', sold: true, dead: true, deadDate: '2026-07-02' });
+    seg = 'vendidas'; render(); const vendSujo = document.querySelectorAll('#vendidas-list .list-item').length;
+    seg = 'mortes'; render(); const mortoSujo = document.querySelectorAll('#mortes-list .list-item').length;
+    animals = animals.filter(a => a.id !== 'x9');
+    seg = 'rebanho'; render();
+
+    return {
+      total: animals.length, vivos: vivos.length,
+      nVend: animals.filter(a => a.sold).length, nMortos: animals.filter(a => a.dead).length,
+      cardAnimais: num(cards[0]), cardGmd: num(cards[1]), cardPeso: num(cards[3]), cardArroba: num(cards[5]),
+      pesoEsperado: somaKg / ultimos.length, arrobaEsperada: somaKg * 0.52 / 15,
+      gmdEsperado: (() => { const g = vivos.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite); return g.reduce((s, x) => s + x, 0) / g.length; })(),
+      naLista: naLista.length, temVendidoNaLista: naLista.some(b => b.startsWith('40')), temMortoNaLista: naLista.some(b => b.startsWith('50')),
+      nVendTela, nMortosTela, taxa: num(cm[1]), noRebanhoNaMortalidade: num(cm[2]),
+      sepFicam: sep.ficam.length, sepSaem: sep.saem.length, sepFora: sep.fora,
+      sepSaemIdents: sep.saem.map(a => a.ident).sort().join(','),
+      sepTemVendidoOuMorto: [...sep.saem, ...sep.ficam].some(a => a.sold || a.dead),
+      diasFecham: diasDePesagem().every(d => d.curral + d.entrada + d.importado === d.total),
+      vendSujo, mortoSujo
+    };
+  });
+  t.conferir('rebanho + vendidos + mortos = total de animais',
+    coer.vivos + coer.nVend + coer.nMortos === coer.total, `${coer.vivos}+${coer.nVend}+${coer.nMortos} vs ${coer.total}`);
+  t.conferir('cartão Animais bate com o rebanho', coer.cardAnimais === coer.vivos, `${coer.cardAnimais} vs ${coer.vivos}`);
+  t.conferir('lista do rebanho tem o mesmo tamanho do cartão', coer.naLista === coer.vivos, `${coer.naLista} vs ${coer.vivos}`);
+  t.conferir('nenhum vendido na lista do rebanho', !coer.temVendidoNaLista);
+  t.conferir('nenhum morto na lista do rebanho', !coer.temMortoNaLista);
+  t.conferir('peso médio confere com a conta à mão', Math.abs(coer.cardPeso - coer.pesoEsperado) < 0.6,
+    `${coer.cardPeso} vs ${coer.pesoEsperado.toFixed(1)}`);
+  t.conferir('total em arrobas confere', Math.abs(coer.cardArroba - coer.arrobaEsperada) < 0.6,
+    `${coer.cardArroba} vs ${coer.arrobaEsperada.toFixed(1)}`);
+  t.conferir('GMD médio confere', Math.abs(coer.cardGmd - coer.gmdEsperado) < 0.006,
+    `${coer.cardGmd} vs ${coer.gmdEsperado.toFixed(3)}`);
+  t.conferir('Vendidas lista todos os vendidos', coer.nVendTela === coer.nVend, `${coer.nVendTela} vs ${coer.nVend}`);
+  t.conferir('Mortalidade lista todos os mortos', coer.nMortosTela === coer.nMortos, `${coer.nMortosTela} vs ${coer.nMortos}`);
+  t.conferir('"no rebanho" da Mortalidade bate com o cartão do Rebanho',
+    coer.noRebanhoNaMortalidade === coer.vivos, `${coer.noRebanhoNaMortalidade} vs ${coer.vivos}`);
+  t.conferir('taxa de mortalidade confere',
+    Math.abs(coer.taxa - (coer.nMortos / (coer.vivos + coer.nMortos)) * 100) < 0.06, coer.taxa + '%');
+  t.conferir('LIMPEZA não toca em vendido nem em morto', coer.sepTemVendidoOuMorto === false);
+  t.conferir('limpeza: ficam + saem = rebanho', coer.sepFicam + coer.sepSaem === coer.vivos,
+    `${coer.sepFicam}+${coer.sepSaem} vs ${coer.vivos}`);
+  t.conferir('limpeza avisa quantos ficaram de fora', coer.sepFora === coer.nVend + coer.nMortos, String(coer.sepFora));
+  t.conferir('limpeza tira exatamente quem não foi pesado no dia',
+    coer.sepSaemIdents === '201,202,203,301', coer.sepSaemIdents);
+  t.conferir('todo dia de pesagem tem as partes fechando com o total', coer.diasFecham);
+  t.conferir('animal com as duas marcas conta em UMA lista só',
+    coer.vendSujo === coer.nVend && coer.mortoSujo === coer.nMortos + 1,
+    `vendidas ${coer.vendSujo} · mortes ${coer.mortoSujo}`);
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;
