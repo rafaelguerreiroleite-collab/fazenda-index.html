@@ -178,11 +178,18 @@ export default async function () {
         !(inPeriod(dq, 'this-month') || inPeriod(dq, 'this-year') || inPeriod(dq, 'last-month')) || inPeriod(dq, 'all'), dq);
 
       // --- ordenar o rebanho nunca perde nem duplica animal ---
-      const antes = animals.filter(noRebanho).map(a => a.id).sort().join(',');
-      for (const modo of ['ident-asc', 'ident-desc', 'peso-desc', 'peso-asc', 'gmd-desc', 'gmd-asc', 'data-desc', 'data-asc']) {
-        bovSort = modo; seg = 'rebanho'; tab = 'bovinos'; detailAnimal = null; render();
-        const depois = [...document.querySelectorAll('#animal-list .list-item')].map(e => e.dataset.animal).sort().join(',');
-        regra('nenhuma ordenação perde ou duplica animal', depois === antes, `${modo}: ${depois} vs ${antes}`);
+      // Esta regra redesenha a tela inteira 8 vezes por sorteio. Em 500 mil
+      // sorteios seriam 4 milhões de redesenhos — mais de uma hora de máquina
+      // para confirmar uma propriedade estrutural que já se estabelece em
+      // alguns milhares de rebanhos sorteados. As regras de conta, que são as
+      // que decidem dinheiro, seguem no número cheio.
+      if (i < Math.min(n, 5000)) {
+        const antes = animals.filter(noRebanho).map(a => a.id).sort().join(',');
+        for (const modo of ['ident-asc', 'ident-desc', 'peso-desc', 'peso-asc', 'gmd-desc', 'gmd-asc', 'data-desc', 'data-asc']) {
+          bovSort = modo; seg = 'rebanho'; tab = 'bovinos'; detailAnimal = null; render();
+          const depois = [...document.querySelectorAll('#animal-list .list-item')].map(e => e.dataset.animal).sort().join(',');
+          regra('nenhuma ordenação perde ou duplica animal', depois === antes, `${modo}: ${depois} vs ${antes}`);
+        }
       }
 
       // --- contas a pagar ---
