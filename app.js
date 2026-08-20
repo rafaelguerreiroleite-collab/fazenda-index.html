@@ -99,6 +99,28 @@ function enfileirar(op) {
   guardarFila();
   atualizarPendentes();
 }
+// O documento da fazenda guarda o rendimento de carcaça e os parâmetros de
+// custo. Ele não é uma coleção, então precisa de caminho próprio na fila. E os
+// pedaços têm de se somar: guardar o rendimento não pode apagar os parâmetros
+// de custo que ainda estavam esperando internet.
+function enfileirarFazenda(patch) {
+  const atual = pendentes.find(p => p.col === '_fazenda');
+  const obj = Object.assign({ id: '_fazenda' }, atual ? atual.obj : {}, patch);
+  pendentes = pendentes.filter(p => p.col !== '_fazenda');
+  pendentes.push({ col: '_fazenda', id: '_fazenda', obj });
+  guardarFila();
+  atualizarPendentes();
+}
+// Todo ajuste passa por aqui: grava no aparelho PRIMEIRO, para não se perder ao
+// fechar o app, e só então tenta a nuvem — caindo na fila se não houver sinal.
+// Antes, mexer no rendimento de carcaça sem internet não gravava em lugar
+// nenhum: ao reabrir o app o valor antigo voltava, e com ele todas as arrobas.
+function salvarFazenda(patch) {
+  salvarEspelho(true);
+  if (!db || !farm) return enfileirarFazenda(patch);
+  db.collection('farms').doc(farm).set(clean(patch), { merge: true })
+    .catch(() => enfileirarFazenda(patch));
+}
 function atualizarPendentes() {
   const d = $('sync-dot');
   if (d) d.title = pendentes.length ? `${pendentes.length} registro(s) aguardando a internet` : 'Sincronização';
@@ -129,6 +151,11 @@ async function escreverLote(ops) { // ops: [{col, obj} | {col, del:id}]
   for (let i = 0; i < ops.length; i += 400) {
     const b = db.batch();
     ops.slice(i, i + 400).forEach(op => {
+      if (op.col === '_fazenda') {   // ajustes da fazenda: merge, não substitui
+        const payload = Object.assign({}, op.obj); delete payload.id;
+        b.set(db.collection('farms').doc(farm), clean(payload), { merge: true });
+        return;
+      }
       const ref = colRef(op.col).doc(op.del || op.obj.id);
       op.del ? b.delete(ref) : b.set(ref, clean(op.obj));
     });
@@ -693,8 +720,7 @@ let custoSaveTimer = null;
 function saveCustoParams() {
   clearTimeout(custoSaveTimer);
   custoSaveTimer = setTimeout(() => {
-    if (db && farm) db.collection('farms').doc(farm).set({ custo: clean(custoParams) }, { merge: true })
-      .catch(() => toast('Falha ao salvar — será reenviado'));
+    salvarFazenda({ custo: clean(custoParams) });
   }, 700);
 }
 Object.entries(CUSTO_CAMPOS).forEach(([id, key]) => {
@@ -813,10 +839,30 @@ function renderStockDetail() {
   $('stock-moves').innerHTML = `<div class="wt-header"><span>Data</span><span>Tipo</span><span>Qtd</span><span style="text-align:right">Total</span></div>` + (rows || '<div class="chart-empty">Sem movimentações</div>');
 }
 
+// O seletor de aviário era uma lista fixa no código (5, 6 e 7). Lançamento
+// gravado em qualquer outro aviário — inclusive os "Gerais", que a tela de
+// lançamento oferece — ficava inalcançável pelo filtro: escolher o aviário
+// mostrava R$ 0,00 sem dizer por quê. A lista passa a sair dos dados.
+const AVIARIOS_FIXOS = ['5', '6', '7', 'geral'];
+const nomeAviario = v => v === 'geral' ? 'Gerais (rateio)' : 'Aviário ' + v;
+function sincronizarAviarios() {
+  const sel = $('av-aviary');
+  const usados = [...new Set(avT.map(t => t.aviary).filter(Boolean))];
+  const todos = [...new Set([...AVIARIOS_FIXOS, ...usados])]
+    .sort((a, b) => a === 'geral' ? 1 : b === 'geral' ? -1 : String(a).localeCompare(String(b), 'pt-BR', { numeric: true }));
+  const desejado = ['all', ...todos].join('|');
+  if (sel.dataset.montado === desejado) return;
+  const anterior = sel.value;
+  sel.innerHTML = '<option value="all">Todos aviários</option>'
+    + todos.map(v => `<option value="${esc(v)}">${esc(nomeAviario(v))}</option>`).join('');
+  sel.dataset.montado = desejado;
+  sel.value = [...sel.options].some(o => o.value === anterior) ? anterior : 'all';
+}
 function renderFin(book) {
   const isAv = book === 'av';
   const list = isAv ? avT : bovT;
   const period = isAv ? $('av-period').value : $('bfin-period').value;
+  if (isAv) sincronizarAviarios();
   const avSel = isAv ? $('av-aviary').value : null;
   const filtered = list.filter(t => inPeriod(t.date, period) && (!isAv || avSel === 'all' || t.aviary === avSel));
   const inn = filtered.filter(t => t.type === 'entrada').reduce((s, t) => s + t.amount, 0);
@@ -829,10 +875,21 @@ function renderFin(book) {
     <div class="bc-split">
       <div><div class="lbl">Entradas</div><div class="val in">${fmtRS(inn)}</div></div>
       <div><div class="lbl">Saídas</div><div class="val out">${fmtRS(out)}</div></div>
-    </div>`;
+    </div>${(() => {
+      if (!isAv || avSel === 'all' || avSel === 'geral') return '';
+      const gerais = list.filter(t => inPeriod(t.date, period) && t.aviary === 'geral');
+      if (!gerais.length) return '';
+      const sg = gerais.reduce((s, t) => s + (t.type === 'saida' ? t.amount : -t.amount), 0);
+      return `<p class="bc-nota mono">${fmtRS(Math.abs(sg))} em lançamentos Gerais do período não entram neste filtro — são de todos os aviários.</p>`;
+    })()}`;
   const agg = {};
   filtered.forEach(t => { const k = t.type + '|' + (t.category || 'Sem categoria'); agg[k] = (agg[k] || 0) + t.amount; });
-  const entries = Object.entries(agg).sort((a, b) => b[1] - a[1]).slice(0, 7);
+  const todasCats = Object.entries(agg).sort((a, b) => b[1] - a[1]);
+  const entries = todasCats.slice(0, 7);
+  // Mostrar 7 e calar sobre o resto faz a soma das barras não bater com o
+  // saldo, e quem lê conclui errado. O que sobra vira uma linha própria.
+  const sobra = todasCats.slice(7);
+  const somaSobra = sobra.reduce((s, [, v]) => s + v, 0);
   const maxV = entries.length ? entries[0][1] : 1;
   const catEl = isAv ? $('av-cats') : $('bfin-cats');
   catEl.innerHTML = entries.length ? `<div class="cb-header">Por categoria</div>` + entries.map(([k, v]) => {
@@ -841,7 +898,9 @@ function renderFin(book) {
       <div class="cb-line"><span>${esc(cat)}</span><span class="value ${tp}">${tp === 'saida' ? '−' : '+'} ${fmtRS(v)}</span></div>
       <div class="cb-bar"><div class="cb-fill ${tp}" style="width:${Math.max(4, v / maxV * 100)}%"></div></div>
     </div>`;
-  }).join('') : '';
+  }).join('') + (sobra.length
+    ? `<div class="cb-resto mono">+ ${sobra.length} outra${sobra.length > 1 ? 's' : ''} categoria${sobra.length > 1 ? 's' : ''} · ${fmtRS(somaSobra)}</div>`
+    : '') : '';
   catEl.style.display = entries.length ? '' : 'none';
   const listEl = isAv ? $('av-list') : $('bfin-list');
   const sorted = [...filtered].sort((a, b) => a.date < b.date ? 1 : -1);
@@ -1543,8 +1602,9 @@ $('restore-input').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) return;
   const reader = new FileReader();
   reader.onload = async () => {
+    let d = null;
     try {
-      const d = JSON.parse(String(reader.result));
+      d = JSON.parse(String(reader.result));
       if (d.app !== 'fazendajs') { toast('Arquivo não é um backup do Fazenda JS'); return; }
       if (!confirm('Substituir TODOS os dados da fazenda (em todos os aparelhos) pelo backup?')) return;
       toast('Restaurando…');
@@ -1565,14 +1625,30 @@ $('restore-input').addEventListener('change', e => {
         ...(d.items || []).map(x => ({ col: 'items', obj: x })),
         ...(d.moves || []).map(x => ({ col: 'moves', obj: x }))
       ];
+      // A tela tem de mostrar o backup JÁ. Antes isto dependia da nuvem
+      // responder: sem internet a restauração parecia não ter feito nada, e o
+      // aparelho seguia com os dados velhos enquanto a fila carregava os novos.
+      animals = d.animals || []; weighings = d.weighings || [];
+      bovT = d.bovT || []; avT = d.avT || [];
+      items = d.items || []; moves = d.moves || [];
+      if (d.settings && Number.isFinite(d.settings.yield)) settings.yield = d.settings.yield;
+      if (d.custo) custoParams = Object.assign({}, CUSTO_VAZIO, d.custo);
+      detailAnimal = null; detailItem = null; closeAllM();
+      salvarEspelho(true); render();
+
       await batchWrite(addOps);
       const farmDoc = {};
       if (d.settings && Number.isFinite(d.settings.yield)) farmDoc.yield = d.settings.yield;
       if (d.custo) farmDoc.custo = Object.assign({}, CUSTO_VAZIO, d.custo);
-      if (Object.keys(farmDoc).length) await db.collection('farms').doc(farm).set(farmDoc, { merge: true });
-      detailAnimal = null; detailItem = null; closeAllM();
-      toast('Backup restaurado');
-    } catch (err) { toast('Arquivo inválido ou falha de conexão'); }
+      // salvarFazenda em vez da nuvem direta: sem internet os ajustes entram na
+      // fila em vez de derrubar a restauração inteira num "arquivo inválido".
+      if (Object.keys(farmDoc).length) salvarFazenda(farmDoc);
+      toast(db ? 'Backup restaurado' : 'Backup restaurado no aparelho — sobe quando a internet voltar');
+    } catch (err) {
+      // Separar as duas causas: arquivo estragado é problema do arquivo, falha
+      // de rede não é — e a segunda já ficou guardada na fila.
+      toast(d ? 'Restaurado no aparelho; a nuvem recebe quando a internet voltar' : 'Arquivo de backup inválido');
+    }
   };
   reader.readAsText(f, 'utf-8');
   e.target.value = '';
@@ -1742,7 +1818,7 @@ $('set-yield').addEventListener('change', e => {
   if (!Number.isFinite(v)) v = 52;
   v = Math.min(65, Math.max(40, v));
   e.target.value = v; settings.yield = v;
-  if (db && farm) db.collection('farms').doc(farm).set({ yield: v }, { merge: true });
+  salvarFazenda({ yield: v });
   render();
 });
 

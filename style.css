@@ -422,3 +422,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 #mortes-stats2 .stat-value { color: #fca5a5; }
 #an-dead-wrap { border-left: 2px solid #fca5a5; padding-left: 0.75rem; margin: 0.5rem 0 0.75rem; }
 .lm-fora { font-size: 0.7rem; color: #57534e; background: #f5f5f4; border-radius: 3px; padding: 0.45rem 0.6rem; margin: 0.5rem 0 0; }
+/* Categorias que não couberam na lista e lançamentos Gerais fora do filtro:
+   sem estas duas linhas as barras não somam o saldo e quem lê conclui errado. */
+.cb-resto { font-size: 0.68rem; color: #78716c; padding: 0.5rem 0 0.15rem; border-top: 1px solid #e7e5e4; margin-top: 0.4rem; }
+.bc-nota { font-size: 0.68rem; color: #b45309; margin: 0.6rem 0 0; line-height: 1.35; }
