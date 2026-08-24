@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=17" />
+<link rel="stylesheet" href="style.css?v=18" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -65,6 +65,7 @@
 <nav class="tabs">
   <button class="tab active" data-view="bovinos">Bovinos</button>
   <button class="tab" data-view="aviarios">Aviários</button>
+  <button class="tab" data-view="fazenda">Fazenda</button>
 </nav>
 
 <main>
@@ -254,6 +255,27 @@
       <p class="eyebrow mono">Nenhum lançamento</p>
       <p>Toque em + para registrar entradas e saídas dos aviários.</p>
     </div>
+  </div>
+</section>
+
+
+<section class="view" id="view-fazenda">
+  <div class="filter-row one">
+    <select id="fz-period">
+      <option value="this-month">Este mês</option>
+      <option value="last-month">Mês anterior</option>
+      <option value="this-year" selected>Este ano</option>
+      <option value="all">Todo período</option>
+    </select>
+  </div>
+  <div class="balance-card" id="fz-balance"></div>
+  <div id="fz-atividades"></div>
+  <div id="fz-classes"></div>
+  <div id="fz-apagar"></div>
+  <div class="category-breakdown" id="fz-cats"></div>
+  <div class="empty" id="fz-empty" hidden>
+    <p class="eyebrow mono">Nenhum lançamento no período</p>
+    <p>Os lançamentos de Bovinos e Aviários aparecem somados aqui.</p>
   </div>
 </section>
 
@@ -604,6 +626,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

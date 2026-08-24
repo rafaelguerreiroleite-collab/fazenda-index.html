@@ -422,6 +422,101 @@ export default async function () {
   t.conferir('"A pagar" dos aviários soma as parcelas', avPrazo.aPagar === 'R$ 900,00', avPrazo.aPagar);
   t.conferir('e nada disso vaza para o livro dos bovinos', avPrazo.bovIntacto === 0, String(avPrazo.bovIntacto));
 
+  // ---------- aba Fazenda: os dois livros somados ----------
+  // A regra que importa: o que a Fazenda mostra tem de ser exatamente a soma
+  // do que Bovinos e Aviários mostram. Se divergir, um dos três está mentindo.
+  t.secao('aba Fazenda');
+  const fz = await pagina.evaluate(() => {
+    bovT = [
+      { id: 'f1', date: '2026-04-01', type: 'entrada', amount: 50000, category: 'Venda de gado' },
+      { id: 'f2', date: '2026-04-02', type: 'saida', amount: 12000, category: 'Ração/insumos' },
+      { id: 'f3', date: '2026-04-03', type: 'saida', amount: 8000, category: 'Benfeitorias' },
+      { id: 'f4', date: '2026-04-04', type: 'saida', amount: 3000, category: 'Mão de obra', venc: '2026-05-04', pago: false },
+      { id: 'f5', date: '2025-04-04', type: 'entrada', amount: 99999, category: 'Ano passado' }
+    ];
+    avT = [
+      { id: 'g1', date: '2026-04-01', type: 'entrada', amount: 20000, category: 'Pagamento Seara', aviary: '5' },
+      { id: 'g2', date: '2026-04-02', type: 'saida', amount: 25000, category: 'Energia elétrica', aviary: '5' },
+      { id: 'g3', date: '2026-04-03', type: 'saida', amount: 2000, category: 'Gás', aviary: '6', venc: '2026-05-10', pago: false }
+    ];
+    const ler = sel => document.querySelector(sel) ? document.querySelector(sel).textContent : null;
+
+    tab = 'fazenda'; $('fz-period').value = 'this-year'; render();
+    const geral = {
+      saldo: ler('#fz-balance .bc-value'),
+      receitas: ler('#fz-balance .val.in'),
+      custos: ler('#fz-balance .val.out'),
+      atividades: [...document.querySelectorAll('#fz-atividades .fz-card')].map(c => ({
+        nome: c.querySelector('.fz-nome').textContent, saldo: c.querySelector('.fz-saldo').textContent,
+        negativo: c.className.includes('neg') })),
+      classes: [...document.querySelectorAll('#fz-classes .fz-classe')].map(c =>
+        c.querySelector('.n').textContent + '=' + c.querySelector('.v').textContent),
+      aPagar: ler('#fz-apagar .ap-total'),
+      contas: [...document.querySelectorAll('#fz-apagar .ap-linha .cat')].map(e => e.textContent),
+      cats: [...document.querySelectorAll('#fz-cats .cb-line')].length,
+      vazio: $('fz-empty').hidden
+    };
+
+    // Os mesmos dados vistos por cada aba, para comparar
+    tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'this-year'; render();
+    const bov = { saldo: ler('#bfin-balance .bc-value'), inn: ler('#bfin-balance .val.in'), out: ler('#bfin-balance .val.out') };
+    tab = 'aviarios'; $('av-period').value = 'this-year'; $('av-aviary').value = 'all'; render();
+    const av = { saldo: ler('#av-balance .bc-value'), inn: ler('#av-balance .val.in'), out: ler('#av-balance .val.out') };
+
+    // Período mais estreito tem de reduzir, nunca aumentar
+    tab = 'fazenda'; $('fz-period').value = 'all'; render();
+    const tudoPeriodo = ler('#fz-balance .bc-value');
+
+    // Sem lançamento nenhum, a tela avisa em vez de mostrar zero sem contexto
+    bovT = []; avT = []; render();
+    const semNada = { vazio: $('fz-empty').hidden, saldo: ler('#fz-balance .bc-value') };
+    return { geral, bov, av, tudoPeriodo, semNada, fabEscondido: $('fab').hidden };
+  });
+
+  // O leitor do topo não tira o ponto de milhar; aqui os valores passam de mil.
+  const numBR = x => parseFloat(String(x).replace(/[^\d,-]/g, '').replace(/\./g, '').replace(',', '.'));
+  t.conferir('receitas da Fazenda = Bovinos + Aviários',
+    Math.abs(numBR(fz.geral.receitas) - (numBR(fz.bov.inn) + numBR(fz.av.inn))) < 0.005,
+    `${fz.geral.receitas} vs ${fz.bov.inn} + ${fz.av.inn}`);
+  t.conferir('custos da Fazenda = Bovinos + Aviários',
+    Math.abs(numBR(fz.geral.custos) - (numBR(fz.bov.out) + numBR(fz.av.out))) < 0.005,
+    `${fz.geral.custos} vs ${fz.bov.out} + ${fz.av.out}`);
+  t.conferir('saldo da Fazenda = saldo dos dois somados',
+    Math.abs(numBR(fz.geral.saldo) - (numBR(fz.bov.saldo) + numBR(fz.av.saldo))) < 0.005,
+    `${fz.geral.saldo} vs ${fz.bov.saldo} + ${fz.av.saldo}`);
+  t.conferir('saldo consolidado confere com a conta à mão',
+    fz.geral.saldo === 'R$ 20.000,00', fz.geral.saldo);
+
+  t.conferir('mostra o resultado de cada atividade',
+    fz.geral.atividades.map(a => a.nome).join(',') === 'Bovinos,Aviários',
+    fz.geral.atividades.map(a => a.nome).join(','));
+  t.conferir('bovinos com saldo positivo',
+    fz.geral.atividades[0].saldo === 'R$ 27.000,00' && fz.geral.atividades[0].negativo === false,
+    fz.geral.atividades[0].saldo);
+  t.conferir('aviários com saldo negativo, e marcado como tal',
+    fz.geral.atividades[1].saldo === 'R$ -7.000,00' && fz.geral.atividades[1].negativo === true,
+    fz.geral.atividades[1].saldo);
+  t.conferir('os dois saldos por atividade somam o saldo da fazenda',
+    Math.abs(fz.geral.atividades.reduce((s, a) => s + numBR(a.saldo), 0) - numBR(fz.geral.saldo)) < 0.005,
+    fz.geral.atividades.map(a => a.saldo).join(' + '));
+
+  t.conferir('separa receita, custeio e investimento',
+    fz.geral.classes.join(' | ') === 'Receita=R$ 70.000,00 | Custeio=R$ 42.000,00 | Investimento=R$ 8.000,00',
+    fz.geral.classes.join(' | '));
+  t.conferir('benfeitoria não entra como custeio',
+    /Investimento=R\$ 8\.000,00/.test(fz.geral.classes.join(' ')), fz.geral.classes.join(' '));
+
+  t.conferir('contas a pagar somam os dois livros', fz.geral.aPagar === 'R$ 5.000,00', fz.geral.aPagar);
+  t.conferir('e cada conta diz de qual atividade é',
+    fz.geral.contas.some(c => /^Bovinos/.test(c)) && fz.geral.contas.some(c => /^Aviários/.test(c)),
+    fz.geral.contas.join(' | '));
+
+  t.conferir('o filtro de período funciona (todo período traz o ano passado)',
+    fz.tudoPeriodo === 'R$ 119.999,00', fz.tudoPeriodo);
+  t.conferir('sem lançamento a tela avisa em vez de só mostrar zero',
+    fz.semNada.vazio === false && fz.semNada.saldo === 'R$ 0,00', `${fz.semNada.vazio} / ${fz.semNada.saldo}`);
+  t.conferir('a aba Fazenda é só leitura: o botão + não aparece', fz.fabEscondido === true);
+
   // ---------- backup e restauração: a volta tem de trazer tudo ----------
   // Nunca havia sido testado, e é a última linha de defesa contra perda de
   // dados: se a restauração não trouxer tudo de volta, o backup não vale nada.

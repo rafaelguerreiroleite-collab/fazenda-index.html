@@ -457,3 +457,22 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 #m-prazo-wrap, #t-prazo-wrap { border-left: 2px solid #fcd34d; padding-left: 0.75rem; margin: 0.4rem 0 0.75rem; }
 #m-parcelas-nota, #t-parcelas-nota { color: #7c2d12; }
 #m-parcelas, #t-parcelas { max-width: 7rem; }
+
+/* ===== Aba Fazenda: os dois livros somados ===== */
+.fz-titulo { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: #78716c; margin: 1rem 0 0.5rem; }
+.fz-grade { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.fz-card { background: white; border: 1px solid #e7e5e4; border-left: 3px solid #225437; border-radius: 3px; padding: 0.7rem 0.75rem; }
+.fz-card.neg { border-left-color: #991b1b; }
+.fz-nome { font-weight: 600; font-size: 0.9rem; }
+.fz-saldo { font-weight: 800; font-size: 1.1rem; margin-top: 0.15rem; color: #225437; }
+.fz-card.neg .fz-saldo { color: #991b1b; }
+.fz-detalhe { font-size: 0.64rem; color: #78716c; margin-top: 0.15rem; }
+.fz-classes { display: flex; flex-direction: column; gap: 0.35rem; }
+.fz-classe { display: flex; justify-content: space-between; align-items: baseline; padding: 0.5rem 0.75rem; border-radius: 3px; border: 1px solid #e7e5e4; background: white; }
+.fz-classe .n { font-size: 0.85rem; }
+.fz-classe .v { font-weight: 700; font-size: 0.95rem; }
+.fz-classe.rec { border-left: 3px solid #047857; } .fz-classe.rec .v { color: #047857; }
+.fz-classe.cus { border-left: 3px solid #b45309; } .fz-classe.cus .v { color: #b45309; }
+.fz-classe.inv { border-left: 3px solid #1d4ed8; } .fz-classe.inv .v { color: #1d4ed8; }
+#fz-apagar { margin-top: 1rem; }
+#fz-cats { margin-top: 1rem; }
