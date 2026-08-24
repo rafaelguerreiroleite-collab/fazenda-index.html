@@ -979,13 +979,49 @@ document.addEventListener('click', e => {
 // Bovinos e Aviários separados dizem se cada atividade paga. Só somados dizem
 // se a FAZENDA paga — e qual das duas está sustentando a outra, que é a conta
 // que ninguém faz de cabeça.
-function renderFazenda() {
-  const period = $('fz-period').value;
+// A CONTA da fazenda inteira, separada da tela. Assim ela pode ser conferida
+// aos milhares por sorteio sem redesenhar nada, e a tela fica com um trabalho
+// só: mostrar o que esta função devolve.
+function resumoFazenda(period) {
   const doLivro = (lista, nome) => lista.filter(t => inPeriod(t.date, period)).map(t => ({ t, livro: nome }));
   const tudo = [...doLivro(bovT, 'Bovinos'), ...doLivro(avT, 'Aviários')];
-  $('fz-empty').hidden = tudo.length > 0;
   const soma = (arr, tipo) => arr.filter(x => x.t.type === tipo).reduce((s, x) => s + x.t.amount, 0);
-  const inn = soma(tudo, 'entrada'), out = soma(tudo, 'saida'), bal = inn - out;
+  const receitas = soma(tudo, 'entrada'), custos = soma(tudo, 'saida');
+  const atividades = ['Bovinos', 'Aviários'].map(nome => {
+    const doNome = tudo.filter(x => x.livro === nome);
+    const e = soma(doNome, 'entrada'), sd = soma(doNome, 'saida');
+    return { nome, entrada: e, saida: sd, saldo: e - sd, n: doNome.length };
+  });
+  // Cada lançamento cai em exatamente uma natureza: Receita, Custeio ou
+  // Investimento. Se um deles ficasse de fora, as três somas não fechariam
+  // com o movimento do período e ninguém perceberia.
+  const classes = {};
+  tudo.forEach(x => {
+    const cl = classOf(x.t.category, x.t.type);
+    classes[cl] = (classes[cl] || 0) + x.t.amount;
+  });
+  const contas = [...contasAPagar(bovT).map(t => ({ t, livro: 'Bovinos' })),
+                  ...contasAPagar(avT).map(t => ({ t, livro: 'Aviários' }))]
+    .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
+  const categorias = Object.entries(tudo.reduce((acc, x) => {
+    const k = x.t.type + '|' + (x.t.category || 'Sem categoria');
+    acc[k] = (acc[k] || 0) + x.t.amount;
+    return acc;
+  }, {})).sort((a, b) => b[1] - a[1]);
+  return {
+    n: tudo.length, receitas, custos, saldo: receitas - custos,
+    atividades, classes, contas, categorias,
+    aPagarTotal: contas.reduce((s, x) => s + x.t.amount, 0),
+    movimento: receitas + custos
+  };
+}
+function renderFazenda() {
+  const period = $('fz-period').value;
+  const R = resumoFazenda(period);
+  const tudo = [...bovT.filter(t => inPeriod(t.date, period)).map(t => ({ t, livro: 'Bovinos' })),
+                ...avT.filter(t => inPeriod(t.date, period)).map(t => ({ t, livro: 'Aviários' }))];
+  $('fz-empty').hidden = R.n > 0;
+  const inn = R.receitas, out = R.custos, bal = R.saldo;
 
   $('fz-balance').innerHTML = `
     <div class="bc-label">Fazenda inteira · saldo do período</div>
@@ -996,11 +1032,7 @@ function renderFazenda() {
     </div>`;
 
   // Cada atividade com o seu resultado, lado a lado.
-  const atividades = ['Bovinos', 'Aviários'].map(nome => {
-    const doNome = tudo.filter(x => x.livro === nome);
-    const e = soma(doNome, 'entrada'), sd = soma(doNome, 'saida');
-    return { nome, entrada: e, saida: sd, saldo: e - sd, n: doNome.length };
-  });
+  const atividades = R.atividades;
   $('fz-atividades').innerHTML = `
     <div class="fz-titulo mono">Resultado por atividade</div>
     <div class="fz-grade">${atividades.map(a => `
@@ -1012,11 +1044,7 @@ function renderFazenda() {
 
   // Custeio x Investimento: dinheiro que some no ciclo não é o mesmo que
   // dinheiro que vira benfeitoria. Somar os dois esconde a diferença.
-  const porClasse = {};
-  tudo.forEach(x => {
-    const cl = classOf(x.t.category, x.t.type);
-    porClasse[cl] = (porClasse[cl] || 0) + x.t.amount;
-  });
+  const porClasse = R.classes;
   const ordem = ['Receita', 'Custeio', 'Investimento'];
   const classes = ordem.filter(c => porClasse[c]);
   $('fz-classes').innerHTML = classes.length ? `
@@ -1027,9 +1055,7 @@ function renderFazenda() {
       </div>`).join('')}</div>` : '';
 
   // Contas a pagar dos dois livros juntas: a fazenda paga de um bolso só.
-  const contas = [...contasAPagar(bovT).map(t => ({ t, livro: 'Bovinos' })),
-                  ...contasAPagar(avT).map(t => ({ t, livro: 'Aviários' }))]
-    .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
+  const contas = R.contas;
   const elAp = $('fz-apagar');
   if (!contas.length) { elAp.innerHTML = ''; elAp.style.display = 'none'; }
   else {
@@ -1056,12 +1082,7 @@ function renderFazenda() {
   }
 
   // Categorias dos dois livros somadas, com o resto sempre declarado.
-  const agg = {};
-  tudo.forEach(x => {
-    const k = x.t.type + '|' + (x.t.category || 'Sem categoria');
-    agg[k] = (agg[k] || 0) + x.t.amount;
-  });
-  const todas = Object.entries(agg).sort((a, b) => b[1] - a[1]);
+  const todas = R.categorias;
   const mostrar = todas.slice(0, 8), sobra = todas.slice(8);
   const maxV = mostrar.length ? mostrar[0][1] : 1;
   $('fz-cats').innerHTML = mostrar.length ? `<div class="cb-header">Por categoria · fazenda inteira</div>`

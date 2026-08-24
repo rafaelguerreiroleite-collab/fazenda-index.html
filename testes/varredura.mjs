@@ -248,6 +248,70 @@ export default async function () {
       regra('o dia do vencimento nunca passa do dia escolhido',
         Number(vRes.slice(8)) <= Number(vBase.slice(8)), `${vBase} → ${vRes}`);
 
+      // --- aba Fazenda: a soma das duas atividades tem de fechar sempre ---
+      const fazerLivro = (pref, comAviario) => {
+        const arr = [];
+        for (let k = 0; k < ent(0, 8); k++) {
+          const t = { id: `${pref}${i}_${k}`, date: dataAleatoria(),
+            type: rnd() < 0.35 ? 'entrada' : 'saida', amount: dec(0.01, 99999, 2),
+            category: ['Venda de gado', 'Ração/insumos', 'Benfeitorias', 'Equipamentos',
+              'Mão de obra', 'Pagamento Seara', 'Energia elétrica', '', 'Categoria nova'][ent(0, 8)] };
+          if (comAviario) t.aviary = ['5', '6', '7', 'geral'][ent(0, 3)];
+          if (t.type === 'saida' && rnd() < 0.4) { t.venc = dataAleatoria(); t.pago = rnd() < 0.4; }
+          arr.push(t);
+        }
+        return arr;
+      };
+      bovT = fazerLivro('fb', false);
+      avT = fazerLivro('fa', true);
+      const periodo = ['this-month', 'last-month', 'this-year', 'all'][ent(0, 3)];
+      const R = resumoFazenda(periodo);
+
+      const soPeriodo = l => l.filter(t => inPeriod(t.date, periodo));
+      const somaT = (l, tp) => soPeriodo(l).filter(t => t.type === tp).reduce((s, t) => s + t.amount, 0);
+      const recEsperada = somaT(bovT, 'entrada') + somaT(avT, 'entrada');
+      const cusEsperado = somaT(bovT, 'saida') + somaT(avT, 'saida');
+      regra('Fazenda: receitas = as dos dois livros somadas',
+        Math.abs(R.receitas - recEsperada) < 1e-6, `${R.receitas} vs ${recEsperada}`);
+      regra('Fazenda: custos = os dos dois livros somados',
+        Math.abs(R.custos - cusEsperado) < 1e-6, `${R.custos} vs ${cusEsperado}`);
+      regra('Fazenda: saldo = receitas menos custos',
+        Math.abs(R.saldo - (R.receitas - R.custos)) < 1e-9, `${R.saldo}`);
+      regra('Fazenda: os saldos por atividade somam o saldo da fazenda',
+        Math.abs(R.atividades.reduce((s, a) => s + a.saldo, 0) - R.saldo) < 1e-6,
+        `${R.atividades.map(a => a.saldo).join(' + ')} vs ${R.saldo}`);
+      regra('Fazenda: cada atividade fecha entrada menos saída',
+        R.atividades.every(a => Math.abs(a.saldo - (a.entrada - a.saida)) < 1e-9), '');
+      regra('Fazenda: os lançamentos por atividade somam o total do período',
+        R.atividades.reduce((s, a) => s + a.n, 0) === R.n,
+        `${R.atividades.map(a => a.n).join('+')} vs ${R.n}`);
+      regra('Fazenda: cada lançamento cai em exatamente uma natureza',
+        Math.abs(Object.values(R.classes).reduce((s, v) => s + v, 0) - R.movimento) < 1e-6,
+        `${Object.values(R.classes).reduce((s, v) => s + v, 0)} vs ${R.movimento}`);
+      regra('Fazenda: nenhuma natureza fora de Receita, Custeio ou Investimento',
+        Object.keys(R.classes).every(c => ['Receita', 'Custeio', 'Investimento'].includes(c)),
+        Object.keys(R.classes).join(','));
+      regra('Fazenda: as categorias somam o movimento do período',
+        Math.abs(R.categorias.reduce((s, [, v]) => s + v, 0) - R.movimento) < 1e-6,
+        `${R.categorias.reduce((s, [, v]) => s + v, 0)} vs ${R.movimento}`);
+      regra('Fazenda: categorias em ordem decrescente de valor',
+        R.categorias.every((c, k) => k === 0 || R.categorias[k - 1][1] >= c[1]), '');
+      regra('Fazenda: a pagar soma as contas em aberto dos dois livros',
+        Math.abs(R.aPagarTotal - (contasAPagar(bovT).reduce((s, t) => s + t.amount, 0)
+          + contasAPagar(avT).reduce((s, t) => s + t.amount, 0))) < 1e-6, String(R.aPagarTotal));
+      regra('Fazenda: a pagar ignora o filtro de período (dívida não vence por filtro)',
+        R.contas.every(x => x.t.venc && !x.t.pago && x.t.type === 'saida'), '');
+      regra('Fazenda: nada de NaN em nenhum número',
+        [R.receitas, R.custos, R.saldo, R.aPagarTotal, R.movimento].every(Number.isFinite)
+          && R.atividades.every(a => Number.isFinite(a.saldo)),
+        JSON.stringify({ r: R.receitas, c: R.custos, s: R.saldo }));
+      regra('Fazenda: receitas e custos nunca negativos',
+        R.receitas >= 0 && R.custos >= 0, `${R.receitas} / ${R.custos}`);
+      // Um período mais largo nunca pode mover menos dinheiro que um estreito.
+      const largo = resumoFazenda('all');
+      regra('Fazenda: todo período nunca movimenta menos que um filtro estreito',
+        largo.movimento >= R.movimento - 1e-6, `${largo.movimento} vs ${R.movimento}`);
+
       // --- custo da arroba e simulação ---
       custoParams = Object.assign({}, CUSTO_VAZIO, {
         gmd: dec(0.1, 2, 3), salPct: dec(0, 1, 2), salPreco: dec(0.5, 20, 2),
