@@ -476,3 +476,4 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .fz-classe.inv { border-left: 3px solid #1d4ed8; } .fz-classe.inv .v { color: #1d4ed8; }
 #fz-apagar { margin-top: 1rem; }
 #fz-cats { margin-top: 1rem; }
+#t-livro-wrap { border-left: 2px solid #225437; padding-left: 0.75rem; margin-bottom: 0.75rem; }

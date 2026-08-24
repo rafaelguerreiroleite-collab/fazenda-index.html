@@ -515,7 +515,91 @@ export default async function () {
     fz.tudoPeriodo === 'R$ 119.999,00', fz.tudoPeriodo);
   t.conferir('sem lançamento a tela avisa em vez de só mostrar zero',
     fz.semNada.vazio === false && fz.semNada.saldo === 'R$ 0,00', `${fz.semNada.vazio} / ${fz.semNada.saldo}`);
-  t.conferir('a aba Fazenda é só leitura: o botão + não aparece', fz.fabEscondido === true);
+  t.conferir('a aba Fazenda permite lançar: o botão + aparece', fz.fabEscondido === false);
+
+  // ---------- lançar custo pela aba Fazenda ----------
+  t.secao('lançar custo pela Fazenda');
+  const lanc = await pagina.evaluate(() => {
+    bovT = []; avT = []; tab = 'fazenda'; $('fz-period').value = 'all'; render();
+    const fabAparece = !$('fab').hidden;
+
+    // Bovinos: a atividade vem perguntada, e o campo de aviário fica escondido
+    $('fab').click();
+    const aoAbrir = {
+      perguntaAtividade: $('t-livro-wrap').style.display !== 'none',
+      livroPadrao: $('t-livro').value,
+      aviarioEscondido: $('t-aviary-wrap').style.display === 'none',
+      listaCategorias: $('t-category').getAttribute('list')
+    };
+    $('t-date').value = '2026-08-20';
+    $('t-amount').value = '1.250,50';
+    $('t-category').value = 'Impostos/Funrural';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    const depoisBov = { bov: bovT.length, av: avT.length, valor: bovT[0] && bovT[0].amount };
+
+    // Aviários: trocar a atividade tem de trazer o campo de aviário e a outra lista
+    $('fab').click();
+    $('t-livro').value = 'av'; $('t-livro').dispatchEvent(new Event('change'));
+    const aoTrocar = {
+      aviarioAparece: $('t-aviary-wrap').style.display !== 'none',
+      listaCategorias: $('t-category').getAttribute('list'),
+      livroDestino: $('t-book').value
+    };
+    $('t-date').value = '2026-08-21';
+    $('t-amount').value = '800';
+    $('t-aviary').value = '6';
+    $('t-category').value = 'Energia elétrica';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    render();
+
+    const ler = sel => document.querySelector(sel) ? document.querySelector(sel).textContent : null;
+    const fz = { custos: ler('#fz-balance .val.out'),
+      atividades: [...document.querySelectorAll('#fz-atividades .fz-card .fz-saldo')].map(e => e.textContent) };
+    tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+    const bovTela = ler('#bfin-balance .val.out');
+    tab = 'aviarios'; $('av-period').value = 'all'; $('av-aviary').value = 'all'; render();
+    const avTela = ler('#av-balance .val.out');
+
+    // A prazo lançado pela Fazenda também tem de funcionar
+    tab = 'fazenda'; render();
+    $('fab').click();
+    $('t-livro').value = 'av'; $('t-livro').dispatchEvent(new Event('change'));
+    $('t-date').value = '2026-08-22'; $('t-amount').value = '600';
+    $('t-aviary').value = '5'; $('t-category').value = 'Ração';
+    $('t-prazo').checked = true; $('t-prazo').dispatchEvent(new Event('change'));
+    $('t-venc').value = '2026-09-22'; $('t-parcelas').value = '3';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    render();
+
+    return { fabAparece, aoAbrir, depoisBov, aoTrocar, fz, bovTela, avTela,
+      avFinal: avT.length, bovFinal: bovT.length,
+      aviarioDasParcelas: [...new Set(avT.filter(x => x.parcelas === 3).map(x => x.aviary))],
+      aPagarFz: ler('#fz-apagar .ap-total') };
+  });
+
+  t.conferir('o botão + aparece na aba Fazenda', lanc.fabAparece === true);
+  t.conferir('o formulário pergunta a atividade', lanc.aoAbrir.perguntaAtividade === true);
+  t.conferir('começando em Bovinos', lanc.aoAbrir.livroPadrao === 'bov', lanc.aoAbrir.livroPadrao);
+  t.conferir('sem pedir aviário para bovinos', lanc.aoAbrir.aviarioEscondido === true);
+  t.conferir('com as categorias de bovinos', lanc.aoAbrir.listaCategorias === 'cats-bov', lanc.aoAbrir.listaCategorias);
+  t.conferir('o custo cai no livro dos bovinos',
+    lanc.depoisBov.bov === 1 && lanc.depoisBov.av === 0, `bov ${lanc.depoisBov.bov} · av ${lanc.depoisBov.av}`);
+  t.conferir('com o valor digitado em português (1.250,50)',
+    lanc.depoisBov.valor === 1250.5, String(lanc.depoisBov.valor));
+
+  t.conferir('trocar para Aviários pede o galpão', lanc.aoTrocar.aviarioAparece === true);
+  t.conferir('e troca a lista de categorias', lanc.aoTrocar.listaCategorias === 'cats-av', lanc.aoTrocar.listaCategorias);
+  t.conferir('e muda o livro de destino', lanc.aoTrocar.livroDestino === 'av', lanc.aoTrocar.livroDestino);
+
+  t.conferir('a Fazenda soma os dois custos lançados por ela',
+    lanc.fz.custos === 'R$ 2.050,50', lanc.fz.custos);
+  t.conferir('o custo de bovinos aparece na aba Bovinos', lanc.bovTela === 'R$ 1.250,50', lanc.bovTela);
+  t.conferir('o de aviários aparece na aba Aviários', lanc.avTela === 'R$ 800,00', lanc.avTela);
+  t.conferir('nenhum lançamento foi parar no livro errado',
+    lanc.bovFinal === 1 && lanc.avFinal === 4, `bov ${lanc.bovFinal} · av ${lanc.avFinal}`);
+  t.conferir('a prazo lançado pela Fazenda gera as parcelas no livro certo',
+    lanc.aviarioDasParcelas.join(',') === '5', lanc.aviarioDasParcelas.join(','));
+  t.conferir('e entram no "A pagar" da Fazenda', lanc.aPagarFz === 'R$ 600,00', lanc.aPagarFz);
 
   // ---------- backup e restauração: a volta tem de trazer tudo ----------
   // Nunca havia sido testado, e é a última linha de defesa contra perda de

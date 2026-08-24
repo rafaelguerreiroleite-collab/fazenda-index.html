@@ -400,7 +400,7 @@ function render() {
   renderLembrete();
   // Vendidas, Mortalidade e Custos não têm nada para adicionar pelo botão +.
   // A aba Fazenda é só leitura: o lançamento se faz na atividade a que pertence.
-  $('fab').hidden = tab === 'fazenda' || (tab === 'bovinos' && ['vendidas', 'mortes', 'custos'].includes(seg));
+  $('fab').hidden = tab === 'bovinos' && ['vendidas', 'mortes', 'custos'].includes(seg);
 }
 
 function renderRebanho() {
@@ -1341,15 +1341,21 @@ $('btn-delete-weighing').addEventListener('click', () => {
 });
 
 function openTrans(book, t) {
+  // book nulo = veio da aba Fazenda, onde a atividade ainda não foi escolhida.
+  // Editando, a atividade fica travada: mudar de livro exigiria refazer os
+  // vínculos com estoque e com a venda do animal, e um deles ficaria órfão.
+  const perguntar = !book && !t;
+  const efetivo = book || (t && t.aviary !== undefined ? 'av' : t ? 'bov' : 'bov');
   $('t-modal-title').textContent = t ? 'Editar lançamento' : 'Novo lançamento';
   $('t-id').value = t ? t.id : '';
-  $('t-book').value = book;
-  $('t-aviary-wrap').style.display = book === 'av' ? '' : 'none';
-  $('t-category').setAttribute('list', book === 'av' ? 'cats-av' : 'cats-bov');
+  $('t-book').value = efetivo;
+  $('t-livro-wrap').style.display = perguntar ? '' : 'none';
+  $('t-livro').value = efetivo;
+  sincronizarLivroTrans();
   document.querySelector(`input[name="t-type"][value="${t ? t.type : 'saida'}"]`).checked = true;
   $('t-date').value = t ? t.date : todayISO();
   $('t-amount').value = t ? numParaCampo(t.amount) : '';
-  if (book === 'av') $('t-aviary').value = t && t.aviary ? t.aviary : '5';
+  if (efetivo === 'av') $('t-aviary').value = t && t.aviary ? t.aviary : '5';
   $('t-category').value = t ? (t.category || '') : '';
   $('t-notes').value = t ? (t.notes || '') : '';
   $('t-prazo').checked = !!(t && t.venc);
@@ -1366,6 +1372,16 @@ function openTrans(book, t) {
   $('btn-delete-transaction').hidden = !t;
   openM('modal-transaction');
 }
+// Trocar a atividade no formulário troca o livro de destino, o campo de
+// aviário e a lista de categorias sugeridas — cada atividade tem as suas.
+function sincronizarLivroTrans() {
+  const livro = $('t-livro').value;
+  $('t-book').value = livro;
+  $('t-aviary-wrap').style.display = livro === 'av' ? '' : 'none';
+  $('t-category').setAttribute('list', livro === 'av' ? 'cats-av' : 'cats-bov');
+  if (livro === 'av' && !$('t-aviary').value) $('t-aviary').value = '5';
+}
+$('t-livro').addEventListener('change', sincronizarLivroTrans);
 $('form-transaction').addEventListener('submit', e => {
   e.preventDefault();
   const id = $('t-id').value, book = $('t-book').value;
@@ -2220,6 +2236,8 @@ document.addEventListener('click', e => {
 });
 
 $('fab').addEventListener('click', () => {
+  // Na Fazenda o lançamento não tem livro definido: o formulário pergunta.
+  if (tab === 'fazenda') return openTrans(null);
   if (tab === 'aviarios') return openTrans('av');
   if (seg === 'vendidas' || seg === 'custos') return;
   if (seg === 'rebanho' && detailAnimal) return openWeighing(detailAnimal);
