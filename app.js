@@ -1492,7 +1492,9 @@ $('btn-delete-item').addEventListener('click', () => {
   const id = $('i-id').value;
   if (!id || !confirm('Excluir o item e todas as movimentações dele? Lançamentos financeiros vinculados também serão removidos.')) return;
   const mv = moves.filter(m => m.itemId === id);
-  const linked = mv.filter(m => m.linkTrans).map(m => m.linkTrans);
+  // flatMap e não map(linkTrans): compra parcelada guarda o carnê em linkGrupo,
+  // e olhar só o linkTrans deixava as parcelas cobrando uma compra apagada.
+  const linked = mv.flatMap(lancamentosDaCompra);
   bovT = bovT.filter(t => !linked.includes(t.id));
   moves = moves.filter(m => m.itemId !== id);
   items = items.filter(x => x.id !== id);
@@ -1557,10 +1559,18 @@ document.querySelectorAll('input[name="t-type"]').forEach(r => r.addEventListene
 // Apaga os lançamentos que esta compra gerou — a parcela única ou o carnê
 // inteiro. Sem isso, editar uma compra parcelada deixaria parcelas órfãs
 // cobrando no "A pagar" uma dívida que não existe mais.
-function limparVinculoCompra(mv) {
+// Todos os lançamentos que uma compra gerou: a parcela única OU o carnê
+// inteiro. Um lugar só decide isso, porque quem apaga a movimentação, quem
+// apaga o item e quem edita a compra precisam apagar exatamente o mesmo
+// conjunto — esquecer o carnê num deles deixa parcela cobrando sozinha.
+function lancamentosDaCompra(mv) {
   const ids = [];
   if (mv.linkTrans) ids.push(mv.linkTrans);
   if (mv.linkGrupo) bovT.filter(x => x.grupo === mv.linkGrupo).forEach(x => ids.push(x.id));
+  return ids;
+}
+function limparVinculoCompra(mv) {
+  const ids = lancamentosDaCompra(mv);
   if (!ids.length) return;
   bovT = bovT.filter(x => !ids.includes(x.id));
   ids.forEach(id => remove('bovtrans', id));
