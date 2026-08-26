@@ -110,32 +110,18 @@ export default async function () {
       { id: 'a6', date: '2026-04-06', type: 'saida', amount: 200, category: 'Manutenção', aviary: '9' }
     ];
     tab = 'aviarios'; render();
-    $('av-period').value = 'all'; $('av-aviary').value = 'all'; render();
+    $('av-period').value = 'all'; render();
     const ler = () => ({
       saldo: document.querySelector('#av-balance .bc-value').textContent,
       linhas: document.querySelectorAll('#av-list .transaction-item').length
     });
     const todos = ler();
-    const temFiltro = [...$('av-aviary').options].map(o => o.value);
-    $('av-aviary').value = '5'; render();
-    const av1 = Object.assign(ler(), {
-      nota: document.querySelector('#av-balance .bc-nota') ? document.querySelector('#av-balance .bc-nota').textContent : null
-    });
-    $('av-aviary').value = '9'; render();
-    const av9 = ler();
-    $('av-aviary').value = 'all'; render();
-    return { todos, av1, av9, temFiltro };
+    return { todos };
   });
   t.conferir('saldo dos aviários soma tudo', av.todos.saldo === 'R$ 5.100,00', av.todos.saldo);
   t.conferir('lista traz os 6 lançamentos', av.todos.linhas === 6, String(av.todos.linhas));
-  t.conferir('o seletor alcança os Gerais e um aviário fora da lista fixa',
-    av.temFiltro.includes('geral') && av.temFiltro.includes('9'), av.temFiltro.join(','));
-  t.conferir('filtrar por aviário 5 isola o galpão', av.av1.saldo === 'R$ 3.500,00', av.av1.saldo);
-  t.conferir('e mostra só os lançamentos dele', av.av1.linhas === 2, String(av.av1.linhas));
-  t.conferir('avisa que os Gerais do período não entram no filtro',
-    /Gerais/.test(av.av1.nota || '') && /400,00/.test(av.av1.nota || ''), av.av1.nota || 'não avisa');
-  t.conferir('aviário fora da lista fixa deixa de ficar inalcançável',
-    av.av9.linhas === 1 && av.av9.saldo === 'R$ -200,00', `${av.av9.linhas} linha(s) · ${av.av9.saldo}`);
+  t.conferir('não existe mais filtro por galpão na aba',
+    await pagina.evaluate(() => !document.getElementById('av-aviary')));
 
   // ---------- persistência: cada tipo de dado sobrevive ao aparelho ----------
   // O espelho local é o que salva o dia no curral. Se um tipo de dado não
@@ -396,18 +382,16 @@ export default async function () {
     const campoAparece = $('t-prazo-box').style.display !== 'none';
     $('t-date').value = '2026-08-10';
     $('t-amount').value = '900';
-    $('t-aviary').value = '5';
     $('t-category').value = 'Ração';
     $('t-prazo').checked = true; $('t-prazo').dispatchEvent(new Event('change'));
     $('t-venc').value = '2026-09-05';
     $('t-parcelas').value = '3'; $('t-parcelas').dispatchEvent(new Event('input'));
     const previa = $('t-parcelas-nota').textContent;
     $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-    $('av-period').value = 'all'; $('av-aviary').value = 'all'; render();
+    $('av-period').value = 'all'; render();
     return { campoAparece, previa, qtd: avT.length,
       soma: avT.reduce((s, x) => s + x.amount, 0),
-      aviario: [...new Set(avT.map(x => x.aviary))],
-      vencs: avT.slice().sort((a, b) => a.parcela - b.parcela).map(x => x.venc),
+        vencs: avT.slice().sort((a, b) => a.parcela - b.parcela).map(x => x.venc),
       aPagar: document.querySelector('#av-apagar .ap-total').textContent,
       lembrete: $('lembrete').textContent,
       bovIntacto: bovT.length };
@@ -416,7 +400,6 @@ export default async function () {
   t.conferir('a prévia mostra 3× de R$ 300,00', /3× de R\$ 300,00/.test(avPrazo.previa), avPrazo.previa);
   t.conferir('cria as 3 parcelas no livro dos aviários', avPrazo.qtd === 3, String(avPrazo.qtd));
   t.conferir('que somam o valor lançado', avPrazo.soma === 900, String(avPrazo.soma));
-  t.conferir('todas no aviário escolhido', avPrazo.aviario.join(',') === '5', avPrazo.aviario.join(','));
   t.conferir('com vencimentos mês a mês',
     avPrazo.vencs.join(' ') === '2026-09-05 2026-10-05 2026-11-05', avPrazo.vencs.join(' '));
   t.conferir('"A pagar" dos aviários soma as parcelas', avPrazo.aPagar === 'R$ 900,00', avPrazo.aPagar);
@@ -460,7 +443,7 @@ export default async function () {
     // Os mesmos dados vistos por cada aba, para comparar
     tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'this-year'; render();
     const bov = { saldo: ler('#bfin-balance .bc-value'), inn: ler('#bfin-balance .val.in'), out: ler('#bfin-balance .val.out') };
-    tab = 'aviarios'; $('av-period').value = 'this-year'; $('av-aviary').value = 'all'; render();
+    tab = 'aviarios'; $('av-period').value = 'this-year'; render();
     const av = { saldo: ler('#av-balance .bc-value'), inn: ler('#av-balance .val.in'), out: ler('#av-balance .val.out') };
 
     // Período mais estreito tem de reduzir, nunca aumentar
@@ -529,7 +512,7 @@ export default async function () {
       perguntaAtividade: $('t-livro-wrap').style.display !== 'none',
       livroPadrao: $('t-livro').value,
       opcoes: [...$('t-livro').options].map(o => o.value).join(','),
-      aviarioEscondido: $('t-aviary-wrap').style.display === 'none',
+      naoPedeGalpao: !document.getElementById('t-aviary-wrap'),
       listaCategorias: $('t-category').getAttribute('list')
     };
     // Vindo da Fazenda comeca em Geral; aqui o teste escolhe Bovinos de proposito
@@ -544,13 +527,12 @@ export default async function () {
     $('fab').click();
     $('t-livro').value = 'av'; $('t-livro').dispatchEvent(new Event('change'));
     const aoTrocar = {
-      aviarioAparece: $('t-aviary-wrap').style.display !== 'none',
+      naoPedeGalpao: !document.getElementById('t-aviary-wrap'),
       listaCategorias: $('t-category').getAttribute('list'),
       livroDestino: $('t-book').value
     };
     $('t-date').value = '2026-08-21';
     $('t-amount').value = '800';
-    $('t-aviary').value = '6';
     $('t-category').value = 'Energia elétrica';
     $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     render();
@@ -560,7 +542,7 @@ export default async function () {
       atividades: [...document.querySelectorAll('#fz-atividades .fz-card .fz-saldo')].map(e => e.textContent) };
     tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
     const bovTela = ler('#bfin-balance .val.out');
-    tab = 'aviarios'; $('av-period').value = 'all'; $('av-aviary').value = 'all'; render();
+    tab = 'aviarios'; $('av-period').value = 'all'; render();
     const avTela = ler('#av-balance .val.out');
 
     // A prazo lançado pela Fazenda também tem de funcionar
@@ -568,7 +550,7 @@ export default async function () {
     $('fab').click();
     $('t-livro').value = 'av'; $('t-livro').dispatchEvent(new Event('change'));
     $('t-date').value = '2026-08-22'; $('t-amount').value = '600';
-    $('t-aviary').value = '5'; $('t-category').value = 'Ração';
+    $('t-category').value = 'Ração';
     $('t-prazo').checked = true; $('t-prazo').dispatchEvent(new Event('change'));
     $('t-venc').value = '2026-09-22'; $('t-parcelas').value = '3';
     $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
@@ -576,7 +558,7 @@ export default async function () {
 
     return { fabAparece, aoAbrir, depoisBov, aoTrocar, fz, bovTela, avTela,
       avFinal: avT.length, bovFinal: bovT.length,
-      aviarioDasParcelas: [...new Set(avT.filter(x => x.parcelas === 3).map(x => x.aviary))],
+      parcelasNoAv: avT.filter(x => x.parcelas === 3).length,
       aPagarFz: ler('#fz-apagar .ap-total') };
   });
 
@@ -586,13 +568,14 @@ export default async function () {
     lanc.aoAbrir.livroPadrao === 'ger', lanc.aoAbrir.livroPadrao);
   t.conferir('e oferece as três atividades',
     lanc.aoAbrir.opcoes === 'bov,av,ger', lanc.aoAbrir.opcoes);
-  t.conferir('Geral não pede aviário', lanc.aoAbrir.aviarioEscondido === true);
+  t.conferir('nenhuma atividade pede galpão', lanc.aoAbrir.naoPedeGalpao === true);
   t.conferir('o custo cai no livro dos bovinos',
     lanc.depoisBov.bov === 1 && lanc.depoisBov.av === 0, `bov ${lanc.depoisBov.bov} · av ${lanc.depoisBov.av}`);
   t.conferir('com o valor digitado em português (1.250,50)',
     lanc.depoisBov.valor === 1250.5, String(lanc.depoisBov.valor));
 
-  t.conferir('trocar para Aviários pede o galpão', lanc.aoTrocar.aviarioAparece === true);
+  t.conferir('trocar para Aviários não pede galpão — a atividade é uma só',
+    lanc.aoTrocar.naoPedeGalpao === true);
   t.conferir('e troca a lista de categorias', lanc.aoTrocar.listaCategorias === 'cats-av', lanc.aoTrocar.listaCategorias);
   t.conferir('e muda o livro de destino', lanc.aoTrocar.livroDestino === 'av', lanc.aoTrocar.livroDestino);
 
@@ -602,8 +585,8 @@ export default async function () {
   t.conferir('o de aviários aparece na aba Aviários', lanc.avTela === 'R$ 800,00', lanc.avTela);
   t.conferir('nenhum lançamento foi parar no livro errado',
     lanc.bovFinal === 1 && lanc.avFinal === 4, `bov ${lanc.bovFinal} · av ${lanc.avFinal}`);
-  t.conferir('a prazo lançado pela Fazenda gera as parcelas no livro certo',
-    lanc.aviarioDasParcelas.join(',') === '5', lanc.aviarioDasParcelas.join(','));
+  t.conferir('a prazo lançado pela Fazenda gera as 3 parcelas no livro dos aviários',
+    lanc.parcelasNoAv === 3, String(lanc.parcelasNoAv));
   t.conferir('e entram no "A pagar" da Fazenda', lanc.aPagarFz === 'R$ 600,00', lanc.aPagarFz);
 
   // ---------- nota fiscal anexada ----------
@@ -823,7 +806,7 @@ export default async function () {
     $('t-date').value = '2026-08-26'; $('t-amount').value = '1.800,00';
     $('t-category').value = 'Impostos/Funrural';
     $('t-notes').value = 'Contador';
-    const pedeAviario = $('t-aviary-wrap').style.display !== 'none';
+    const pedeAviario = !!document.getElementById('t-aviary-wrap');
     $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     render();
 
@@ -870,7 +853,7 @@ export default async function () {
   });
 
   t.conferir('o + na Fazenda já começa em Geral', ger.comecaEm === 'ger', ger.comecaEm);
-  t.conferir('Geral não pede galpão', ger.pedeAviario === false);
+  t.conferir('nenhum lançamento pede galpão', ger.pedeAviario === false);
   t.conferir('o custo Geral vai para o livro próprio, não para os outros dois',
     ger.totais.ger === 1 && ger.totais.bov === 1 && ger.totais.av === 0,
     `ger ${ger.totais.ger} · bov ${ger.totais.bov} · av ${ger.totais.av}`);

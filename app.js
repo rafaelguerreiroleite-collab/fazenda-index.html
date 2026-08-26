@@ -333,7 +333,7 @@ function findDupTrans(list, data, book, ignoreId) {
     && t.type === data.type
     && sameMoney(t.amount, data.amount)
     && (t.category || '') === (data.category || '')
-    && (book !== 'av' || t.aviary === data.aviary));
+  );
 }
 
 // ===== Cálculos =====
@@ -858,25 +858,6 @@ function renderStockDetail() {
   $('stock-moves').innerHTML = `<div class="wt-header"><span>Data</span><span>Tipo</span><span>Qtd</span><span style="text-align:right">Total</span></div>` + (rows || '<div class="chart-empty">Sem movimentações</div>');
 }
 
-// O seletor de aviário era uma lista fixa no código (5, 6 e 7). Lançamento
-// gravado em qualquer outro aviário — inclusive os "Gerais", que a tela de
-// lançamento oferece — ficava inalcançável pelo filtro: escolher o aviário
-// mostrava R$ 0,00 sem dizer por quê. A lista passa a sair dos dados.
-const AVIARIOS_FIXOS = ['5', '6', '7', 'geral'];
-const nomeAviario = v => v === 'geral' ? 'Gerais (rateio)' : 'Aviário ' + v;
-function sincronizarAviarios() {
-  const sel = $('av-aviary');
-  const usados = [...new Set(avT.map(t => t.aviary).filter(Boolean))];
-  const todos = [...new Set([...AVIARIOS_FIXOS, ...usados])]
-    .sort((a, b) => a === 'geral' ? 1 : b === 'geral' ? -1 : String(a).localeCompare(String(b), 'pt-BR', { numeric: true }));
-  const desejado = ['all', ...todos].join('|');
-  if (sel.dataset.montado === desejado) return;
-  const anterior = sel.value;
-  sel.innerHTML = '<option value="all">Todos aviários</option>'
-    + todos.map(v => `<option value="${esc(v)}">${esc(nomeAviario(v))}</option>`).join('');
-  sel.dataset.montado = desejado;
-  sel.value = [...sel.options].some(o => o.value === anterior) ? anterior : 'all';
-}
 // ===== Contas a pagar =====
 // Uma compra a prazo já é despesa no dia da compra (é assim que o custo da
 // arroba fica certo), mas o dinheiro só sai no vencimento. Por isso o saldo do
@@ -1116,7 +1097,7 @@ function renderFazenda() {
     <div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
-        <div class="item-subtitle">${fmtBR(t.date)} · ${esc(livro)}${t.aviary ? ' · Av. ' + esc(t.aviary) : ''}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
+        <div class="item-subtitle">${fmtBR(t.date)} · ${esc(livro)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
         ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
@@ -1297,8 +1278,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=27';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=27';
+const PDFJS_JS = 'vendor/pdf.min.js?v=28';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=28';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1378,9 +1359,10 @@ function renderFin(book) {
   const isAv = book === 'av';
   const list = isAv ? avT : bovT;
   const period = isAv ? $('av-period').value : $('bfin-period').value;
-  if (isAv) sincronizarAviarios();
-  const avSel = isAv ? $('av-aviary').value : null;
-  const filtered = list.filter(t => inPeriod(t.date, period) && (!isAv || avSel === 'all' || t.aviary === avSel));
+  // Aviários virou uma atividade só: o galpão não separa mais nada. Lançamento
+  // antigo mantém o campo gravado, mas ninguém filtra nem exibe por ele — o
+  // dado fica lá, caso um dia a separação volte a fazer falta.
+  const filtered = list.filter(t => inPeriod(t.date, period));
   const inn = filtered.filter(t => t.type === 'entrada').reduce((s, t) => s + t.amount, 0);
   const out = filtered.filter(t => t.type === 'saida').reduce((s, t) => s + t.amount, 0);
   const bal = inn - out;
@@ -1391,13 +1373,7 @@ function renderFin(book) {
     <div class="bc-split">
       <div><div class="lbl">Entradas</div><div class="val in">${fmtRS(inn)}</div></div>
       <div><div class="lbl">Saídas</div><div class="val out">${fmtRS(out)}</div></div>
-    </div>${(() => {
-      if (!isAv || avSel === 'all' || avSel === 'geral') return '';
-      const gerais = list.filter(t => inPeriod(t.date, period) && t.aviary === 'geral');
-      if (!gerais.length) return '';
-      const sg = gerais.reduce((s, t) => s + (t.type === 'saida' ? t.amount : -t.amount), 0);
-      return `<p class="bc-nota mono">${fmtRS(Math.abs(sg))} em lançamentos Gerais do período não entram neste filtro — são de todos os aviários.</p>`;
-    })()}`;
+    </div>`;
   const agg = {};
   filtered.forEach(t => { const k = t.type + '|' + (t.category || 'Sem categoria'); agg[k] = (agg[k] || 0) + t.amount; });
   const todasCats = Object.entries(agg).sort((a, b) => b[1] - a[1]);
@@ -1424,7 +1400,7 @@ function renderFin(book) {
   listEl.innerHTML = sorted.map(t => `<div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}</div>
-        <div class="item-subtitle">${fmtBR(t.date)}${isAv && t.aviary ? ' · Av. ' + esc(t.aviary) : ''}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
+        <div class="item-subtitle">${fmtBR(t.date)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
         ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
@@ -1637,7 +1613,6 @@ function openTrans(book, t) {
   document.querySelector(`input[name="t-type"][value="${t ? t.type : 'saida'}"]`).checked = true;
   $('t-date').value = t ? t.date : todayISO();
   $('t-amount').value = t ? numParaCampo(t.amount) : '';
-  if (efetivo === 'av') $('t-aviary').value = t && t.aviary ? t.aviary : '5';
   $('t-category').value = t ? (t.category || '') : '';
   $('t-notes').value = t ? (t.notes || '') : '';
   $('t-prazo').checked = !!(t && t.venc);
@@ -1663,9 +1638,7 @@ function sincronizarLivroTrans() {
   const livro = $('t-livro').value;
   $('t-book').value = livro;
   $('t-category').setAttribute('list', livro === 'av' ? 'cats-av' : 'cats-bov');
-  $('t-aviary-wrap').style.display = livro === 'av' ? '' : 'none';
   $('t-category').setAttribute('list', livro === 'av' ? 'cats-av' : 'cats-bov');
-  if (livro === 'av' && !$('t-aviary').value) $('t-aviary').value = '5';
 }
 $('t-livro').addEventListener('change', sincronizarLivroTrans);
 $('form-transaction').addEventListener('submit', e => {
@@ -1686,7 +1659,6 @@ $('form-transaction').addEventListener('submit', e => {
   const nParc = aPrazo ? Math.min(36, Math.max(1, Math.round(parseNum($('t-parcelas').value) || 1))) : 1;
   data.venc = aPrazo ? $('t-venc').value : null;
   data.pago = aPrazo ? $('t-pago').checked : false;
-  if (book === 'av') data.aviary = $('t-aviary').value;
   const arr = arrLivro(book);
   const col = colLivro(book);
   const dup = findDupTrans(arr, data, book, id);
@@ -2252,12 +2224,11 @@ $('menu-exp-pes').addEventListener('click', () => {
 });
 function exportFin(book) {
   const list = book === 'av' ? avT : bovT;
-  const rows = [book === 'av' ? 'data;tipo;valor;aviario;categoria;classificacao;descricao' : 'data;tipo;valor;categoria;classificacao;descricao'];
+  const rows = ['data;tipo;valor;categoria;classificacao;descricao'];
   list.slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(t => {
     const val = fmtN(t.amount, 2);
     const cat = t.category || ''; const cls = classOf(cat, t.type);
-    if (book === 'av') rows.push([fmtBRfull(t.date), t.type, val, csv(t.aviary || ''), csv(cat), cls, csv(t.notes)].join(';'));
-    else rows.push([fmtBRfull(t.date), t.type, val, csv(cat), cls, csv(t.notes)].join(';'));
+    rows.push([fmtBRfull(t.date), t.type, val, csv(cat), cls, csv(t.notes)].join(';'));
   });
   download(`financeiro-${book === 'av' ? 'aviarios' : 'bovinos'}-fazendajs.csv`, rows.join('\n'), 'text/csv');
   closeAllM(); toast('CSV financeiro exportado');
@@ -2517,7 +2488,6 @@ $('btn-move-in').addEventListener('click', () => openMove(detailItem, 'entrada')
 $('btn-move-out').addEventListener('click', () => openMove(detailItem, 'saida'));
 $('bfin-period').addEventListener('change', render);
 $('av-period').addEventListener('change', render);
-$('av-aviary').addEventListener('change', render);
 // valor guardado pode estar desatualizado por uma versão antiga do app
 if (![...$('bov-sort').options].some(o => o.value === bovSort)) bovSort = 'ident-asc';
 $('bov-sort').value = bovSort;

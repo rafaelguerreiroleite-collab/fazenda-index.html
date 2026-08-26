@@ -249,22 +249,21 @@ export default async function () {
         Number(vRes.slice(8)) <= Number(vBase.slice(8)), `${vBase} → ${vRes}`);
 
       // --- aba Fazenda: a soma das duas atividades tem de fechar sempre ---
-      const fazerLivro = (pref, comAviario) => {
+      const fazerLivro = (pref) => {
         const arr = [];
         for (let k = 0; k < ent(0, 8); k++) {
           const t = { id: `${pref}${i}_${k}`, date: dataAleatoria(),
             type: rnd() < 0.35 ? 'entrada' : 'saida', amount: dec(0.01, 99999, 2),
             category: ['Venda de gado', 'Ração/insumos', 'Benfeitorias', 'Equipamentos',
               'Mão de obra', 'Pagamento Seara', 'Energia elétrica', '', 'Categoria nova'][ent(0, 8)] };
-          if (comAviario) t.aviary = ['5', '6', '7', 'geral'][ent(0, 3)];
           if (t.type === 'saida' && rnd() < 0.4) { t.venc = dataAleatoria(); t.pago = rnd() < 0.4; }
           arr.push(t);
         }
         return arr;
       };
-      bovT = fazerLivro('fb', false);
-      avT = fazerLivro('fa', true);
-      gerT = fazerLivro('fg', false);   // custo da fazenda toda
+      bovT = fazerLivro('fb');
+      avT = fazerLivro('fa');
+      gerT = fazerLivro('fg');   // custo da fazenda toda
       const periodo = ['this-month', 'last-month', 'this-year', 'all'][ent(0, 3)];
       const R = resumoFazenda(periodo);
 

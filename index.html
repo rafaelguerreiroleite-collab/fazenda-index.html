@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=27" />
+<link rel="stylesheet" href="style.css?v=28" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -246,12 +246,6 @@
         <option value="this-year">Este ano</option>
         <option value="all">Todo período</option>
       </select>
-      <select id="av-aviary">
-        <option value="all">Todos aviários</option>
-        <option value="5">Aviário 5</option>
-        <option value="6">Aviário 6</option>
-        <option value="7">Aviário 7</option>
-      </select>
     </div>
     <div class="balance-card" id="av-balance"></div>
     <div id="av-apagar"></div>
@@ -426,15 +420,6 @@
       <input type="date" id="t-date" required />
       <label class="mono">Valor (R$) *</label>
       <input type="text" inputmode="decimal" step="0.01" id="t-amount" required />
-      <div id="t-aviary-wrap">
-        <label class="mono">Aviário *</label>
-        <select id="t-aviary">
-          <option value="5">Aviário 5</option>
-          <option value="6">Aviário 6</option>
-          <option value="7">Aviário 7</option>
-          <option value="geral">Geral (todos)</option>
-        </select>
-      </div>
       <label class="mono">Categoria</label>
       <input type="text" id="t-category" list="cats-bov" placeholder="Escolha ou digite" />
       <datalist id="cats-bov">
@@ -661,6 +646,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=27"></script>
+<script src="app.js?v=28"></script>
 </body>
 </html>
