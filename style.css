@@ -499,3 +499,12 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .ax-pagina { display: block; width: 100%; height: auto; border: 1px solid #e7e5e4; border-radius: 3px; margin-bottom: 0.5rem; background: white; }
 #ax-paginas { max-height: 60vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .ax-baixar { display: inline-block; text-decoration: none; text-align: center; }
+
+/* Aviso de versão nova: o app avisa sozinho, em vez de exigir fechar e abrir */
+.atualizacao { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1.25rem;
+  background: #225437; color: #fafaf9; }
+.atualizacao[hidden] { display: none; }
+.at-texto { flex: 1; font-size: 0.85rem; }
+.at-btn { background: #fafaf9; color: #225437; border: none; border-radius: 3px;
+  padding: 0.4rem 0.85rem; font-family: 'DM Mono', monospace; font-size: 0.72rem; font-weight: 500; flex-shrink: 0; }
+.at-depois { background: transparent; border: none; color: #9dbcaa; font-size: 1.3rem; padding: 0 0.25rem; line-height: 1; flex-shrink: 0; }

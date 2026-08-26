@@ -2542,13 +2542,55 @@ $('install-btn').addEventListener('click', async () => {
   $('install-banner').hidden = true; deferredPrompt = null;
 });
 $('close-banner').addEventListener('click', () => { $('install-banner').hidden = true; localStorage.setItem('fjs-install-dismissed', '1'); });
+// ===== Atualização do aplicativo =====
+// A verificação de versão acontecia UMA vez, ao carregar, e nunca mais. Com o
+// app aberto o dia inteiro no iPad, versão nova só chegava fechando e abrindo —
+// e no modo aplicativo o iOS nem oferece puxar-para-atualizar (o gesto está
+// desligado de propósito, para ninguém recarregar sem querer no meio da
+// pesagem). Agora o app procura sozinho e AVISA quando há novidade.
+let regSW = null, jaAvisouVersao = false;
+function mostrarAvisoVersao() {
+  if (jaAvisouVersao) return;
+  jaAvisouVersao = true;
+  $('atualizacao').hidden = false;
+}
+function procurarAtualizacao(manual) {
+  if (!regSW) { if (manual) toast('Atualização automática indisponível neste aparelho'); return; }
+  if (manual) toast('Procurando atualização…');
+  regSW.update()
+    .then(() => { if (manual && !jaAvisouVersao) toast('O aplicativo já está na versão mais nova'); })
+    .catch(() => { if (manual) toast('Sem internet para procurar atualização'); });
+}
 if ('serviceWorker' in navigator) window.addEventListener('load', () => {
   // updateViaCache: 'none' impede que o próprio sw.js seja lido do cache do
   // navegador — sem isso, uma versão nova pode demorar a chegar ao aparelho.
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
-    .then(reg => reg.update())
+    .then(reg => {
+      regSW = reg;
+      reg.update().catch(() => {});
+      // Chegou versão nova: avisa, mas NÃO recarrega sozinho. Recarregar no meio
+      // de uma pesagem tiraria a tela debaixo de quem está com o gado na balança.
+      reg.addEventListener('updatefound', () => {
+        const novo = reg.installing;
+        if (!novo) return;
+        novo.addEventListener('statechange', () => {
+          if (novo.state === 'installed' && navigator.serviceWorker.controller) mostrarAvisoVersao();
+        });
+      });
+      if (reg.waiting && navigator.serviceWorker.controller) mostrarAvisoVersao();
+    })
     .catch(() => {});
+  // Procura ao voltar para o aplicativo e de hora em hora com ele aberto.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) procurarAtualizacao(false); });
+  window.addEventListener('online', () => procurarAtualizacao(false));
+  setInterval(() => procurarAtualizacao(false), 60 * 60 * 1000);
 });
+$('at-aplicar').addEventListener('click', () => {
+  $('at-aplicar').textContent = 'Atualizando…';
+  location.reload();
+});
+$('at-depois').addEventListener('click', () => { $('atualizacao').hidden = true; });
+$('menu-atualizar').addEventListener('click', () => { closeAllM(); procurarAtualizacao(true); });
 
 // ===== Início =====
 (function init() {

@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=24" />
+<link rel="stylesheet" href="style.css?v=25" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -59,6 +59,12 @@
     <button class="icon-btn" id="btn-menu" aria-label="Menu">⋯</button>
   </div>
 </header>
+
+<div class="atualizacao" id="atualizacao" hidden>
+  <span class="at-texto">Nova versão disponível</span>
+  <button type="button" class="at-btn" id="at-aplicar">Atualizar</button>
+  <button type="button" class="at-depois" id="at-depois" aria-label="Depois">×</button>
+</div>
 
 <div class="lembrete" id="lembrete" hidden></div>
 
@@ -629,6 +635,7 @@ BR002,15/01/2025,340</pre>
       </div>
       <hr />
       <button class="menu-item" id="menu-migrate" hidden><span>☁️</span> Enviar dados locais antigos p/ nuvem</button>
+      <button class="menu-item" id="menu-atualizar"><span>🔄</span> Buscar atualização do aplicativo</button>
       <button class="menu-item" id="menu-limpeza"><span>🧹</span> Limpeza: manter só os pesados num dia</button>
       <button class="menu-item" id="menu-backup"><span>💾</span> Backup completo (baixar tudo)</button>
       <button class="menu-item" id="menu-restore"><span>♻️</span> Restaurar backup</button>
@@ -651,6 +658,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=24"></script>
+<script src="app.js?v=25"></script>
 </body>
 </html>

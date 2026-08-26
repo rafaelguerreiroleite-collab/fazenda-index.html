@@ -758,6 +758,31 @@ export default async function () {
   t.conferir('a foto continua aparecendo direto', abrir.daImg.temImg === true);
   t.conferir('sem link para data: nela também', abrir.daImg.temLinkData === false);
 
+  // ---------- aviso de versão nova ----------
+  // Antes, versao nova so chegava fechando e abrindo o aplicativo: a checagem
+  // acontecia UMA vez ao carregar. Agora o app avisa sozinho.
+  t.secao('aviso de versão nova');
+  const versao = await pagina.evaluate(() => {
+    const r = {};
+    r.comecaEscondido = $('atualizacao').hidden;
+    r.temBotaoNoMenu = !!$('menu-atualizar');
+    // Simula o service worker avisando que instalou uma versao nova
+    mostrarAvisoVersao();
+    r.apareceu = !$('atualizacao').hidden;
+    r.texto = $('atualizacao').textContent.replace(/\s+/g, ' ').trim();
+    r.temBotaoAtualizar = !!$('at-aplicar');
+    // Dispensar esconde
+    $('at-depois').click();
+    r.dispensou = $('atualizacao').hidden;
+    return r;
+  });
+  t.conferir('o aviso começa escondido', versao.comecaEscondido === true);
+  t.conferir('aparece quando chega versão nova', versao.apareceu === true);
+  t.conferir('e diz o que é', /Nova versão/i.test(versao.texto), versao.texto);
+  t.conferir('com o botão de atualizar', versao.temBotaoAtualizar === true);
+  t.conferir('dá para dispensar', versao.dispensou === true);
+  t.conferir('e há como procurar atualização pelo menu', versao.temBotaoNoMenu === true);
+
   // ---------- backup e restauração: a volta tem de trazer tudo ----------
   // Nunca havia sido testado, e é a última linha de defesa contra perda de
   // dados: se a restauração não trouxer tudo de volta, o backup não vale nada.
