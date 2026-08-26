@@ -1228,31 +1228,28 @@ async function abrirAnexo(id) {
     return;
   }
   if (meta && meta.tipo === 'application/pdf') {
-    // O Safari BLOQUEIA abrir um "data:" diretamente — o link não fazia nada no
-    // iPhone. Convertido para blob, que o navegador aceita abrir, e com o botão
-    // de compartilhar, que no iOS é o caminho que sempre funciona: manda o PDF
-    // para o Arquivos, o e-mail ou o WhatsApp.
+    // O iOS em modo aplicativo bloqueia TODOS os caminhos que dependem do
+    // navegador: não navega para data:, não resolve blob: em aba nova, e não
+    // desenha PDF dentro de moldura. Então o app para de pedir ao sistema e
+    // DESENHA o documento por conta própria, página por página, num canvas.
     const blob = dataURLparaBlob(dados);
     const url = URL.createObjectURL(blob);
     anexoURLs.push(url);
-    const arquivo = new File([blob], (meta.nome || 'nota-fiscal') + (/\.pdf$/i.test(meta.nome || '') ? '' : '.pdf'),
-      { type: 'application/pdf' });
-    const podeCompartilhar = !!(navigator.canShare && navigator.canShare({ files: [arquivo] }));
+    const nomeArq = (meta.nome || 'nota-fiscal') + (/\.pdf$/i.test(meta.nome || '') ? '' : '.pdf');
+    const arquivo = new File([blob], nomeArq, { type: 'application/pdf' });
     $('ax-corpo').innerHTML = `
-      <iframe class="ax-pdf" src="${url}" title="${esc(meta.nome || 'Nota fiscal')}"></iframe>
+      <div id="ax-paginas"><p class="ax-carregando mono">Desenhando o documento…</p></div>
       <div class="ax-acoes">
-        <button type="button" class="btn-primary" id="ax-abrir">Abrir em nova aba</button>
-        ${podeCompartilhar ? '<button type="button" class="btn-secondary" id="ax-share">Compartilhar / Salvar</button>' : ''}
-      </div>
-      <p class="ax-carregando mono">Se a prévia ficar em branco, use "Abrir em nova aba"${podeCompartilhar ? ' ou "Compartilhar"' : ''}.</p>`;
-    $('ax-abrir').addEventListener('click', () => {
-      const w = window.open(url, '_blank');
-      if (!w) toast('O navegador bloqueou a nova aba — use Compartilhar');
+        <button type="button" class="btn-primary" id="ax-share">Compartilhar / Salvar</button>
+        <a class="btn-secondary ax-baixar" id="ax-baixar" href="${url}" download="${esc(nomeArq)}">Baixar</a>
+      </div>`;
+    $('ax-share').addEventListener('click', async () => {
+      try {
+        if (navigator.share) await navigator.share({ files: [arquivo], title: meta.nome || 'Nota fiscal' });
+        else toast('Este aparelho não oferece compartilhar — use Baixar');
+      } catch (e) { if (e && e.name !== 'AbortError') toast('Não deu para compartilhar: ' + (e.message || e.name)); }
     });
-    if (podeCompartilhar) $('ax-share').addEventListener('click', async () => {
-      try { await navigator.share({ files: [arquivo], title: meta.nome || 'Nota fiscal' }); }
-      catch (e) { if (e && e.name !== 'AbortError') toast('Não deu para compartilhar'); }
-    });
+    desenharPdf(blob, meta);
     return;
   }
   // Imagem: o "data:" dentro de <img> funciona em todo lugar; só a NAVEGAÇÃO
@@ -1266,6 +1263,60 @@ async function abrirAnexo(id) {
     try { await navigator.share({ files: [arqImg], title: (meta && meta.nome) || 'Nota fiscal' }); }
     catch (e) { if (e && e.name !== 'AbortError') toast('Não deu para compartilhar'); }
   });
+}
+// Leitor de PDF, buscado só quando alguém abre um PDF pela primeira vez — não
+// faz sentido pesar a abertura do aplicativo no curral por causa de uma nota.
+// Depois de carregado uma vez, fica guardado no aparelho e funciona sem sinal.
+const PDFJS_JS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+let pdfjsPronto = null;
+function carregarPdfJs() {
+  if (pdfjsPronto) return pdfjsPronto;
+  pdfjsPronto = new Promise((resolve, reject) => {
+    if (window.pdfjsLib) return resolve(window.pdfjsLib);
+    const tag = document.createElement('script');
+    tag.src = PDFJS_JS;
+    tag.onload = () => {
+      if (!window.pdfjsLib) return reject(new Error('o leitor não iniciou'));
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+      resolve(window.pdfjsLib);
+    };
+    tag.onerror = () => { pdfjsPronto = null; reject(new Error('sem internet para buscar o leitor')); };
+    document.head.appendChild(tag);
+  });
+  return pdfjsPronto;
+}
+async function desenharPdf(blob, meta) {
+  const alvo = $('ax-paginas');
+  if (!alvo) return;
+  try {
+    const lib = await carregarPdfJs();
+    const buf = await blob.arrayBuffer();
+    const doc = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
+    alvo.innerHTML = '';
+    const largura = Math.min(alvo.clientWidth || 640, 900);
+    for (let n = 1; n <= doc.numPages; n++) {
+      const pag = await doc.getPage(n);
+      const base = pag.getViewport({ scale: 1 });
+      // 2x para a nota continuar legível em tela de retina
+      const escala = (largura / base.width) * (window.devicePixelRatio > 1 ? 2 : 1.5);
+      const vp = pag.getViewport({ scale: escala });
+      const cv = document.createElement('canvas');
+      cv.className = 'ax-pagina';
+      cv.width = vp.width; cv.height = vp.height;
+      cv.style.width = '100%';
+      alvo.appendChild(cv);
+      await pag.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+    }
+    if (doc.numPages > 1) {
+      const p = document.createElement('p');
+      p.className = 'ax-carregando mono';
+      p.textContent = `${doc.numPages} páginas`;
+      alvo.insertBefore(p, alvo.firstChild);
+    }
+  } catch (e) {
+    alvo.innerHTML = `<p class="ax-carregando mono">Não deu para desenhar o PDF aqui (${esc(e.message || 'erro')}).<br>Use Compartilhar ou Baixar.</p>`;
+  }
 }
 // Converte o arquivo guardado (base64) em blob, que é o que o navegador aceita
 // abrir e compartilhar.

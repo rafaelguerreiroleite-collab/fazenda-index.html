@@ -712,15 +712,20 @@ export default async function () {
     // Reabre o lançamento e abre o PDF, como o usuário faz
     openTrans('bov', t0);
     await abrirAnexo(idPdf);
+    // Espera o app tentar (e falhar) buscar o leitor de PDF: aqui nao ha internet
+    await new Promise(r => setTimeout(r, 400));
     const doPdf = {
-      temIframe: !!document.querySelector('#ax-corpo .ax-pdf'),
-      srcDoIframe: (document.querySelector('#ax-corpo .ax-pdf') || {}).getAttribute
-        ? document.querySelector('#ax-corpo .ax-pdf').getAttribute('src') : '',
-      temBotaoAbrir: !!$('ax-abrir'),
+      temShare: !!$('ax-share'),
+      temBaixar: !!$('ax-baixar'),
+      hrefBaixar: $('ax-baixar') ? $('ax-baixar').getAttribute('href') : '',
+      temAtributoDownload: $('ax-baixar') ? $('ax-baixar').hasAttribute('download') : false,
+      nomeDoDownload: $('ax-baixar') ? $('ax-baixar').getAttribute('download') : '',
       // O QUE NAO PODE MAIS EXISTIR: link apontando para data:
       temLinkData: !!document.querySelector('#ax-corpo a[href^="data:"]'),
+      // Sem internet o leitor nao carrega: a tela tem de EXPLICAR, nao ficar muda
+      mensagemDeFalha: ($('ax-paginas') || {}).textContent || '',
       urlsAbertas: anexoURLs.length,
-      html: $('ax-corpo').innerHTML.slice(0, 200)
+      html: $('ax-corpo').innerHTML.slice(0, 160)
     };
     closeAllM();
     const soltouURLs = anexoURLs.length;
@@ -738,10 +743,16 @@ export default async function () {
   t.conferir('os dois arquivos ficaram no lançamento', abrir.anexos === 2, String(abrir.anexos));
   t.conferir('NENHUM link para data: no PDF (era o que travava no iPhone)',
     abrir.doPdf.temLinkData === false, abrir.doPdf.html);
-  t.conferir('o PDF abre por endereço blob, que o Safari aceita',
-    /^blob:/.test(abrir.doPdf.srcDoIframe || ''), abrir.doPdf.srcDoIframe || 'sem src');
-  t.conferir('mostra a prévia do PDF na própria tela', abrir.doPdf.temIframe === true);
-  t.conferir('e o botão de abrir em nova aba', abrir.doPdf.temBotaoAbrir === true);
+  t.conferir('tem o botão de compartilhar, que é o caminho do iPhone', abrir.doPdf.temShare === true);
+  t.conferir('e o de baixar', abrir.doPdf.temBaixar === true);
+  t.conferir('o baixar aponta para blob, não para data:',
+    /^blob:/.test(abrir.doPdf.hrefBaixar || ''), abrir.doPdf.hrefBaixar || 'sem href');
+  t.conferir('o baixar salva com o nome do arquivo',
+    abrir.doPdf.temAtributoDownload === true && /\.pdf$/i.test(abrir.doPdf.nomeDoDownload || ''),
+    abrir.doPdf.nomeDoDownload || 'sem nome');
+  t.conferir('sem internet para o leitor, a tela explica em vez de ficar muda',
+    /Compartilhar|Baixar|internet/i.test(abrir.doPdf.mensagemDeFalha),
+    abrir.doPdf.mensagemDeFalha.slice(0, 90) || 'tela vazia');
   t.conferir('o endereço temporário é criado', abrir.doPdf.urlsAbertas === 1, String(abrir.doPdf.urlsAbertas));
   t.conferir('e é solto ao fechar a tela, sem segurar memória', abrir.soltouURLs === 0, String(abrir.soltouURLs));
   t.conferir('a foto continua aparecendo direto', abrir.daImg.temImg === true);
