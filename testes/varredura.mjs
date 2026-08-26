@@ -264,19 +264,23 @@ export default async function () {
       };
       bovT = fazerLivro('fb', false);
       avT = fazerLivro('fa', true);
+      gerT = fazerLivro('fg', false);   // custo da fazenda toda
       const periodo = ['this-month', 'last-month', 'this-year', 'all'][ent(0, 3)];
       const R = resumoFazenda(periodo);
 
       const soPeriodo = l => l.filter(t => inPeriod(t.date, periodo));
       const somaT = (l, tp) => soPeriodo(l).filter(t => t.type === tp).reduce((s, t) => s + t.amount, 0);
-      const recEsperada = somaT(bovT, 'entrada') + somaT(avT, 'entrada');
-      const cusEsperado = somaT(bovT, 'saida') + somaT(avT, 'saida');
+      const recEsperada = somaT(bovT, 'entrada') + somaT(avT, 'entrada') + somaT(gerT, 'entrada');
+      const cusEsperado = somaT(bovT, 'saida') + somaT(avT, 'saida') + somaT(gerT, 'saida');
       regra('Fazenda: receitas = as dos dois livros somadas',
         Math.abs(R.receitas - recEsperada) < 1e-6, `${R.receitas} vs ${recEsperada}`);
       regra('Fazenda: custos = os dos dois livros somados',
         Math.abs(R.custos - cusEsperado) < 1e-6, `${R.custos} vs ${cusEsperado}`);
       regra('Fazenda: saldo = receitas menos custos',
         Math.abs(R.saldo - (R.receitas - R.custos)) < 1e-9, `${R.saldo}`);
+      regra('Fazenda: as três atividades sempre aparecem',
+        R.atividades.length === 3 && R.atividades.map(a => a.nome).join(',') === 'Bovinos,Aviários,Geral',
+        R.atividades.map(a => a.nome).join(','));
       regra('Fazenda: os saldos por atividade somam o saldo da fazenda',
         Math.abs(R.atividades.reduce((s, a) => s + a.saldo, 0) - R.saldo) < 1e-6,
         `${R.atividades.map(a => a.saldo).join(' + ')} vs ${R.saldo}`);
@@ -296,9 +300,9 @@ export default async function () {
         `${R.categorias.reduce((s, [, v]) => s + v, 0)} vs ${R.movimento}`);
       regra('Fazenda: categorias em ordem decrescente de valor',
         R.categorias.every((c, k) => k === 0 || R.categorias[k - 1][1] >= c[1]), '');
-      regra('Fazenda: a pagar soma as contas em aberto dos dois livros',
-        Math.abs(R.aPagarTotal - (contasAPagar(bovT).reduce((s, t) => s + t.amount, 0)
-          + contasAPagar(avT).reduce((s, t) => s + t.amount, 0))) < 1e-6, String(R.aPagarTotal));
+      regra('Fazenda: a pagar soma as contas em aberto dos TRÊS livros',
+        Math.abs(R.aPagarTotal - [bovT, avT, gerT].reduce((s, l) =>
+          s + contasAPagar(l).reduce((x, t) => x + t.amount, 0), 0)) < 1e-6, String(R.aPagarTotal));
       regra('Fazenda: a pagar ignora o filtro de período (dívida não vence por filtro)',
         R.contas.every(x => x.t.venc && !x.t.pago && x.t.type === 'saida'), '');
       regra('Fazenda: nada de NaN em nenhum número',

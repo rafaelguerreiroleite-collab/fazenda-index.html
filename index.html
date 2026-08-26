@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=26" />
+<link rel="stylesheet" href="style.css?v=27" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -279,6 +279,8 @@
   <div id="fz-classes"></div>
   <div id="fz-apagar"></div>
   <div class="category-breakdown" id="fz-cats"></div>
+  <div class="fz-titulo mono" id="fz-lista-titulo" hidden>Lançamentos do período</div>
+  <div class="list" id="fz-lista"></div>
   <div class="empty" id="fz-empty" hidden>
     <p class="eyebrow mono">Nenhum lançamento no período</p>
     <p>Os lançamentos de Bovinos e Aviários aparecem somados aqui.</p>
@@ -411,8 +413,9 @@
         <select id="t-livro">
           <option value="bov">Bovinos</option>
           <option value="av">Aviários</option>
+          <option value="ger">Geral (fazenda toda)</option>
         </select>
-        <p class="small">Escolha a que o custo pertence. Ele aparece na aba da atividade e somado aqui na Fazenda.</p>
+        <p class="small">Geral é o que não é de nenhuma das duas: contador, imposto, energia da sede, trator. Aparece só na aba Fazenda.</p>
       </div>
       <p class="modal-context" id="t-context" hidden></p>
       <div class="type-toggle">
@@ -658,6 +661,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=26"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>

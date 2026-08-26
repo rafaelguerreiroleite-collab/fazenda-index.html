@@ -37,7 +37,19 @@ const numParaCampo = n => Number.isFinite(n) ? String(n).replace('.', ',') : '';
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(t._to); t._to = setTimeout(() => t.hidden = true, 2500); }
 
 // ===== Estado (espelho local dos snapshots) =====
-let animals = [], weighings = [], bovT = [], avT = [], items = [], moves = [];
+let animals = [], weighings = [], bovT = [], avT = [], gerT = [], items = [], moves = [];
+// Três livros de dinheiro: Bovinos, Aviários e Geral. Geral é o custo da
+// fazenda que não pertence a nenhuma das duas atividades — contador, imposto,
+// energia da sede, trator. Ratear no chute entre as duas falsearia o resultado
+// de cada uma; deixar de fora esconderia despesa real da fazenda.
+// Tudo que percorre livro passa por estes apelidos, e não por "if" espalhado:
+// esquecer um lugar é um lançamento sumindo de um total sem ninguém notar.
+const LIVROS = ['bov', 'av', 'ger'];
+const COL_LIVRO = { bov: 'bovtrans', av: 'avtrans', ger: 'gertrans' };
+const NOME_LIVRO = { bov: 'Bovinos', av: 'Aviários', ger: 'Geral' };
+const arrLivro = b => b === 'av' ? avT : b === 'ger' ? gerT : bovT;
+const colLivro = b => COL_LIVRO[b] || 'bovtrans';
+function setLivro(b, v) { if (b === 'av') avT = v; else if (b === 'ger') gerT = v; else bovT = v; }
 let settings = { yield: 52 };
 // Parâmetros da calculadora de custo da arroba (independentes das outras abas)
 const CUSTO_VAZIO = {
@@ -54,7 +66,7 @@ let custoParams = Object.assign({}, CUSTO_VAZIO);
 
 // ===== Firebase =====
 let db = null, farm = null, unsubs = [];
-const COLS = { animals: a => animals = a, weighings: a => weighings = a, bovtrans: a => bovT = a, avtrans: a => avT = a, items: a => items = a, moves: a => moves = a };
+const COLS = { animals: a => animals = a, weighings: a => weighings = a, bovtrans: a => bovT = a, avtrans: a => avT = a, gertrans: a => gerT = a, items: a => items = a, moves: a => moves = a };
 const colRef = name => db.collection('farms').doc(farm).collection(name);
 
 // ===== Funciona sem internet =====
@@ -66,7 +78,7 @@ let espelhoTimer = null, espelhoFalhou = false;
 function salvarEspelho(agora) {
   clearTimeout(espelhoTimer);
   const gravar = () => {
-    const ok = LS.s(ESPELHO, { farm, animals, weighings, bovT, avT, items, moves, settings, custo: custoParams });
+    const ok = LS.s(ESPELHO, { farm, animals, weighings, bovT, avT, gerT, items, moves, settings, custo: custoParams });
     // Falhar aqui significa que o aparelho não está guardando nada — o pior
     // cenário possível no campo. Precisa ser gritado, não engolido.
     if (!ok && !espelhoFalhou) {
@@ -83,7 +95,7 @@ function carregarEspelho(codigo) {
   const e = LS.g(ESPELHO, null);
   if (!e || e.farm !== codigo) return false;
   animals = e.animals || []; weighings = e.weighings || []; bovT = e.bovT || [];
-  avT = e.avT || []; items = e.items || []; moves = e.moves || [];
+  avT = e.avT || []; gerT = e.gerT || []; items = e.items || []; moves = e.moves || [];
   if (e.settings && Number.isFinite(e.settings.yield)) settings.yield = e.settings.yield;
   if (e.custo) custoParams = Object.assign({}, CUSTO_VAZIO, e.custo);
   return true;
@@ -941,8 +953,7 @@ function renderAPagar(book) {
 function renderLembrete() {
   const el = $('lembrete');
   if (!el) return;
-  const todas = [...contasAPagar(bovT).map(t => ({ t, livro: 'bov' })),
-                 ...contasAPagar(avT).map(t => ({ t, livro: 'av' }))]
+  const todas = LIVROS.flatMap(b => contasAPagar(arrLivro(b)).map(t => ({ t, livro: b })))
     .filter(x => x.t.dias <= AVISO_DIAS)
     .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
   if (!todas.length || LS.g('fjs-lembrete-visto', '') === todayISO()) { el.hidden = true; return; }
@@ -966,7 +977,7 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-pagar]');
   if (!b) return;
   const livro = b.dataset.livro;
-  const lista = livro === 'av' ? avT : bovT;
+  const lista = arrLivro(livro);
   const t = lista.find(x => x.id === b.dataset.pagar);
   if (!t) return sumiu('Este lançamento foi removido');
   if (!confirm(`Marcar como PAGO?\n\n${t.category || 'Lançamento'} · ${fmtRS(t.amount)}\nVencimento ${fmtBRfull(t.venc)}`)) return;
@@ -984,10 +995,10 @@ document.addEventListener('click', e => {
 // só: mostrar o que esta função devolve.
 function resumoFazenda(period) {
   const doLivro = (lista, nome) => lista.filter(t => inPeriod(t.date, period)).map(t => ({ t, livro: nome }));
-  const tudo = [...doLivro(bovT, 'Bovinos'), ...doLivro(avT, 'Aviários')];
+  const tudo = LIVROS.flatMap(b => doLivro(arrLivro(b), NOME_LIVRO[b]));
   const soma = (arr, tipo) => arr.filter(x => x.t.type === tipo).reduce((s, x) => s + x.t.amount, 0);
   const receitas = soma(tudo, 'entrada'), custos = soma(tudo, 'saida');
-  const atividades = ['Bovinos', 'Aviários'].map(nome => {
+  const atividades = LIVROS.map(b => NOME_LIVRO[b]).map(nome => {
     const doNome = tudo.filter(x => x.livro === nome);
     const e = soma(doNome, 'entrada'), sd = soma(doNome, 'saida');
     return { nome, entrada: e, saida: sd, saldo: e - sd, n: doNome.length };
@@ -1000,8 +1011,7 @@ function resumoFazenda(period) {
     const cl = classOf(x.t.category, x.t.type);
     classes[cl] = (classes[cl] || 0) + x.t.amount;
   });
-  const contas = [...contasAPagar(bovT).map(t => ({ t, livro: 'Bovinos' })),
-                  ...contasAPagar(avT).map(t => ({ t, livro: 'Aviários' }))]
+  const contas = LIVROS.flatMap(b => contasAPagar(arrLivro(b)).map(t => ({ t, livro: NOME_LIVRO[b] })))
     .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
   const categorias = Object.entries(tudo.reduce((acc, x) => {
     const k = x.t.type + '|' + (x.t.category || 'Sem categoria');
@@ -1018,8 +1028,8 @@ function resumoFazenda(period) {
 function renderFazenda() {
   const period = $('fz-period').value;
   const R = resumoFazenda(period);
-  const tudo = [...bovT.filter(t => inPeriod(t.date, period)).map(t => ({ t, livro: 'Bovinos' })),
-                ...avT.filter(t => inPeriod(t.date, period)).map(t => ({ t, livro: 'Aviários' }))];
+  const tudo = LIVROS.flatMap(b => arrLivro(b).filter(t => inPeriod(t.date, period))
+    .map(t => ({ t, livro: NOME_LIVRO[b], book: b })));
   $('fz-empty').hidden = R.n > 0;
   const inn = R.receitas, out = R.custos, bal = R.saldo;
 
@@ -1096,6 +1106,21 @@ function renderFazenda() {
     + (sobra.length ? `<div class="cb-resto mono">+ ${sobra.length} outra${sobra.length > 1 ? 's' : ''} categoria${sobra.length > 1 ? 's' : ''} · ${fmtRS(sobra.reduce((s, [, v]) => s + v, 0))}</div>` : '')
     : '';
   $('fz-cats').style.display = mostrar.length ? '' : 'none';
+
+  // Sem esta lista, um lançamento Geral só existiria dentro de somatórios: não
+  // haveria como vê-lo, corrigi-lo nem apagá-lo, porque Geral não tem aba
+  // própria. Aqui aparecem os três livros, cada linha dizendo de qual é.
+  const ordenados = [...tudo].sort((a, b) => a.t.date < b.t.date ? 1 : -1);
+  $('fz-lista-titulo').hidden = !ordenados.length;
+  $('fz-lista').innerHTML = ordenados.map(({ t, livro, book }) => `
+    <div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
+      <div class="item-main">
+        <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
+        <div class="item-subtitle">${fmtBR(t.date)} · ${esc(livro)}${t.aviary ? ' · Av. ' + esc(t.aviary) : ''}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
+        ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
+      </div>
+      <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
+    </div>`).join('');
 }
 $('fz-period').addEventListener('change', render);
 
@@ -1218,7 +1243,7 @@ $('t-anexos').addEventListener('click', async e => {
 });
 async function abrirAnexo(id) {
   const meta = anexosForm.find(x => x.id === id)
-    || [...bovT, ...avT].flatMap(t => t.anexos || []).find(x => x.id === id);
+    || LIVROS.flatMap(b => arrLivro(b)).flatMap(t => t.anexos || []).find(x => x.id === id);
   $('ax-titulo').textContent = meta ? meta.nome : 'Nota fiscal';
   $('ax-corpo').innerHTML = '<p class="ax-carregando mono">Carregando…</p>';
   openM('modal-anexo');
@@ -1272,8 +1297,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=26';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=26';
+const PDFJS_JS = 'vendor/pdf.min.js?v=27';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=27';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1600,12 +1625,14 @@ function openTrans(book, t) {
   // Editando, a atividade fica travada: mudar de livro exigiria refazer os
   // vínculos com estoque e com a venda do animal, e um deles ficaria órfão.
   const perguntar = !book && !t;
-  const efetivo = book || (t && t.aviary !== undefined ? 'av' : t ? 'bov' : 'bov');
+  const efetivo = book || (t ? (LIVROS.find(b => arrLivro(b).some(x => x.id === t.id)) || 'bov') : 'bov');
   $('t-modal-title').textContent = t ? 'Editar lançamento' : 'Novo lançamento';
   $('t-id').value = t ? t.id : '';
   $('t-book').value = efetivo;
   $('t-livro-wrap').style.display = perguntar ? '' : 'none';
-  $('t-livro').value = efetivo;
+  // Lançando pela aba Fazenda, começa em Geral — é a natureza da aba. Quem
+  // quiser jogar em Bovinos ou Aviários troca no seletor, que está no topo.
+  $('t-livro').value = perguntar && tab === 'fazenda' ? 'ger' : efetivo;
   sincronizarLivroTrans();
   document.querySelector(`input[name="t-type"][value="${t ? t.type : 'saida'}"]`).checked = true;
   $('t-date').value = t ? t.date : todayISO();
@@ -1635,6 +1662,7 @@ function openTrans(book, t) {
 function sincronizarLivroTrans() {
   const livro = $('t-livro').value;
   $('t-book').value = livro;
+  $('t-category').setAttribute('list', livro === 'av' ? 'cats-av' : 'cats-bov');
   $('t-aviary-wrap').style.display = livro === 'av' ? '' : 'none';
   $('t-category').setAttribute('list', livro === 'av' ? 'cats-av' : 'cats-bov');
   if (livro === 'av' && !$('t-aviary').value) $('t-aviary').value = '5';
@@ -1659,8 +1687,8 @@ $('form-transaction').addEventListener('submit', e => {
   data.venc = aPrazo ? $('t-venc').value : null;
   data.pago = aPrazo ? $('t-pago').checked : false;
   if (book === 'av') data.aviary = $('t-aviary').value;
-  const arr = book === 'av' ? avT : bovT;
-  const col = book === 'av' ? 'avtrans' : 'bovtrans';
+  const arr = arrLivro(book);
+  const col = colLivro(book);
   const dup = findDupTrans(arr, data, book, id);
   if (dup) {
     const tipo = dup.type === 'entrada' ? 'entrada' : 'saída';
@@ -1694,8 +1722,8 @@ $('form-transaction').addEventListener('submit', e => {
 });
 $('btn-delete-transaction').addEventListener('click', () => {
   const id = $('t-id').value, book = $('t-book').value;
-  const arr = book === 'av' ? avT : bovT;
-  const col = book === 'av' ? 'avtrans' : 'bovtrans';
+  const arr = arrLivro(book);
+  const col = colLivro(book);
   const alvo = arr.find(x => x.id === id);
   if (!id || !alvo) return;
   // Parcela de um carnê: perguntar qual das duas coisas, porque apagar só a
@@ -1713,7 +1741,7 @@ $('btn-delete-transaction').addEventListener('click', () => {
   // Guarda os alvos ANTES de filtrar: depois eles não estão mais na lista, e a
   // nota fiscal anexada ficaria na nuvem sem ninguém para apagá-la.
   const alvos = arr.filter(x => ids.includes(x.id));
-  if (book === 'av') { avT = avT.filter(x => !ids.includes(x.id)); }
+  if (book !== 'bov') { setLivro(book, arrLivro(book).filter(x => !ids.includes(x.id))); }
   else {
     bovT = bovT.filter(x => !ids.includes(x.id));
     moves.forEach(m => {
@@ -2239,7 +2267,7 @@ $('menu-exp-afin').addEventListener('click', () => exportFin('av'));
 
 // ===== Backup / restauração =====
 $('menu-backup').addEventListener('click', () => {
-  const data = { app: 'fazendajs', v: 4, exportedAt: new Date().toISOString(), animals, weighings, bovT, avT, items, moves, settings, custo: custoParams };
+  const data = { app: 'fazendajs', v: 5, exportedAt: new Date().toISOString(), animals, weighings, bovT, avT, gerT, items, moves, settings, custo: custoParams };
   download(`backup-fazendajs-${todayISO()}.json`, JSON.stringify(data, null, 1), 'application/json');
   closeAllM(); toast('Backup baixado');
 });
@@ -2259,6 +2287,8 @@ $('restore-input').addEventListener('change', e => {
         ...weighings.map(x => ({ col: 'weighings', del: x.id })),
         ...bovT.map(x => ({ col: 'bovtrans', del: x.id })),
         ...avT.map(x => ({ col: 'avtrans', del: x.id })),
+    ...gerT.map(x => ({ col: 'gertrans', del: x.id })),
+        ...gerT.map(x => ({ col: 'gertrans', del: x.id })),
         ...items.map(x => ({ col: 'items', del: x.id })),
         ...moves.map(x => ({ col: 'moves', del: x.id }))
       ];
@@ -2268,6 +2298,7 @@ $('restore-input').addEventListener('change', e => {
         ...(d.weighings || []).map(x => ({ col: 'weighings', obj: x })),
         ...(d.bovT || []).map(x => ({ col: 'bovtrans', obj: x })),
         ...(d.avT || []).map(x => ({ col: 'avtrans', obj: x })),
+        ...(d.gerT || []).map(x => ({ col: 'gertrans', obj: x })),
         ...(d.items || []).map(x => ({ col: 'items', obj: x })),
         ...(d.moves || []).map(x => ({ col: 'moves', obj: x }))
       ];
@@ -2275,7 +2306,7 @@ $('restore-input').addEventListener('change', e => {
       // responder: sem internet a restauração parecia não ter feito nada, e o
       // aparelho seguia com os dados velhos enquanto a fila carregava os novos.
       animals = d.animals || []; weighings = d.weighings || [];
-      bovT = d.bovT || []; avT = d.avT || [];
+      bovT = d.bovT || []; avT = d.avT || []; gerT = d.gerT || [];
       items = d.items || []; moves = d.moves || [];
       if (d.settings && Number.isFinite(d.settings.yield)) settings.yield = d.settings.yield;
       if (d.custo) custoParams = Object.assign({}, CUSTO_VAZIO, d.custo);
@@ -2506,14 +2537,14 @@ document.addEventListener('click', e => {
   const tr = e.target.closest('[data-trans]');
   if (tr) {
     const book = tr.dataset.book;
-    const t = (book === 'av' ? avT : bovT).find(x => x.id === tr.dataset.trans);
+    const t = arrLivro(book).find(x => x.id === tr.dataset.trans);
     if (t) openTrans(book, t);
   }
 });
 
 $('fab').addEventListener('click', () => {
   // Na Fazenda o lançamento não tem livro definido: o formulário pergunta.
-  if (tab === 'fazenda') return openTrans(null);
+  if (tab === 'fazenda') return openTrans(null);   // pergunta a atividade
   if (tab === 'aviarios') return openTrans('av');
   if (seg === 'vendidas' || seg === 'custos') return;
   if (seg === 'rebanho' && detailAnimal) return openWeighing(detailAnimal);

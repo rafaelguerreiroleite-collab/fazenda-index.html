@@ -256,9 +256,17 @@ export default async function () {
     $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     r.depoisAv = avT.length; r.depoisBov = bovT.length;
     r.valorAv = avT[0] && avT[0].amount;
-    // E sem informar o livro: tem de descobrir de onde o lançamento veio
-    openTrans(null, avT[0]);
+    // E sem informar o livro: tem de descobrir de ONDE o lançamento está.
+    // Um lançamento de aviário que nunca passou pelo formulário, portanto SEM o
+    // campo de galpão — era exatamente o caso que a versão antiga errava, e que
+    // este teste deixava passar porque o formulário preenchia o campo antes.
+    avT.push({ id: 'ea2', date: '2026-08-02', type: 'saida', amount: 300, category: 'Gás' });
+    gerT = [{ id: 'eg', date: '2026-08-03', type: 'saida', amount: 400, category: 'Contador' }];
+    openTrans(null, avT.find(x => x.id === 'ea2'));
     r.descobriuSozinho = $('t-book').value;
+    openTrans(null, gerT[0]);
+    r.descobriuGeral = $('t-book').value;
+    avT = avT.filter(x => x.id !== 'ea2'); gerT = [];
     closeAllM();
     return r;
   });
@@ -267,8 +275,9 @@ export default async function () {
   t.conferir('salvar não move o lançamento de livro',
     naoMuda.depoisAv === 1 && naoMuda.depoisBov === 1, `av ${naoMuda.depoisAv} · bov ${naoMuda.depoisBov}`);
   t.conferir('e o valor editado ficou no lançamento certo', naoMuda.valorAv === 250, String(naoMuda.valorAv));
-  t.conferir('sem informar o livro, descobre de onde o lançamento é',
+  t.conferir('sem informar o livro, descobre de onde o lançamento é — mesmo sem o campo de galpão',
     naoMuda.descobriuSozinho === 'av', naoMuda.descobriuSozinho);
+  t.conferir('e reconhece o livro Geral', naoMuda.descobriuGeral === 'ger', naoMuda.descobriuGeral);
 
   // ---------- estado limpo depois de tudo ----------
   t.secao('estado final');

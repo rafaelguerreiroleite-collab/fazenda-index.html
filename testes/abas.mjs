@@ -487,8 +487,8 @@ export default async function () {
   t.conferir('saldo consolidado confere com a conta à mão',
     fz.geral.saldo === 'R$ 20.000,00', fz.geral.saldo);
 
-  t.conferir('mostra o resultado de cada atividade',
-    fz.geral.atividades.map(a => a.nome).join(',') === 'Bovinos,Aviários',
+  t.conferir('mostra o resultado das três atividades',
+    fz.geral.atividades.map(a => a.nome).join(',') === 'Bovinos,Aviários,Geral',
     fz.geral.atividades.map(a => a.nome).join(','));
   t.conferir('bovinos com saldo positivo',
     fz.geral.atividades[0].saldo === 'R$ 27.000,00' && fz.geral.atividades[0].negativo === false,
@@ -528,9 +528,12 @@ export default async function () {
     const aoAbrir = {
       perguntaAtividade: $('t-livro-wrap').style.display !== 'none',
       livroPadrao: $('t-livro').value,
+      opcoes: [...$('t-livro').options].map(o => o.value).join(','),
       aviarioEscondido: $('t-aviary-wrap').style.display === 'none',
       listaCategorias: $('t-category').getAttribute('list')
     };
+    // Vindo da Fazenda comeca em Geral; aqui o teste escolhe Bovinos de proposito
+    $('t-livro').value = 'bov'; $('t-livro').dispatchEvent(new Event('change'));
     $('t-date').value = '2026-08-20';
     $('t-amount').value = '1.250,50';
     $('t-category').value = 'Impostos/Funrural';
@@ -579,9 +582,11 @@ export default async function () {
 
   t.conferir('o botão + aparece na aba Fazenda', lanc.fabAparece === true);
   t.conferir('o formulário pergunta a atividade', lanc.aoAbrir.perguntaAtividade === true);
-  t.conferir('começando em Bovinos', lanc.aoAbrir.livroPadrao === 'bov', lanc.aoAbrir.livroPadrao);
-  t.conferir('sem pedir aviário para bovinos', lanc.aoAbrir.aviarioEscondido === true);
-  t.conferir('com as categorias de bovinos', lanc.aoAbrir.listaCategorias === 'cats-bov', lanc.aoAbrir.listaCategorias);
+  t.conferir('lançando pela Fazenda, começa em Geral — é a natureza da aba',
+    lanc.aoAbrir.livroPadrao === 'ger', lanc.aoAbrir.livroPadrao);
+  t.conferir('e oferece as três atividades',
+    lanc.aoAbrir.opcoes === 'bov,av,ger', lanc.aoAbrir.opcoes);
+  t.conferir('Geral não pede aviário', lanc.aoAbrir.aviarioEscondido === true);
   t.conferir('o custo cai no livro dos bovinos',
     lanc.depoisBov.bov === 1 && lanc.depoisBov.av === 0, `bov ${lanc.depoisBov.bov} · av ${lanc.depoisBov.av}`);
   t.conferir('com o valor digitado em português (1.250,50)',
@@ -803,6 +808,93 @@ export default async function () {
   t.conferir('com o botão de atualizar', versao.temBotaoAtualizar === true);
   t.conferir('dá para dispensar', versao.dispensou === true);
   t.conferir('e há como procurar atualização pelo menu', versao.temBotaoNoMenu === true);
+
+  // ---------- custo Geral da fazenda ----------
+  // Custo que não é de bovinos nem de aviários: contador, imposto, energia da
+  // sede. Ratear no chute falsearia as duas atividades; deixar de fora
+  // esconderia despesa real.
+  t.secao('custo Geral da fazenda');
+  const ger = await pagina.evaluate(() => {
+    bovT = []; avT = []; gerT = []; tab = 'fazenda'; $('fz-period').value = 'all'; render();
+    const ler = sel => document.querySelector(sel) ? document.querySelector(sel).textContent : null;
+
+    $('fab').click();
+    const comecaEm = $('t-livro').value;
+    $('t-date').value = '2026-08-26'; $('t-amount').value = '1.800,00';
+    $('t-category').value = 'Impostos/Funrural';
+    $('t-notes').value = 'Contador';
+    const pedeAviario = $('t-aviary-wrap').style.display !== 'none';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    render();
+
+    // E um custo de bovinos, para conferir que os dois convivem
+    $('fab').click();
+    $('t-livro').value = 'bov'; $('t-livro').dispatchEvent(new Event('change'));
+    $('t-date').value = '2026-08-26'; $('t-amount').value = '200';
+    $('t-category').value = 'Ração/insumos';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    render();
+
+    const naFazenda = {
+      custos: ler('#fz-balance .val.out'),
+      atividades: [...document.querySelectorAll('#fz-atividades .fz-card')].map(c =>
+        c.querySelector('.fz-nome').textContent + '=' + c.querySelector('.fz-saldo').textContent),
+      linhas: [...document.querySelectorAll('#fz-lista .transaction-item')].map(l => ({
+        titulo: l.querySelector('.item-title').textContent,
+        sub: l.querySelector('.item-subtitle').textContent,
+        book: l.dataset.book
+      }))
+    };
+    // Geral NAO pode aparecer nas abas das atividades
+    tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+    const noBov = { saidas: ler('#bfin-balance .val.out'),
+      linhas: document.querySelectorAll('#bfin-list .transaction-item').length };
+    tab = 'aviarios'; $('av-period').value = 'all'; render();
+    const noAv = { saidas: ler('#av-balance .val.out'),
+      linhas: document.querySelectorAll('#av-list .transaction-item').length };
+
+    // Editar o Geral pela lista da Fazenda
+    tab = 'fazenda'; render();
+    const linhaGer = [...document.querySelectorAll('#fz-lista .transaction-item')]
+      .find(l => l.dataset.book === 'ger');
+    linhaGer.click();
+    const aoEditar = { livro: $('t-book').value, seletorEscondido: $('t-livro-wrap').style.display === 'none',
+      valor: $('t-amount').value };
+    closeAllM();
+
+    return { comecaEm, pedeAviario, naFazenda, noBov, noAv, aoEditar,
+      totais: { bov: bovT.length, av: avT.length, ger: gerT.length },
+      espelho: (() => { salvarEspelho(true);
+        const e = JSON.parse(localStorage.getItem('fjs-espelho') || '{}');
+        return (e.gerT || []).length; })() };
+  });
+
+  t.conferir('o + na Fazenda já começa em Geral', ger.comecaEm === 'ger', ger.comecaEm);
+  t.conferir('Geral não pede galpão', ger.pedeAviario === false);
+  t.conferir('o custo Geral vai para o livro próprio, não para os outros dois',
+    ger.totais.ger === 1 && ger.totais.bov === 1 && ger.totais.av === 0,
+    `ger ${ger.totais.ger} · bov ${ger.totais.bov} · av ${ger.totais.av}`);
+  t.conferir('a Fazenda soma Geral junto com as atividades',
+    ger.naFazenda.custos === 'R$ 2.000,00', ger.naFazenda.custos);
+  t.conferir('e mostra Geral como terceira atividade',
+    ger.naFazenda.atividades.join(' | ') === 'Bovinos=R$ -200,00 | Aviários=R$ 0,00 | Geral=R$ -1.800,00',
+    ger.naFazenda.atividades.join(' | '));
+  t.conferir('a lista da Fazenda traz os dois lançamentos',
+    ger.naFazenda.linhas.length === 2, String(ger.naFazenda.linhas.length));
+  t.conferir('cada linha diz de qual atividade é',
+    ger.naFazenda.linhas.some(l => /Geral/.test(l.sub)) && ger.naFazenda.linhas.some(l => /Bovinos/.test(l.sub)),
+    ger.naFazenda.linhas.map(l => l.sub).join(' | '));
+  t.conferir('o custo Geral NÃO polui a aba Bovinos',
+    ger.noBov.saidas === 'R$ 200,00' && ger.noBov.linhas === 1,
+    `${ger.noBov.saidas} · ${ger.noBov.linhas} linha(s)`);
+  t.conferir('nem a aba Aviários',
+    ger.noAv.saidas === 'R$ 0,00' && ger.noAv.linhas === 0,
+    `${ger.noAv.saidas} · ${ger.noAv.linhas} linha(s)`);
+  t.conferir('dá para editar o Geral pela lista da Fazenda',
+    ger.aoEditar.livro === 'ger' && /1\.800|1800/.test(ger.aoEditar.valor),
+    `${ger.aoEditar.livro} · ${ger.aoEditar.valor}`);
+  t.conferir('e a atividade fica travada na edição', ger.aoEditar.seletorEscondido === true);
+  t.conferir('o Geral entra na cópia local do aparelho', ger.espelho === 1, String(ger.espelho));
 
   // ---------- backup e restauração: a volta tem de trazer tudo ----------
   // Nunca havia sido testado, e é a última linha de defesa contra perda de
