@@ -1,0 +1,7 @@
+{
+  "hosting": {
+    "target": "gastos",
+    "public": "_site",
+    "ignore": []
+  }
+}

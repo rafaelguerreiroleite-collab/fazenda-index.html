@@ -1,46 +1,56 @@
-name: Publicar Meus Gastos no GitHub Pages
+name: Publicar Meus Gastos
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-# O deploy do Pages precisa destas permissoes no GITHUB_TOKEN.
-# 'pages: write' e o que permite ao configure-pages criar o site sozinho.
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-# Uma publicacao por vez; nao cancela a que ja esta rodando.
+# Um deploy por vez; nao cancela o que ja esta rodando.
 concurrency:
-  group: pages
+  group: publicar-gastos
   cancel-in-progress: false
 
 jobs:
   publicar:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
-      # Só o app vai para o site. Os arquivos de apoio (LEIA-ME, regras do
-      # Firestore, README) ficam no repositorio, fora da pasta publicada.
+      # Só o app vai para o ar. LEIA-ME, README e as regras do Firestore
+      # ficam no repositorio, fora da pasta publicada.
       - name: Juntar os arquivos do app
         run: |
           mkdir -p _site
           cp index.html config.js sw.js manifest.json icone-192.png icone-512.png _site/
 
-      - name: Ativar e configurar o Pages
-        uses: actions/configure-pages@v5
+      - uses: actions/setup-node@v4
         with:
-          enablement: true
+          node-version: '20'
 
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
+      - name: Instalar Firebase CLI
+        run: npm install --no-save firebase-tools
 
-      - id: deploy
-        uses: actions/deploy-pages@v4
+      # O site do Meus Gastos e separado do site da Fazenda J.S: outro
+      # site de Hosting, outro endereco. Nada aqui toca em fazenda-e3652.web.app.
+      - name: Publicar no site proprio
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 }}
+          PROJETO: fazenda-e3652
+          SITE: meus-gastos-fernanda
+        run: |
+          set -euo pipefail
+          if [ -z "$SA" ]; then
+            echo "::error::O secret FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 esta vazio ou nao existe."
+            exit 1
+          fi
+          printf '%s' "$SA" > /tmp/sa.json
+
+          # Cria o site na primeira vez. Se ja existir, segue em frente.
+          npx firebase hosting:sites:create "$SITE" --project "$PROJETO" \
+            || echo "Site '$SITE' ja existe, seguindo para o deploy."
+
+          npx firebase target:apply hosting gastos "$SITE" --project "$PROJETO"
+          npx firebase deploy --only hosting:gastos --project "$PROJETO"
+
+          echo "PUBLICADO EM: https://$SITE.web.app"
