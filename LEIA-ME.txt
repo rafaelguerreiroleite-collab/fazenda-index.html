@@ -1,0 +1,123 @@
+MEUS GASTOS - instalação e regras de segurança
+================================================
+
+1. PUBLICAR
+-----------
+Suba os 6 arquivos (index.html, config.js, sw.js, manifest.json,
+icone-192.png, icone-512.png) na raiz de um site estático:
+Cloudflare Pages, Netlify, GitHub Pages. Qualquer um serve, de graça.
+
+Preencha o config.js ANTES de publicar. Se publicar em branco e
+preencher depois, tudo bem: o app agora busca o config na rede
+primeiro, então a chave nova vale já na abertura seguinte.
+
+Toda vez que alterar index.html ou sw.js, troque a linha
+   const CACHE = 'gastos-v2';
+para 'gastos-v3', 'gastos-v4' e assim por diante. É isso que
+descarta o cache velho nos aparelhos que já instalaram.
+
+
+2. FIREBASE (sincronizar entre celular e computador)
+----------------------------------------------------
+- console.firebase.google.com -> Criar projeto (plano Spark, grátis)
+- Adicionar app -> Web (ícone </>) -> copiar o firebaseConfig
+- Colar os valores no config.js
+- Menu Firestore Database -> Criar banco de dados -> modo produção
+- Aba Regras -> apagar tudo -> colar o bloco do item 4 -> Publicar
+
+
+3. COMO FUNCIONA O ACESSO (leia isto)
+--------------------------------------
+Não existe login. O código da carteira é a senha, e é tudo o que
+existe entre os gastos e a internet. Por isso:
+
+- Use SEMPRE o botão "Gerar código". Ele cria 12 caracteres
+  aleatórios (cerca de 10^18 combinações), o que torna inviável
+  alguém acertar por tentativa.
+- Nunca use nome, apelido, data de nascimento, placa, CPF.
+  Um código adivinhável abre a carteira para quem adivinhar.
+- Para usar no segundo aparelho: Ajustes -> "Copiar link de acesso"
+  e abra esse link no outro aparelho. O link contém o código,
+  então mande só para você mesma (não em grupo, não em rede social).
+- Quem tiver o código vê e edita todos os lançamentos. Não há como
+  revogar um código já compartilhado a não ser mudando de código
+  (Ajustes -> Trocar código) e relançando os gastos.
+
+Se um dia quiser acesso de verdade (revogável, por pessoa), o
+caminho é ativar Authentication no Firebase e amarrar as regras ao
+usuário. Aí o código deixa de ser necessário.
+
+
+4. REGRAS DO FIRESTORE - cole exatamente isto
+----------------------------------------------
+Elas fazem três coisas: exigem código de 10 a 24 caracteres,
+proíbem LISTAR a coleção de carteiras (sem isso, qualquer um
+baixaria a lista de todos os códigos existentes) e limitam o que
+pode ser gravado, para o banco não virar depósito de lixo alheio.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function codigoOk(c) {
+      return c.size() >= 10 && c.size() <= 24 && c.matches('^[A-Z0-9]+$');
+    }
+
+    match /carteiras/{codigo} {
+
+      // get, e NUNCA list: ninguém consegue varrer a coleção
+      allow get: if codigoOk(codigo);
+
+      allow create, update: if codigoOk(codigo)
+        && request.resource.data.keys().hasOnly(['orcamento', 'categorias'])
+        && request.resource.data.orcamento is number
+        && request.resource.data.orcamento >= 0
+        && request.resource.data.categorias.size() <= 40;
+
+      allow delete: if false;
+
+      match /lancamentos/{id} {
+
+        allow get, list: if codigoOk(codigo);
+
+        allow create, update: if codigoOk(codigo)
+          && request.resource.data.keys().hasOnly(
+               ['valor', 'categoria', 'pagamento', 'nota', 'data', 'criadoEm'])
+          && request.resource.data.valor is number
+          && request.resource.data.valor > 0
+          && request.resource.data.valor < 100000000
+          && request.resource.data.categoria is string
+          && request.resource.data.categoria.size() <= 18
+          && request.resource.data.nota is string
+          && request.resource.data.nota.size() <= 60
+          && request.resource.data.data.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+
+        allow delete: if codigoOk(codigo);
+      }
+    }
+  }
+}
+
+
+5. O QUE ESPERAR NO DIA A DIA
+------------------------------
+- Sem internet o app continua lançando. O indicador no topo mostra
+  "Offline" e o Firestore envia tudo sozinho quando a rede voltar.
+- O X de cada lançamento pede confirmação: o primeiro toque vira
+  "Apagar?", o segundo apaga. A confirmação expira em 4 segundos.
+- Não dá para remover uma categoria que ainda tem lançamentos.
+  Troque a categoria deles antes (toque no lançamento para editar).
+- "Baixar CSV de todos os meses" exporta o histórico inteiro,
+  separado por ponto e vírgula, já com BOM: abre direto no Excel.
+- A cota gratuita do Firebase (50 mil leituras/dia) é muito maior
+  do que um uso pessoal consome.
+
+
+6. LIMITES CONHECIDOS
+----------------------
+- Só registra saída de dinheiro. Não há receitas, saldo nem
+  parcelamento de compras no crédito.
+- Editar categorias nos dois aparelhos ao mesmo tempo faz a última
+  gravação vencer. Irrelevante para uma pessoa só.
+- O código fica salvo no aparelho. Quem destravar o celular abre
+  o app direto.
