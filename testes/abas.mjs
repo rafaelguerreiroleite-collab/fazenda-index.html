@@ -682,6 +682,71 @@ export default async function () {
   t.conferir('e salvar deixa o lançamento sem nota', anexo.semAnexo === 0, String(anexo.semAnexo));
   t.conferir('mandando apagar a nota da nuvem também', anexo.pedeApagar === true);
 
+  // ---------- abrir a nota depois de lançada ----------
+  // O Safari BLOQUEIA navegar para "data:", entao o link do PDF nao fazia nada
+  // no iPhone. O que este teste trava: nunca mais sair um link para data:.
+  t.secao('abrir a nota depois de lançada');
+  const abrir = await pagina.evaluate(async () => {
+    bovT = []; pendentes = []; db = null; localStorage.removeItem('fjs-pendentes');
+    tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+
+    // Um PDF minúsculo, mas PDF de verdade
+    const pdf = '%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF';
+    const filePdf = new File([new Blob([pdf], { type: 'application/pdf' })], 'MercadoPago.pdf', { type: 'application/pdf' });
+    const c = document.createElement('canvas'); c.width = 400; c.height = 300;
+    const cx = c.getContext('2d'); cx.fillStyle = '#333'; cx.fillRect(0, 0, 400, 300);
+    const blobImg = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.8));
+    const fileImg = new File([blobImg], 'foto-nota.jpg', { type: 'image/jpeg' });
+
+    openTrans('bov');
+    await adicionarAnexos([filePdf, fileImg]);
+    $('t-date').value = '2026-08-26'; $('t-amount').value = '75';
+    $('t-category').value = 'Equipamentos';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    render();
+
+    const t0 = bovT[0];
+    const idPdf = t0.anexos.find(a => a.tipo === 'application/pdf').id;
+    const idImg = t0.anexos.find(a => a.tipo !== 'application/pdf').id;
+
+    // Reabre o lançamento e abre o PDF, como o usuário faz
+    openTrans('bov', t0);
+    await abrirAnexo(idPdf);
+    const doPdf = {
+      temIframe: !!document.querySelector('#ax-corpo .ax-pdf'),
+      srcDoIframe: (document.querySelector('#ax-corpo .ax-pdf') || {}).getAttribute
+        ? document.querySelector('#ax-corpo .ax-pdf').getAttribute('src') : '',
+      temBotaoAbrir: !!$('ax-abrir'),
+      // O QUE NAO PODE MAIS EXISTIR: link apontando para data:
+      temLinkData: !!document.querySelector('#ax-corpo a[href^="data:"]'),
+      urlsAbertas: anexoURLs.length,
+      html: $('ax-corpo').innerHTML.slice(0, 200)
+    };
+    closeAllM();
+    const soltouURLs = anexoURLs.length;
+
+    openTrans('bov', t0);
+    await abrirAnexo(idImg);
+    const daImg = {
+      temImg: !!document.querySelector('#ax-corpo .ax-img'),
+      temLinkData: !!document.querySelector('#ax-corpo a[href^="data:"]')
+    };
+    closeAllM();
+    return { doPdf, daImg, soltouURLs, anexos: t0.anexos.length };
+  });
+
+  t.conferir('os dois arquivos ficaram no lançamento', abrir.anexos === 2, String(abrir.anexos));
+  t.conferir('NENHUM link para data: no PDF (era o que travava no iPhone)',
+    abrir.doPdf.temLinkData === false, abrir.doPdf.html);
+  t.conferir('o PDF abre por endereço blob, que o Safari aceita',
+    /^blob:/.test(abrir.doPdf.srcDoIframe || ''), abrir.doPdf.srcDoIframe || 'sem src');
+  t.conferir('mostra a prévia do PDF na própria tela', abrir.doPdf.temIframe === true);
+  t.conferir('e o botão de abrir em nova aba', abrir.doPdf.temBotaoAbrir === true);
+  t.conferir('o endereço temporário é criado', abrir.doPdf.urlsAbertas === 1, String(abrir.doPdf.urlsAbertas));
+  t.conferir('e é solto ao fechar a tela, sem segurar memória', abrir.soltouURLs === 0, String(abrir.soltouURLs));
+  t.conferir('a foto continua aparecendo direto', abrir.daImg.temImg === true);
+  t.conferir('sem link para data: nela também', abrir.daImg.temLinkData === false);
+
   // ---------- backup e restauração: a volta tem de trazer tudo ----------
   // Nunca havia sido testado, e é a última linha de defesa contra perda de
   // dados: se a restauração não trouxer tudo de volta, o backup não vale nada.

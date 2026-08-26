@@ -1109,6 +1109,9 @@ const ANEXO_ALVO = 380 * 1024;     // alvo da compressão, com folga para o base
 const ANEXO_LADO = 1600;           // lado maior da foto reduzida
 const anexoCache = new Map();      // dados já carregados nesta sessão
 let anexosForm = [], anexosRemover = [];
+// Endereços temporários criados para abrir PDF; soltos ao fechar a tela, senão
+// cada nota aberta segura memória do aparelho até recarregar o app.
+let anexoURLs = [];
 
 const kb = n => n >= 1024 * 1024 ? fmtN(n / 1024 / 1024, 1) + ' MB' : Math.round(n / 1024) + ' KB';
 const tamanhoDeDataURL = s => Math.round((s.length - (s.indexOf(',') + 1)) * 0.75);
@@ -1224,10 +1227,56 @@ async function abrirAnexo(id) {
     $('ax-corpo').innerHTML = '<p class="ax-carregando mono">Não foi possível abrir. Sem internet, só dá para ver o que ainda está na fila deste aparelho.</p>';
     return;
   }
-  $('ax-corpo').innerHTML = meta && meta.tipo === 'application/pdf'
-    ? `<p class="ax-carregando mono">PDF anexado. Toque para abrir fora do aplicativo.</p>
-       <a class="btn-primary ax-abrir" href="${dados}" target="_blank" rel="noopener">Abrir PDF</a>`
-    : `<img class="ax-img" src="${dados}" alt="Nota fiscal" />`;
+  if (meta && meta.tipo === 'application/pdf') {
+    // O Safari BLOQUEIA abrir um "data:" diretamente — o link não fazia nada no
+    // iPhone. Convertido para blob, que o navegador aceita abrir, e com o botão
+    // de compartilhar, que no iOS é o caminho que sempre funciona: manda o PDF
+    // para o Arquivos, o e-mail ou o WhatsApp.
+    const blob = dataURLparaBlob(dados);
+    const url = URL.createObjectURL(blob);
+    anexoURLs.push(url);
+    const arquivo = new File([blob], (meta.nome || 'nota-fiscal') + (/\.pdf$/i.test(meta.nome || '') ? '' : '.pdf'),
+      { type: 'application/pdf' });
+    const podeCompartilhar = !!(navigator.canShare && navigator.canShare({ files: [arquivo] }));
+    $('ax-corpo').innerHTML = `
+      <iframe class="ax-pdf" src="${url}" title="${esc(meta.nome || 'Nota fiscal')}"></iframe>
+      <div class="ax-acoes">
+        <button type="button" class="btn-primary" id="ax-abrir">Abrir em nova aba</button>
+        ${podeCompartilhar ? '<button type="button" class="btn-secondary" id="ax-share">Compartilhar / Salvar</button>' : ''}
+      </div>
+      <p class="ax-carregando mono">Se a prévia ficar em branco, use "Abrir em nova aba"${podeCompartilhar ? ' ou "Compartilhar"' : ''}.</p>`;
+    $('ax-abrir').addEventListener('click', () => {
+      const w = window.open(url, '_blank');
+      if (!w) toast('O navegador bloqueou a nova aba — use Compartilhar');
+    });
+    if (podeCompartilhar) $('ax-share').addEventListener('click', async () => {
+      try { await navigator.share({ files: [arquivo], title: meta.nome || 'Nota fiscal' }); }
+      catch (e) { if (e && e.name !== 'AbortError') toast('Não deu para compartilhar'); }
+    });
+    return;
+  }
+  // Imagem: o "data:" dentro de <img> funciona em todo lugar; só a NAVEGAÇÃO
+  // para data: é que é bloqueada. Mesmo assim vai o botão de compartilhar.
+  const blobImg = dataURLparaBlob(dados);
+  const arqImg = new File([blobImg], meta && meta.nome ? meta.nome : 'nota-fiscal.jpg', { type: blobImg.type });
+  const podeImg = !!(navigator.canShare && navigator.canShare({ files: [arqImg] }));
+  $('ax-corpo').innerHTML = `<img class="ax-img" src="${dados}" alt="Nota fiscal" />`
+    + (podeImg ? '<div class="ax-acoes"><button type="button" class="btn-secondary" id="ax-share-img">Compartilhar / Salvar</button></div>' : '');
+  if (podeImg) $('ax-share-img').addEventListener('click', async () => {
+    try { await navigator.share({ files: [arqImg], title: (meta && meta.nome) || 'Nota fiscal' }); }
+    catch (e) { if (e && e.name !== 'AbortError') toast('Não deu para compartilhar'); }
+  });
+}
+// Converte o arquivo guardado (base64) em blob, que é o que o navegador aceita
+// abrir e compartilhar.
+function dataURLparaBlob(dataURL) {
+  const virgula = dataURL.indexOf(',');
+  const cabeca = dataURL.slice(0, virgula);
+  const tipo = (cabeca.match(/data:([^;]+)/) || [, 'application/octet-stream'])[1];
+  const bin = atob(dataURL.slice(virgula + 1));
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], { type: tipo });
 }
 // Grava os arquivos novos e apaga os retirados. Passa pelo mesmo caminho
 // seguro das outras gravações: sem internet, entra na fila.
@@ -1304,7 +1353,11 @@ function renderFin(book) {
 
 // ===== Modais =====
 function openM(id) { $(id).hidden = false; }
-function closeAllM() { document.querySelectorAll('.modal').forEach(m => m.hidden = true); }
+function closeAllM() {
+  document.querySelectorAll('.modal').forEach(m => m.hidden = true);
+  anexoURLs.forEach(u => URL.revokeObjectURL(u));
+  anexoURLs = [];
+}
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeAllM));
 
 function openAnimal(a) {
