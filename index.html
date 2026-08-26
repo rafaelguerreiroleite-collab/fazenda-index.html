@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=21" />
+<link rel="stylesheet" href="style.css?v=22" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -457,6 +457,13 @@
       </div>
       <label class="mono">Descrição</label>
       <input type="text" id="t-notes" />
+      <div class="anexos-bloco">
+        <label class="mono">Nota fiscal / comprovante</label>
+        <div id="t-anexos"></div>
+        <input type="file" id="t-anexo-input" accept="image/*,application/pdf" multiple hidden />
+        <button type="button" class="btn-secondary" id="t-anexo-btn">📎 Anexar foto ou PDF</button>
+        <p class="small" id="t-anexo-nota">A foto é reduzida no aparelho antes de subir, para caber na nuvem.</p>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn-danger" id="btn-delete-transaction" hidden>Excluir</button>
         <button type="submit" class="btn-primary">Salvar</button>
@@ -570,6 +577,16 @@ BR002,15/01/2025,340</pre>
   </div>
 </div>
 
+<div class="modal" id="modal-anexo" hidden>
+  <div class="modal-content anexo-view">
+    <header class="modal-header">
+      <h2 id="ax-titulo">Nota fiscal</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <div class="anexo-corpo" id="ax-corpo"></div>
+  </div>
+</div>
+
 <div class="modal" id="modal-limpeza" hidden>
   <div class="modal-content">
     <header class="modal-header">
@@ -634,6 +651,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>

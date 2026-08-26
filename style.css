@@ -477,3 +477,19 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 #fz-apagar { margin-top: 1rem; }
 #fz-cats { margin-top: 1rem; }
 #t-livro-wrap { border-left: 2px solid #225437; padding-left: 0.75rem; margin-bottom: 0.75rem; }
+
+/* ===== Nota fiscal anexada ===== */
+.anexos-bloco { border-top: 1px solid #e7e5e4; margin-top: 0.9rem; padding-top: 0.7rem; }
+.anexo-linha { display: grid; grid-template-columns: auto 1fr auto auto; gap: 0.5rem; align-items: center;
+  padding: 0.5rem 0.6rem; border: 1px solid #e7e5e4; border-radius: 3px; margin-bottom: 0.35rem; background: white; cursor: pointer; }
+.anexo-linha:active { background: #f5f5f4; }
+.ax-icone { font-size: 1.1rem; }
+.ax-nome { font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ax-tam { font-size: 0.64rem; color: #78716c; white-space: nowrap; }
+.ax-tirar { background: transparent; border: none; font-size: 1.2rem; color: #991b1b; padding: 0 0.25rem; line-height: 1; }
+.anexo-view .modal-content, .anexo-view { max-width: 42rem; }
+.anexo-corpo { padding: 0.75rem; text-align: center; }
+.ax-img { max-width: 100%; height: auto; border-radius: 3px; }
+.ax-carregando { font-size: 0.75rem; color: #78716c; padding: 1.5rem 0; }
+.ax-abrir { display: inline-block; text-decoration: none; padding: 0.6rem 1rem; }
+.item-anexo { font-size: 0.7rem; color: #57534e; }

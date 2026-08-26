@@ -601,6 +601,87 @@ export default async function () {
     lanc.aviarioDasParcelas.join(',') === '5', lanc.aviarioDasParcelas.join(','));
   t.conferir('e entram no "A pagar" da Fazenda', lanc.aPagarFz === 'R$ 600,00', lanc.aPagarFz);
 
+  // ---------- nota fiscal anexada ----------
+  // Foto de celular tem 3 a 5 MB e o registro na nuvem cabe 1 MB. O que importa
+  // aqui: a foto ser reduzida ANTES de subir, e a nota nunca ficar orfa.
+  t.secao('nota fiscal anexada');
+  const anexo = await pagina.evaluate(async () => {
+    bovT = []; avT = []; pendentes = []; db = null;
+    localStorage.removeItem('fjs-pendentes');
+    tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+
+    // Uma "foto" grande de verdade: 3000x2000 com ruido, que nao comprime bem
+    const c = document.createElement('canvas');
+    c.width = 3000; c.height = 2000;
+    const cx = c.getContext('2d');
+    const img = cx.createImageData(c.width, c.height);
+    for (let i = 0; i < img.data.length; i += 4) {
+      img.data[i] = Math.random() * 255; img.data[i + 1] = Math.random() * 255;
+      img.data[i + 2] = Math.random() * 255; img.data[i + 3] = 255;
+    }
+    cx.putImageData(img, 0, 0);
+    const original = c.toDataURL('image/jpeg', 1);
+    const bytesOriginais = Math.round((original.length - (original.indexOf(',') + 1)) * 0.75);
+    const blob = await (await fetch(original)).blob();
+    const file = new File([blob], 'nota-fiscal.jpg', { type: 'image/jpeg' });
+
+    openTrans('bov');
+    await adicionarAnexos([file]);
+    const depoisDeAnexar = {
+      qtd: anexosForm.length, nome: anexosForm[0] && anexosForm[0].nome,
+      tamanho: anexosForm[0] && anexosForm[0].tamanho, tipo: anexosForm[0] && anexosForm[0].tipo
+    };
+
+    $('t-date').value = '2026-08-20'; $('t-amount').value = '1500';
+    $('t-category').value = 'Ração/insumos';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    render();
+
+    const t0 = bovT[0];
+    const naFila = pendentes.filter(p => p.col === 'anexos');
+    const linhaTemMarca = !!document.querySelector('#bfin-list .item-anexo');
+
+    // Reabrir tem de trazer o anexo, e o lancamento guarda so o cadastrinho
+    openTrans('bov', t0);
+    const aoReabrir = { qtd: anexosForm.length, temDados: !('dados' in (t0.anexos[0] || {})) };
+    // Ver a nota: sem internet, vem da fila
+    await abrirAnexo(t0.anexos[0].id);
+    const abriu = !!document.querySelector('#ax-corpo .ax-img');
+    closeAllM();
+
+    // Remover o anexo e salvar
+    openTrans('bov', t0);
+    $('t-anexos').querySelector('[data-tirar]').click();
+    const aposTirar = anexosForm.length;
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    const semAnexo = (bovT[0].anexos || []).length;
+
+    return { bytesOriginais, depoisDeAnexar, naFila: naFila.length,
+      guardaTransId: naFila[0] && naFila[0].obj.transId === t0.id,
+      guardaDados: naFila[0] && typeof naFila[0].obj.dados === 'string' && naFila[0].obj.dados.startsWith('data:image'),
+      linhaTemMarca, aoReabrir, abriu, aposTirar, semAnexo,
+      pedeApagar: pendentes.some(p => p.col === 'anexos' && p.del) };
+  });
+
+  t.conferir('a foto original é grande mesmo (mais de 1 MB)',
+    anexo.bytesOriginais > 1024 * 1024, Math.round(anexo.bytesOriginais / 1024) + ' KB');
+  t.conferir('depois de reduzida cabe no registro da nuvem',
+    anexo.depoisDeAnexar.tamanho < 700 * 1024, Math.round(anexo.depoisDeAnexar.tamanho / 1024) + ' KB');
+  t.conferir('e ficou bem menor que a original',
+    anexo.depoisDeAnexar.tamanho < anexo.bytesOriginais / 2,
+    `${Math.round(anexo.bytesOriginais / 1024)} KB → ${Math.round(anexo.depoisDeAnexar.tamanho / 1024)} KB`);
+  t.conferir('guarda o nome do arquivo', anexo.depoisDeAnexar.nome === 'nota-fiscal.jpg', anexo.depoisDeAnexar.nome);
+  t.conferir('sem internet, a nota entra na fila para subir', anexo.naFila === 1, String(anexo.naFila));
+  t.conferir('e a nota sabe de qual lançamento é', anexo.guardaTransId === true);
+  t.conferir('com a imagem dentro dela', anexo.guardaDados === true);
+  t.conferir('a linha do Financeiro mostra que tem nota anexada', anexo.linhaTemMarca === true);
+  t.conferir('reabrir o lançamento traz a nota', anexo.aoReabrir.qtd === 1, String(anexo.aoReabrir.qtd));
+  t.conferir('o lançamento guarda só o cadastro, não a imagem', anexo.aoReabrir.temDados === true);
+  t.conferir('dá para ver a nota mesmo antes de subir', anexo.abriu === true);
+  t.conferir('remover tira da lista', anexo.aposTirar === 0, String(anexo.aposTirar));
+  t.conferir('e salvar deixa o lançamento sem nota', anexo.semAnexo === 0, String(anexo.semAnexo));
+  t.conferir('mandando apagar a nota da nuvem também', anexo.pedeApagar === true);
+
   // ---------- backup e restauração: a volta tem de trazer tudo ----------
   // Nunca havia sido testado, e é a última linha de defesa contra perda de
   // dados: se a restauração não trouxer tudo de volta, o backup não vale nada.

@@ -1099,6 +1099,151 @@ function renderFazenda() {
 }
 $('fz-period').addEventListener('change', render);
 
+// ===== Nota fiscal anexada =====
+// A nuvem guarda no máximo 1 MB por registro, e foto de celular tem 3 a 5 MB.
+// Por isso a imagem é reduzida NO APARELHO antes de subir, e o arquivo fica num
+// registro só dele: o lançamento guarda apenas o nome e o tamanho, para a lista
+// do Financeiro continuar leve e não baixar foto que ninguém pediu para ver.
+const ANEXO_MAX = 700 * 1024;      // limite do que sobe (o registro na nuvem é 1 MB)
+const ANEXO_ALVO = 380 * 1024;     // alvo da compressão, com folga para o base64
+const ANEXO_LADO = 1600;           // lado maior da foto reduzida
+const anexoCache = new Map();      // dados já carregados nesta sessão
+let anexosForm = [], anexosRemover = [];
+
+const kb = n => n >= 1024 * 1024 ? fmtN(n / 1024 / 1024, 1) + ' MB' : Math.round(n / 1024) + ' KB';
+const tamanhoDeDataURL = s => Math.round((s.length - (s.indexOf(',') + 1)) * 0.75);
+
+// Reduz a foto até caber, baixando primeiro o tamanho e depois a qualidade.
+// Nota fiscal precisa ser LEGÍVEL, então o lado maior só cai até 1600 px.
+function comprimirImagem(file) {
+  return new Promise((resolve, reject) => {
+    const leitor = new FileReader();
+    leitor.onerror = () => reject(new Error('não deu para ler o arquivo'));
+    leitor.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('arquivo não é uma imagem válida'));
+      img.onload = () => {
+        const escala = Math.min(1, ANEXO_LADO / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * escala));
+        c.height = Math.max(1, Math.round(img.height * escala));
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);   // PNG transparente não vira preto
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        let q = 0.82, saida = c.toDataURL('image/jpeg', q);
+        while (tamanhoDeDataURL(saida) > ANEXO_ALVO && q > 0.35) {
+          q -= 0.12;
+          saida = c.toDataURL('image/jpeg', q);
+        }
+        resolve(saida);
+      };
+      img.src = String(leitor.result);
+    };
+    leitor.readAsDataURL(file);
+  });
+}
+const lerArquivo = file => new Promise((resolve, reject) => {
+  const l = new FileReader();
+  l.onerror = () => reject(new Error('não deu para ler o arquivo'));
+  l.onload = () => resolve(String(l.result));
+  l.readAsDataURL(file);
+});
+
+// Busca o arquivo só quando alguém quer ver. Guardado na sessão para não
+// baixar de novo, e servido da fila quando ainda não subiu.
+async function carregarAnexo(id) {
+  if (anexoCache.has(id)) return anexoCache.get(id);
+  const naFila = pendentes.find(p => p.col === 'anexos' && p.id === id);
+  if (naFila && naFila.obj) { anexoCache.set(id, naFila.obj.dados); return naFila.obj.dados; }
+  if (!db) return null;
+  try {
+    const doc = await colRef('anexos').doc(id).get();
+    const d = doc.exists ? doc.data() : null;
+    if (d && d.dados) { anexoCache.set(id, d.dados); return d.dados; }
+  } catch (e) { /* sem sinal: quem chamou avisa */ }
+  return null;
+}
+function renderAnexosForm() {
+  const el = $('t-anexos');
+  if (!el) return;
+  el.innerHTML = anexosForm.map(a => `
+    <div class="anexo-linha" data-anexo="${esc(a.id)}">
+      <span class="ax-icone">${a.tipo === 'application/pdf' ? '📄' : '🖼️'}</span>
+      <span class="ax-nome">${esc(a.nome)}</span>
+      <span class="ax-tam mono">${kb(a.tamanho)}${a.novo ? ' · novo' : ''}</span>
+      <button type="button" class="ax-tirar" data-tirar="${esc(a.id)}" aria-label="Remover">×</button>
+    </div>`).join('');
+}
+async function adicionarAnexos(files) {
+  for (const file of files) {
+    try {
+      const ehPdf = file.type === 'application/pdf';
+      const dados = ehPdf ? await lerArquivo(file) : await comprimirImagem(file);
+      const tam = tamanhoDeDataURL(dados);
+      if (tam > ANEXO_MAX) {
+        toast(ehPdf
+          ? `${file.name}: PDF de ${kb(tam)} — o limite é ${kb(ANEXO_MAX)}. Tire uma foto da nota.`
+          : `${file.name}: não coube nem reduzida (${kb(tam)})`);
+        continue;
+      }
+      const id = uid();
+      anexoCache.set(id, dados);
+      anexosForm.push({ id, nome: file.name || 'nota fiscal', tipo: ehPdf ? 'application/pdf' : 'image/jpeg',
+        tamanho: tam, novo: true });
+    } catch (e) { toast(`${file.name}: ${e.message}`); }
+  }
+  renderAnexosForm();
+}
+$('t-anexo-btn').addEventListener('click', () => $('t-anexo-input').click());
+$('t-anexo-input').addEventListener('change', async e => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (files.length) { toast('Preparando o arquivo…'); await adicionarAnexos(files); }
+});
+$('t-anexos').addEventListener('click', async e => {
+  const tirar = e.target.closest('[data-tirar]');
+  if (tirar) {
+    const id = tirar.dataset.tirar;
+    const a = anexosForm.find(x => x.id === id);
+    if (a && !a.novo) anexosRemover.push(id);   // já está na nuvem: some ao salvar
+    anexosForm = anexosForm.filter(x => x.id !== id);
+    renderAnexosForm();
+    return;
+  }
+  const linha = e.target.closest('[data-anexo]');
+  if (linha) abrirAnexo(linha.dataset.anexo);
+});
+async function abrirAnexo(id) {
+  const meta = anexosForm.find(x => x.id === id)
+    || [...bovT, ...avT].flatMap(t => t.anexos || []).find(x => x.id === id);
+  $('ax-titulo').textContent = meta ? meta.nome : 'Nota fiscal';
+  $('ax-corpo').innerHTML = '<p class="ax-carregando mono">Carregando…</p>';
+  openM('modal-anexo');
+  const dados = await carregarAnexo(id);
+  if (!dados) {
+    $('ax-corpo').innerHTML = '<p class="ax-carregando mono">Não foi possível abrir. Sem internet, só dá para ver o que ainda está na fila deste aparelho.</p>';
+    return;
+  }
+  $('ax-corpo').innerHTML = meta && meta.tipo === 'application/pdf'
+    ? `<p class="ax-carregando mono">PDF anexado. Toque para abrir fora do aplicativo.</p>
+       <a class="btn-primary ax-abrir" href="${dados}" target="_blank" rel="noopener">Abrir PDF</a>`
+    : `<img class="ax-img" src="${dados}" alt="Nota fiscal" />`;
+}
+// Grava os arquivos novos e apaga os retirados. Passa pelo mesmo caminho
+// seguro das outras gravações: sem internet, entra na fila.
+function aplicarAnexos(t, col) {
+  anexosForm.forEach(a => {
+    if (!a.novo) return;
+    upsert('anexos', { id: a.id, transId: t.id, col, nome: a.nome, tipo: a.tipo,
+      tamanho: a.tamanho, criadoEm: todayISO(), dados: anexoCache.get(a.id) });
+    delete a.novo;
+  });
+  anexosRemover.forEach(id => { remove('anexos', id); anexoCache.delete(id); });
+  anexosRemover = [];
+  t.anexos = anexosForm.map(a => ({ id: a.id, nome: a.nome, tipo: a.tipo, tamanho: a.tamanho }));
+}
+const apagarAnexosDe = t => (t.anexos || []).forEach(a => { remove('anexos', a.id); anexoCache.delete(a.id); });
+
 function renderFin(book) {
   const isAv = book === 'av';
   const list = isAv ? avT : bovT;
@@ -1150,6 +1295,7 @@ function renderFin(book) {
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}</div>
         <div class="item-subtitle">${fmtBR(t.date)}${isAv && t.aviary ? ' · Av. ' + esc(t.aviary) : ''}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
+        ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
     </div>`).join('');
@@ -1363,6 +1509,9 @@ function openTrans(book, t) {
   $('t-parcelas').value = 1;
   // Uma parcela já criada não se re-parcela: editar a 2/3 mexe só nela.
   $('t-parcelas').disabled = !!(t && t.parcelas > 1);
+  anexosForm = (t && t.anexos ? t.anexos.map(a => Object.assign({}, a)) : []);
+  anexosRemover = [];
+  renderAnexosForm();
   $('t-pago').checked = !!(t && t.pago);
   syncPrazoUI(); previewParcelas();
   const ctx = $('t-context');
@@ -1416,17 +1565,21 @@ $('form-transaction').addEventListener('submit', e => {
     if (!t) return sumiu('Este lançamento foi removido');
     // Editar uma parcela mexe só nela: o resto do carnê continua de pé.
     Object.assign(t, data, t.grupo ? { grupo: t.grupo, parcela: t.parcela, parcelas: t.parcelas } : {});
-    upsert(col, t);
+    aplicarAnexos(t, col); upsert(col, t);
   } else if (nParc > 1) {
     // Parcelado: a despesa inteira entra no dia do lançamento e cada parcela
     // carrega só o seu vencimento.
     const grupo = uid();
     const partes = montarParcelas({ base: data, total: amount, venc: data.venc, n: nParc, grupo });
     partes.forEach(p => arr.push(p));
+    // A nota fiscal é da compra inteira: fica na primeira parcela, para não
+    // duplicar o arquivo uma vez por prestação.
+    aplicarAnexos(partes[0], col);
     escreverVarias(col, partes);
     t = partes[0];
   } else {
-    t = Object.assign({ id: uid() }, data); arr.push(t); upsert(col, t);
+    t = Object.assign({ id: uid() }, data); arr.push(t);
+    aplicarAnexos(t, col); upsert(col, t);
   }
   closeAllM(); render(); toast('Lançamento salvo');
 });
@@ -1448,6 +1601,9 @@ $('btn-delete-transaction').addEventListener('click', () => {
       ids = tudo ? irmas.map(x => x.id) : [id];
     }
   } else if (!confirm('Excluir este lançamento?')) return;
+  // Guarda os alvos ANTES de filtrar: depois eles não estão mais na lista, e a
+  // nota fiscal anexada ficaria na nuvem sem ninguém para apagá-la.
+  const alvos = arr.filter(x => ids.includes(x.id));
   if (book === 'av') { avT = avT.filter(x => !ids.includes(x.id)); }
   else {
     bovT = bovT.filter(x => !ids.includes(x.id));
@@ -1457,6 +1613,7 @@ $('btn-delete-transaction').addEventListener('click', () => {
     });
     animals.forEach(a => { if (ids.includes(a.linkTrans)) { delete a.linkTrans; upsert('animals', a); } });
   }
+  alvos.forEach(apagarAnexosDe);
   ids.forEach(x => remove(col, x));
   closeAllM(); render(); toast('Lançamento excluído');
 });
