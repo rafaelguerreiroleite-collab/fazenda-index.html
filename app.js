@@ -325,9 +325,9 @@ function sumiu(frase) {
 function askDuplicate(detalhe) {
   return confirm(`⚠️ POSSÍVEL DUPLICIDADE\n\n${detalhe}\n\nLançar mesmo assim?`);
 }
-// Lançamento financeiro já existente com mesma data, valor, tipo, categoria
-// (e aviário, no caso dos aviários). Ignora o próprio registro ao editar.
-function findDupTrans(list, data, book, ignoreId) {
+// Lançamento financeiro já existente com mesma data, valor, tipo e categoria.
+// Ignora o próprio registro ao editar.
+function findDupTrans(list, data, ignoreId) {
   return list.find(t => t.id !== ignoreId
     && t.date === data.date
     && t.type === data.type
@@ -903,7 +903,7 @@ function contasAPagar(lista) {
 }
 function renderAPagar(book) {
   const el = $(book === 'av' ? 'av-apagar' : 'bfin-apagar');
-  const contas = contasAPagar(book === 'av' ? avT : bovT);
+  const contas = contasAPagar(arrLivro(book));
   if (!contas.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = '';
   const soma = c => c.reduce((s, t) => s + t.amount, 0);
@@ -952,7 +952,11 @@ function renderLembrete() {
 }
 $('lembrete').addEventListener('click', e => {
   if (e.target.closest('#lb-fechar')) { LS.s('fjs-lembrete-visto', todayISO()); renderLembrete(); return; }
-  if (e.target.closest('#lb-ver')) { tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render(); }
+  // O lembrete junta os TRÊS livros. Levar para o Financeiro de Bovinos deixava
+  // quem tinha conta vencida de Aviário ou Geral numa tela onde ela não estava:
+  // o aviso dizia "1 conta vencida" e a tela não mostrava conta nenhuma.
+  // A Fazenda é a única que lista os três de uma vez.
+  if (e.target.closest('#lb-ver')) { tab = 'fazenda'; $('fz-period').value = 'all'; render(); }
 });
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-pagar]');
@@ -963,7 +967,10 @@ document.addEventListener('click', e => {
   if (!t) return sumiu('Este lançamento foi removido');
   if (!confirm(`Marcar como PAGO?\n\n${t.category || 'Lançamento'} · ${fmtRS(t.amount)}\nVencimento ${fmtBRfull(t.venc)}`)) return;
   t.pago = true; t.pagoEm = todayISO();
-  upsert(livro === 'av' ? 'avtrans' : 'bovtrans', t);
+  // colLivro e não um "se é aviário": com três livros, o ternário mandava a
+  // conta do Geral para dentro de Bovinos — a marca de paga se perdia e ainda
+  // nascia um lançamento duplicado no livro errado.
+  upsert(colLivro(livro), t);
   render(); toast('Marcado como pago');
 });
 
@@ -1278,8 +1285,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=28';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=28';
+const PDFJS_JS = 'vendor/pdf.min.js?v=29';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=29';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1399,7 +1406,7 @@ function renderFin(book) {
   const sorted = [...filtered].sort((a, b) => a.date < b.date ? 1 : -1);
   listEl.innerHTML = sorted.map(t => `<div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
       <div class="item-main">
-        <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}</div>
+        <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
         <div class="item-subtitle">${fmtBR(t.date)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
         ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
@@ -1462,7 +1469,7 @@ function syncAnimalSaleTrans(a) {
     }
     // A venda já pode ter sido lançada à mão no Financeiro — não lança de novo
     // sem perguntar.
-    const dup = findDupTrans(bovT, saleData, 'bov', null);
+    const dup = findDupTrans(bovT, saleData, null);
     if (dup && !askDuplicate(`Esta venda de ${fmtRS(saleData.amount)} em ${fmtBRfull(saleData.date)} já parece estar lançada no Financeiro${dup.notes ? `\nDescrição: ${dup.notes}` : ''}.\n\nO animal será marcado como vendido de qualquer forma.`)) {
       a.linkTrans = null;
       return;
@@ -1632,12 +1639,11 @@ function openTrans(book, t) {
   $('btn-delete-transaction').hidden = !t;
   openM('modal-transaction');
 }
-// Trocar a atividade no formulário troca o livro de destino, o campo de
-// aviário e a lista de categorias sugeridas — cada atividade tem as suas.
+// Trocar a atividade no formulário troca o livro de destino e a lista de
+// categorias sugeridas — cada atividade tem as suas.
 function sincronizarLivroTrans() {
   const livro = $('t-livro').value;
   $('t-book').value = livro;
-  $('t-category').setAttribute('list', livro === 'av' ? 'cats-av' : 'cats-bov');
   $('t-category').setAttribute('list', livro === 'av' ? 'cats-av' : 'cats-bov');
 }
 $('t-livro').addEventListener('change', sincronizarLivroTrans);
@@ -1661,7 +1667,7 @@ $('form-transaction').addEventListener('submit', e => {
   data.pago = aPrazo ? $('t-pago').checked : false;
   const arr = arrLivro(book);
   const col = colLivro(book);
-  const dup = findDupTrans(arr, data, book, id);
+  const dup = findDupTrans(arr, data, id);
   if (dup) {
     const tipo = dup.type === 'entrada' ? 'entrada' : 'saída';
     const origem = dup.lock === 'stock' ? '\n(gerado por uma compra de estoque)'
@@ -1701,15 +1707,18 @@ $('btn-delete-transaction').addEventListener('click', () => {
   // Parcela de um carnê: perguntar qual das duas coisas, porque apagar só a
   // parcela e apagar a compra inteira levam a saldos diferentes.
   let ids = [id];
-  if (alvo.grupo) {
-    const irmas = arr.filter(x => x.grupo === alvo.grupo);
-    if (irmas.length > 1) {
-      const tudo = confirm(`Esta é a parcela ${alvo.parcela} de ${alvo.parcelas}.\n\n`
-        + `OK apaga as ${irmas.length} parcelas restantes (a compra inteira).\n`
-        + 'Cancelar apaga só esta parcela.');
-      ids = tudo ? irmas.map(x => x.id) : [id];
-    }
-  } else if (!confirm('Excluir este lançamento?')) return;
+  const irmas = alvo.grupo ? arr.filter(x => x.grupo === alvo.grupo) : [];
+  if (irmas.length > 1) {
+    const tudo = confirm(`Esta é a parcela ${alvo.parcela} de ${alvo.parcelas}.\n\n`
+      + `OK apaga as ${irmas.length} parcelas restantes (a compra inteira).\n`
+      + 'Cancelar apaga só esta parcela.');
+    ids = tudo ? irmas.map(x => x.id) : [id];
+    // Sobrou UMA parcela do carnê: não há escolha a fazer, mas continua sendo
+    // uma exclusão. Antes esta era a única do app que acontecia sem perguntar —
+    // um toque errado apagava o lançamento e não havia como voltar atrás.
+  } else if (!confirm(alvo.grupo
+    ? `Excluir a última parcela desta compra (${alvo.parcela} de ${alvo.parcelas})?`
+    : 'Excluir este lançamento?')) return;
   // Guarda os alvos ANTES de filtrar: depois eles não estão mais na lista, e a
   // nota fiscal anexada ficaria na nuvem sem ninguém para apagá-la.
   const alvos = arr.filter(x => ids.includes(x.id));
@@ -1761,6 +1770,9 @@ $('btn-delete-item').addEventListener('click', () => {
   // flatMap e não map(linkTrans): compra parcelada guarda o carnê em linkGrupo,
   // e olhar só o linkTrans deixava as parcelas cobrando uma compra apagada.
   const linked = mv.flatMap(lancamentosDaCompra);
+  // A nota fiscal fica num registro próprio na nuvem. Apagar só o lançamento
+  // deixava a foto lá, sem nada que a alcançasse de volta.
+  bovT.filter(t => linked.includes(t.id)).forEach(apagarAnexosDe);
   bovT = bovT.filter(t => !linked.includes(t.id));
   moves = moves.filter(m => m.itemId !== id);
   items = items.filter(x => x.id !== id);
@@ -1838,6 +1850,9 @@ function lancamentosDaCompra(mv) {
 function limparVinculoCompra(mv) {
   const ids = lancamentosDaCompra(mv);
   if (!ids.length) return;
+  // A nota fiscal anexada some junto com o lançamento que a carregava, senão o
+  // arquivo fica na nuvem sem dono — ocupando espaço e sem tela que o abra.
+  bovT.filter(x => ids.includes(x.id)).forEach(apagarAnexosDe);
   bovT = bovT.filter(x => !ids.includes(x.id));
   ids.forEach(id => remove('bovtrans', id));
   mv.linkTrans = null; mv.linkGrupo = null;
@@ -2032,13 +2047,21 @@ function atualizarPreviaPesagem() {
   const dias = anterior ? daysBetween(anterior.date, data) : 0;
   const gmd = anterior && dias > 0 ? (peso - anterior.weight) / dias : null;
 
+  // A prévia é onde o brinco se confere. Se o animal saiu do rebanho, isso
+  // precisa aparecer AQUI, com ele ainda na balança — não só no aviso na hora
+  // de salvar, quando quem está no curral já digitou tudo.
+  const saiu = animal && animal.dead ? 'morto' : animal && animal.sold ? 'vendido' : null;
+  const aviso = saiu ? `<p class="wp-alerta">⚠ este brinco está marcado como ${
+    saiu.toUpperCase()}${saiu === 'morto' ? ' — confira se não foi trocado' : ''}</p>` : '';
+
   if (gmd === null) {
     el.innerHTML = `
       <div class="wp-topo">
         <div class="wp-gmd">${esc(ident)}</div>
         <div class="wp-lado">${pesoTxt}</div>
       </div>
-      <p class="wp-nota">${animal ? 'Primeira pesagem deste animal — sem GMD ainda' : 'Brinco novo — o animal será cadastrado'}</p>`;
+      <p class="wp-nota">${animal ? 'Primeira pesagem deste animal — sem GMD ainda' : 'Brinco novo — o animal será cadastrado'}</p>
+      ${aviso}`;
   } else {
     const ganho = peso - anterior.weight;
     const misturado = !mesmaCondicao(anterior, { jejum: false });
@@ -2048,7 +2071,8 @@ function atualizarPreviaPesagem() {
         <div class="wp-lado">${pesoTxt}<br>${ganho >= 0 ? '+' : ''}${fmtN(ganho, ganho % 1 ? 1 : 0)} kg em ${dias} dias</div>
       </div>
       <p class="wp-nota">anterior ${fmtN(anterior.weight, anterior.weight % 1 ? 1 : 0)} kg em ${fmtBR(anterior.date)}${anterior.jejum ? ' (jejum)' : ''}</p>
-      ${misturado ? `<p class="wp-alerta">⚠ comparando ${anterior.jejum ? 'jejum com cheio' : 'cheio com jejum'} — o ganho real é ${anterior.jejum ? 'menor' : 'maior'} que este</p>` : ''}`;
+      ${misturado ? `<p class="wp-alerta">⚠ comparando ${anterior.jejum ? 'jejum com cheio' : 'cheio com jejum'} — o ganho real é ${anterior.jejum ? 'menor' : 'maior'} que este</p>` : ''}
+      ${aviso}`;
   }
   el.hidden = false;
 }
@@ -2222,19 +2246,27 @@ $('menu-exp-pes').addEventListener('click', () => {
   download('pesagens-fazendajs.csv', rows.join('\n'), 'text/csv');
   closeAllM(); toast('CSV de pesagens exportado');
 });
+// Nome do arquivo por livro. Sem o Geral aqui, o CSV dele saía com o nome de
+// Bovinos e sobrescrevia o outro na pasta de downloads.
+const ARQ_LIVRO = { bov: 'bovinos', av: 'aviarios', ger: 'geral' };
 function exportFin(book) {
-  const list = book === 'av' ? avT : bovT;
-  const rows = ['data;tipo;valor;categoria;classificacao;descricao'];
-  list.slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(t => {
-    const val = fmtN(t.amount, 2);
-    const cat = t.category || ''; const cls = classOf(cat, t.type);
-    rows.push([fmtBRfull(t.date), t.type, val, csv(cat), cls, csv(t.notes)].join(';'));
+  const rows = ['data;tipo;valor;categoria;classificacao;parcela;vencimento;pago;descricao'];
+  arrLivro(book).slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(t => {
+    const cat = t.category || '';
+    rows.push([
+      fmtBRfull(t.date), t.type, fmtN(t.amount, 2), csv(cat), classOf(cat, t.type),
+      t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
+      t.venc ? fmtBRfull(t.venc) : '',
+      t.venc ? (t.pago ? 'sim' : 'nao') : '',
+      csv(t.notes)
+    ].join(';'));
   });
-  download(`financeiro-${book === 'av' ? 'aviarios' : 'bovinos'}-fazendajs.csv`, rows.join('\n'), 'text/csv');
-  closeAllM(); toast('CSV financeiro exportado');
+  download(`financeiro-${ARQ_LIVRO[book] || 'bovinos'}-fazendajs.csv`, rows.join('\n'), 'text/csv');
+  closeAllM(); toast(`CSV de ${NOME_LIVRO[book] || 'Bovinos'} exportado`);
 }
 $('menu-exp-bfin').addEventListener('click', () => exportFin('bov'));
 $('menu-exp-afin').addEventListener('click', () => exportFin('av'));
+$('menu-exp-gfin').addEventListener('click', () => exportFin('ger'));
 
 // ===== Backup / restauração =====
 $('menu-backup').addEventListener('click', () => {
@@ -2258,7 +2290,6 @@ $('restore-input').addEventListener('change', e => {
         ...weighings.map(x => ({ col: 'weighings', del: x.id })),
         ...bovT.map(x => ({ col: 'bovtrans', del: x.id })),
         ...avT.map(x => ({ col: 'avtrans', del: x.id })),
-    ...gerT.map(x => ({ col: 'gertrans', del: x.id })),
         ...gerT.map(x => ({ col: 'gertrans', del: x.id })),
         ...items.map(x => ({ col: 'items', del: x.id })),
         ...moves.map(x => ({ col: 'moves', del: x.id }))
@@ -2306,18 +2337,33 @@ $('menu-clear').addEventListener('click', async () => {
   const typed = prompt('Esta ação NÃO pode ser desfeita.\n\nPara confirmar, digite a palavra:\n\nAPAGAR');
   if (typed == null) return;
   if (typed.trim().toUpperCase() !== 'APAGAR') { toast('Confirmação incorreta — nada foi apagado'); return; }
+  // LIVROS e não três linhas escritas à mão: o livro Geral nasceu depois desta
+  // função e ficou de fora. Quem mandava apagar TUDO seguia com os custos
+  // gerais e com as notas fiscais inteiras guardadas na nuvem.
   const ops = [
     ...animals.map(x => ({ col: 'animals', del: x.id })),
     ...weighings.map(x => ({ col: 'weighings', del: x.id })),
-    ...bovT.map(x => ({ col: 'bovtrans', del: x.id })),
-    ...avT.map(x => ({ col: 'avtrans', del: x.id })),
+    ...LIVROS.flatMap(b => arrLivro(b).map(x => ({ col: colLivro(b), del: x.id }))),
+    ...anexosDeTudo().map(id => ({ col: 'anexos', del: id })),
     ...items.map(x => ({ col: 'items', del: x.id })),
     ...moves.map(x => ({ col: 'moves', del: x.id }))
   ];
+  // A tela tem de esvaziar AGORA. Antes isto dependia do snapshot da nuvem
+  // responder: sem internet o app seguia mostrando tudo, e quem acabara de
+  // digitar APAGAR concluía que nada tinha sido apagado.
+  animals = []; weighings = []; bovT = []; avT = []; gerT = []; items = []; moves = [];
+  anexoCache.clear();
   detailAnimal = null; detailItem = null; closeAllM();
+  salvarEspelho(true); render();
   toast('Apagando…');
   try { await batchWrite(ops); toast('Dados apagados'); } catch (e) { toast('Falha ao apagar — verifique a conexão'); }
 });
+// Toda nota fiscal presa a qualquer lançamento, dos três livros. Anexo é um
+// registro à parte na nuvem: se ninguém o apagar junto, ele fica lá para
+// sempre, ocupando espaço e sem nenhum lançamento que o alcance.
+function anexosDeTudo() {
+  return LIVROS.flatMap(b => arrLivro(b).flatMap(t => (t.anexos || []).map(a => a.id)));
+}
 // ===== Limpeza: manter só quem foi pesado num dia =====
 // Serve para acertar o rebanho depois de uma venda em lote: quem passou pela
 // balança fica com todo o histórico, o resto sai. Como é irreversível, a tela
