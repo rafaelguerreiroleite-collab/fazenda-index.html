@@ -1267,8 +1267,13 @@ async function abrirAnexo(id) {
 // Leitor de PDF, buscado só quando alguém abre um PDF pela primeira vez — não
 // faz sentido pesar a abertura do aplicativo no curral por causa de uma nota.
 // Depois de carregado uma vez, fica guardado no aparelho e funciona sem sinal.
-const PDFJS_JS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+// Servido pelo PRÓPRIO aplicativo, não por um site de fora. Vindo de fora, o
+// service worker guardava o arquivo mas nunca o devolvia — ele só intercepta
+// endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
+// próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
+// reserva, e fica guardado desde a instalação.
+const PDFJS_JS = 'vendor/pdf.min.js?v=26';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=26';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1281,7 +1286,7 @@ function carregarPdfJs() {
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
       resolve(window.pdfjsLib);
     };
-    tag.onerror = () => { pdfjsPronto = null; reject(new Error('sem internet para buscar o leitor')); };
+    tag.onerror = () => { pdfjsPronto = null; reject(new Error('o leitor de PDF não carregou')); };
     document.head.appendChild(tag);
   });
   return pdfjsPronto;

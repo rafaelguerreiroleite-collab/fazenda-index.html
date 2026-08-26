@@ -1,5 +1,8 @@
-const CACHE = 'fazendajs-v25';
+const CACHE = 'fazendajs-v26';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './logo.png', './icon-192.png', './icon-512.png'];
+// O leitor de PDF é do próprio aplicativo e fica guardado desde a instalação:
+// nota fiscal em PDF precisa abrir no curral, onde não há sinal.
+const LEITOR_PDF = ['./vendor/pdf.min.js', './vendor/pdf.worker.min.js'];
 // O SDK do Firebase precisa estar guardado desde a instalação: sem ele o app
 // abriria no curral sem conseguir gravar nada.
 const EXTERNOS = [
@@ -11,12 +14,8 @@ self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(CACHE);
     await c.addAll(ASSETS);
-    // Leitor de PDF: guardado na primeira vez que houver sinal, para abrir nota
-    // fiscal em PDF no curral sem internet. Falha em silêncio se não der.
-    for (const u of ['https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
-                     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js']) {
-      try { await c.add(new Request(u, { mode: 'no-cors' })); } catch (e) { /* melhor esforço */ }
-    }
+    // Melhor esforço para não derrubar a instalação inteira se um deles falhar.
+    for (const u of LEITOR_PDF) { try { await c.add(u); } catch (e) { /* segue */ } }
     // De outro domínio: melhor esforço, sem derrubar a instalação se falhar.
     await Promise.all(EXTERNOS.map(u =>
       fetch(new Request(u, { mode: 'no-cors' })).then(r => c.put(u, r)).catch(() => {})

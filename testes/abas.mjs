@@ -690,8 +690,21 @@ export default async function () {
     bovT = []; pendentes = []; db = null; localStorage.removeItem('fjs-pendentes');
     tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
 
-    // Um PDF minúsculo, mas PDF de verdade
-    const pdf = '%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF';
+    // Um PDF minúsculo mas VÁLIDO: com a tabela de posições certa, senão o
+    // leitor recusa — e aí o teste mediria o PDF falso, não o leitor.
+    const pdf = (() => {
+      const objs = ['<</Type/Catalog/Pages 2 0 R>>',
+                    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+                    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Resources<<>>>>'];
+      let out = '%PDF-1.4\n';
+      const pos = [];
+      objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+      const xref = out.length;
+      out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+      pos.forEach(p => { out += String(p).padStart(10, '0') + ' 00000 n \n'; });
+      out += `trailer\n<</Size ${objs.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF`;
+      return out;
+    })();
     const filePdf = new File([new Blob([pdf], { type: 'application/pdf' })], 'MercadoPago.pdf', { type: 'application/pdf' });
     const c = document.createElement('canvas'); c.width = 400; c.height = 300;
     const cx = c.getContext('2d'); cx.fillStyle = '#333'; cx.fillRect(0, 0, 400, 300);
@@ -712,8 +725,10 @@ export default async function () {
     // Reabre o lançamento e abre o PDF, como o usuário faz
     openTrans('bov', t0);
     await abrirAnexo(idPdf);
-    // Espera o app tentar (e falhar) buscar o leitor de PDF: aqui nao ha internet
-    await new Promise(r => setTimeout(r, 400));
+    // Sem internet nenhuma neste navegador de teste: o leitor SO carrega se for
+    // servido pelo proprio aplicativo. Espera o desenho terminar.
+    for (let i = 0; i < 60 && !document.querySelector('#ax-corpo .ax-pagina'); i++)
+      await new Promise(r => setTimeout(r, 100));
     const doPdf = {
       temShare: !!$('ax-share'),
       temBaixar: !!$('ax-baixar'),
@@ -723,6 +738,7 @@ export default async function () {
       // O QUE NAO PODE MAIS EXISTIR: link apontando para data:
       temLinkData: !!document.querySelector('#ax-corpo a[href^="data:"]'),
       // Sem internet o leitor nao carrega: a tela tem de EXPLICAR, nao ficar muda
+      paginasDesenhadas: document.querySelectorAll('#ax-corpo .ax-pagina').length,
       mensagemDeFalha: ($('ax-paginas') || {}).textContent || '',
       urlsAbertas: anexoURLs.length,
       html: $('ax-corpo').innerHTML.slice(0, 160)
@@ -737,7 +753,7 @@ export default async function () {
       temLinkData: !!document.querySelector('#ax-corpo a[href^="data:"]')
     };
     closeAllM();
-    return { doPdf, daImg, soltouURLs, anexos: t0.anexos.length };
+    return { doPdf, daImg, soltouURLs, anexos: t0.anexos.length, enderecoDoLeitor: PDFJS_JS };
   });
 
   t.conferir('os dois arquivos ficaram no lançamento', abrir.anexos === 2, String(abrir.anexos));
@@ -750,9 +766,14 @@ export default async function () {
   t.conferir('o baixar salva com o nome do arquivo',
     abrir.doPdf.temAtributoDownload === true && /\.pdf$/i.test(abrir.doPdf.nomeDoDownload || ''),
     abrir.doPdf.nomeDoDownload || 'sem nome');
-  t.conferir('sem internet para o leitor, a tela explica em vez de ficar muda',
-    /Compartilhar|Baixar|internet/i.test(abrir.doPdf.mensagemDeFalha),
-    abrir.doPdf.mensagemDeFalha.slice(0, 90) || 'tela vazia');
+  // O TESTE QUE IMPORTA: o navegador de teste bloqueia TODO endereço de fora,
+  // então isto só passa se o leitor vier do próprio aplicativo. Foi exatamente
+  // assim que o PDF deixou de abrir no curral: o leitor vinha de um site de fora.
+  t.conferir('o leitor de PDF é servido pelo próprio aplicativo, não por site de fora',
+    /^vendor\//.test(abrir.enderecoDoLeitor || ''), abrir.enderecoDoLeitor || 'sem endereço');
+  t.conferir('SEM INTERNET NENHUMA, o PDF é desenhado na tela',
+    abrir.doPdf.paginasDesenhadas >= 1,
+    abrir.doPdf.paginasDesenhadas + ' página(s) · ' + (abrir.doPdf.mensagemDeFalha || '').slice(0, 80));
   t.conferir('o endereço temporário é criado', abrir.doPdf.urlsAbertas === 1, String(abrir.doPdf.urlsAbertas));
   t.conferir('e é solto ao fechar a tela, sem segurar memória', abrir.soltouURLs === 0, String(abrir.soltouURLs));
   t.conferir('a foto continua aparecendo direto', abrir.daImg.temImg === true);
