@@ -310,6 +310,131 @@ export default async function () {
   t.conferir('e a prévia do animal ativo mostra o GMD',
     /kg\/dia/.test(previa.ativo), previa.ativo.replace(/\n/g, ' | '));
 
+  // ---------- zoom na nota fiscal ----------
+  // O app desliga o zoom do navegador de propósito. Se o zoom próprio da nota
+  // falhar, não existe outro jeito de ler o valor pequeno de uma nota.
+  t.secao('zoom na nota fiscal');
+  const zoom = await pagina.evaluate(async () => {
+    // Uma foto de nota: 1200x900, gerada aqui para não depender de arquivo.
+    const cv = document.createElement('canvas');
+    cv.width = 1200; cv.height = 900;
+    const cx = cv.getContext('2d');
+    cx.fillStyle = '#fff'; cx.fillRect(0, 0, 1200, 900);
+    cx.fillStyle = '#000'; cx.font = '40px sans-serif'; cx.fillText('NOTA 1234', 60, 120);
+    const dados = cv.toDataURL('image/jpeg', 0.8);
+    const anexo = { id: 'zx', nome: 'nota.jpg', tipo: 'image/jpeg', tamanho: 1000 };
+    bovT = [{ id: 'zt', date: '2026-08-01', type: 'saida', amount: 100, category: 'Ração/insumos', anexos: [anexo] }];
+    avT = []; gerT = [];
+    anexoCache.set('zx', dados);
+
+    await abrirAnexo('zx');
+    await new Promise(r => setTimeout(r, 200));
+    const caixa = $('ax-zoom'), dentro = $('ax-conteudo');
+    const r = { montou: !!(caixa && dentro), temImg: !!document.querySelector('#ax-corpo .ax-img') };
+    if (!r.montou) return r;
+
+    r.comecaEm100 = $('ax-nivel').textContent;
+    r.larguraInicial = dentro.offsetWidth;
+    r.caberEscondidoNoInicio = $('ax-ajustar').hidden === true;
+
+    $('ax-mais').click();
+    r.depoisDeAmpliar = $('ax-nivel').textContent;
+    r.larguraCresceu = dentro.offsetWidth > r.larguraInicial;
+    r.rolaHorizontal = caixa.scrollWidth > caixa.clientWidth;
+    r.caberApareceu = $('ax-ajustar').hidden === false;
+
+    $('ax-mais').click(); $('ax-mais').click(); $('ax-mais').click();
+    $('ax-mais').click(); $('ax-mais').click(); $('ax-mais').click();
+    r.teto = $('ax-nivel').textContent;
+
+    $('ax-ajustar').click();
+    r.voltouAoAjuste = $('ax-nivel').textContent;
+    r.larguraVoltou = dentro.offsetWidth === r.larguraInicial;
+
+    for (let i = 0; i < 8; i++) $('ax-menos').click();
+    r.piso = $('ax-nivel').textContent;
+    r.naoEncolheAlemDaTela = dentro.offsetWidth === r.larguraInicial;
+
+    // O ponto mirado tem de continuar debaixo do dedo, senão o zoom "foge"
+    zoomPara(1);
+    const meio = caixa.clientWidth / 2, alturaMeio = caixa.clientHeight / 2;
+    const antes = (caixa.scrollLeft + meio) / dentro.offsetWidth;
+    zoomPara(3, meio, alturaMeio);
+    const depois = (caixa.scrollLeft + meio) / dentro.offsetWidth;
+    r.mirouCerto = Math.abs(antes - depois) < 0.02;
+    r.semNaN = Number.isFinite(caixa.scrollLeft) && Number.isFinite(caixa.scrollTop);
+    zoomPara(1);
+    closeAllM();
+    return r;
+  });
+  t.conferir('a nota abre dentro de uma área com zoom', zoom.montou === true);
+  t.conferir('e a foto continua aparecendo', zoom.temImg === true);
+  t.conferir('começa em 100%', zoom.comecaEm100 === '100%', zoom.comecaEm100);
+  t.conferir('o botão "Caber na tela" fica escondido em 100%', zoom.caberEscondidoNoInicio === true);
+  t.conferir('ampliar aumenta o nível mostrado', zoom.depoisDeAmpliar === '150%', zoom.depoisDeAmpliar);
+  t.conferir('ampliar aumenta a nota de verdade, não só o número', zoom.larguraCresceu === true);
+  t.conferir('ampliada, a nota pode ser arrastada para os lados', zoom.rolaHorizontal === true);
+  t.conferir('e o botão "Caber na tela" aparece', zoom.caberApareceu === true);
+  t.conferir('o zoom tem teto — não amplia sem fim', zoom.teto === '600%', zoom.teto);
+  t.conferir('"Caber na tela" volta para 100%', zoom.voltouAoAjuste === '100%', zoom.voltouAoAjuste);
+  t.conferir('e devolve a nota ao tamanho da tela', zoom.larguraVoltou === true);
+  t.conferir('o zoom tem piso — a nota nunca some de tão pequena', zoom.piso === '100%', zoom.piso);
+  t.conferir('e diminuir além do piso não encolhe a nota', zoom.naoEncolheAlemDaTela === true);
+  t.conferir('ampliar mantém debaixo do dedo o ponto que estava debaixo do dedo',
+    zoom.mirouCerto === true);
+  t.conferir('nenhuma conta de rolagem sai NaN', zoom.semNaN === true);
+
+  // ---------- PDF ampliado é REDESENHADO, não esticado ----------
+  t.secao('nitidez do PDF ampliado');
+  const nitidez = await pagina.evaluate(async () => {
+    // PDF minúsculo mas VÁLIDO, com a tabela de posições certa: sem ela o
+    // leitor recusa o arquivo e o teste mediria o PDF falso, não a nitidez.
+    const cru = (() => {
+      const objs = ['<</Type/Catalog/Pages 2 0 R>>',
+                    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+                    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<<>>>>'];
+      let out = '%PDF-1.4\n';
+      const pos = [];
+      objs.forEach((o, i) => { pos.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+      const xref = out.length;
+      out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+      pos.forEach(q => { out += String(q).padStart(10, '0') + ' 00000 n \n'; });
+      out += `trailer\n<</Size ${objs.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF`;
+      return out;
+    })();
+    const pdf = 'data:application/pdf;base64,' + btoa(cru);
+    const anexo = { id: 'zp', nome: 'nota.pdf', tipo: 'application/pdf', tamanho: cru.length };
+    bovT = [{ id: 'zpt', date: '2026-08-01', type: 'saida', amount: 100, category: 'Ração/insumos', anexos: [anexo] }];
+    anexoCache.set('zp', pdf);
+    await abrirAnexo('zp');
+    for (let i = 0; i < 80 && !document.querySelector('#ax-corpo .ax-pagina'); i++)
+      await new Promise(r => setTimeout(r, 100));
+    const pag = () => document.querySelector('#ax-corpo .ax-pagina');
+    const r = { desenhou: !!pag() };
+    if (!r.desenhou) return Object.assign(r, { motivo: ($('ax-paginas') || {}).textContent || '' });
+    r.pixelsEm100 = pag().width;
+    zoomPara(3);
+    // o redesenho é adiado de propósito, para não redesenhar a cada dedada
+    await new Promise(x => setTimeout(x, 500));
+    for (let i = 0; i < 80 && pag().width === r.pixelsEm100; i++)
+      await new Promise(x => setTimeout(x, 100));
+    r.pixelsEm300 = pag().width;
+    r.continuaUmaPagina = document.querySelectorAll('#ax-corpo .ax-pagina').length;
+    zoomPara(1);
+    await new Promise(x => setTimeout(x, 700));
+    r.pixelsDeVolta = pag().width;
+    closeAllM();
+    return r;
+  });
+  t.conferir('o PDF desenha', nitidez.desenhou === true, nitidez.motivo || '');
+  t.conferir('ampliado, o PDF é REDESENHADO em mais pixels (não esticado e borrado)',
+    nitidez.pixelsEm300 > nitidez.pixelsEm100 * 2,
+    `${nitidez.pixelsEm100}px → ${nitidez.pixelsEm300}px`);
+  t.conferir('e continua sendo uma página só, sem duplicar ao redesenhar',
+    nitidez.continuaUmaPagina === 1, String(nitidez.continuaUmaPagina));
+  t.conferir('voltando a 100%, o PDF é redesenhado menor de novo',
+    nitidez.pixelsDeVolta < nitidez.pixelsEm300, `${nitidez.pixelsEm300}px → ${nitidez.pixelsDeVolta}px`);
+
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
 

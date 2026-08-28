@@ -1229,11 +1229,98 @@ $('t-anexos').addEventListener('click', async e => {
   const linha = e.target.closest('[data-anexo]');
   if (linha) abrirAnexo(linha.dataset.anexo);
 });
+// ===== Zoom da nota =====
+// O app desliga o zoom do próprio navegador (user-scalable=no) de propósito:
+// no curral, um toque de dois dedos sem querer desconfigurava a tela no meio da
+// pesagem. Só que nota fiscal se lê justamente ampliando o campo pequeno — o
+// valor, o CNPJ, a data. Então a nota tem o zoom dela, que vale só aqui dentro.
+const ZOOM_MIN = 1, ZOOM_MAX = 6;
+let axZoom = 1;
+const axEl = () => ({ caixa: $('ax-zoom'), dentro: $('ax-conteudo') });
+// Amplia mantendo debaixo do dedo o ponto que estava debaixo do dedo. Sem isso
+// o zoom "foge": você mira no valor e ele sai da tela.
+function zoomPara(z, px, py) {
+  const { caixa, dentro } = axEl();
+  if (!caixa || !dentro) return;
+  const antesL = dentro.offsetWidth || caixa.clientWidth || 1;
+  const antesA = dentro.offsetHeight || caixa.clientHeight || 1;
+  const alvoX = px == null ? caixa.clientWidth / 2 : px;
+  const alvoY = py == null ? caixa.clientHeight / 2 : py;
+  const fx = (caixa.scrollLeft + alvoX) / antesL;
+  const fy = (caixa.scrollTop + alvoY) / antesA;
+  axZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+  dentro.style.width = (axZoom * 100) + '%';
+  // lido DEPOIS de mudar a largura: é o tamanho novo que reposiciona a rolagem
+  caixa.scrollLeft = fx * dentro.offsetWidth - alvoX;
+  caixa.scrollTop = fy * dentro.offsetHeight - alvoY;
+  const nivel = $('ax-nivel');
+  if (nivel) nivel.textContent = Math.round(axZoom * 100) + '%';
+  const ajustar = $('ax-ajustar');
+  if (ajustar) ajustar.hidden = axZoom <= 1.001;
+  agendarNitidez();
+}
+// Prende os gestos e os botões à área da nota. Chamado toda vez que o corpo do
+// visualizador é remontado, porque os elementos são outros.
+function ligarZoom() {
+  const { caixa } = axEl();
+  if (!caixa) return;
+  axZoom = 1;
+  const botao = (id, fn) => { const b = $(id); if (b) b.addEventListener('click', fn); };
+  botao('ax-mais', () => zoomPara(axZoom * 1.5));
+  botao('ax-menos', () => zoomPara(axZoom / 1.5));
+  botao('ax-ajustar', () => zoomPara(1));
+
+  const pontos = new Map();
+  let baseDist = 0, baseZoom = 1, ultimoToque = 0;
+  const dist = () => {
+    const [a, b] = [...pontos.values()];
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  };
+  caixa.addEventListener('pointerdown', e => {
+    pontos.set(e.pointerId, e);
+    if (pontos.size === 2) { baseDist = dist(); baseZoom = axZoom; }
+  });
+  caixa.addEventListener('pointermove', e => {
+    if (!pontos.has(e.pointerId)) return;
+    pontos.set(e.pointerId, e);
+    if (pontos.size !== 2 || !baseDist) return;
+    e.preventDefault();
+    const r = caixa.getBoundingClientRect();
+    const [a, b] = [...pontos.values()];
+    zoomPara(baseZoom * (dist() / baseDist),
+      (a.clientX + b.clientX) / 2 - r.left, (a.clientY + b.clientY) / 2 - r.top);
+  });
+  const soltar = e => {
+    const era = pontos.size;
+    pontos.delete(e.pointerId);
+    if (pontos.size < 2) baseDist = 0;
+    if (era !== 1 || e.type !== 'pointerup') return;
+    // Dois toques rápidos: aproxima e volta. É o gesto que a mão já conhece, e
+    // funciona de luva, quando a pinça de dois dedos não pega.
+    const agora = Date.now();
+    if (agora - ultimoToque < 320) {
+      const r = caixa.getBoundingClientRect();
+      zoomPara(axZoom > 1.05 ? 1 : 2.5, e.clientX - r.left, e.clientY - r.top);
+      ultimoToque = 0;
+    } else ultimoToque = agora;
+  };
+  caixa.addEventListener('pointerup', soltar);
+  caixa.addEventListener('pointercancel', soltar);
+  // No computador, a roda com Ctrl é o zoom de sempre
+  caixa.addEventListener('wheel', e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const r = caixa.getBoundingClientRect();
+    zoomPara(axZoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+}
+
 async function abrirAnexo(id) {
   const meta = anexosForm.find(x => x.id === id)
     || LIVROS.flatMap(b => arrLivro(b)).flatMap(t => t.anexos || []).find(x => x.id === id);
   $('ax-titulo').textContent = meta ? meta.nome : 'Nota fiscal';
   $('ax-corpo').innerHTML = '<p class="ax-carregando mono">Carregando…</p>';
+  axPdfDoc = null; axZoom = 1;
   openM('modal-anexo');
   const dados = await carregarAnexo(id);
   if (!dados) {
@@ -1251,11 +1338,17 @@ async function abrirAnexo(id) {
     const nomeArq = (meta.nome || 'nota-fiscal') + (/\.pdf$/i.test(meta.nome || '') ? '' : '.pdf');
     const arquivo = new File([blob], nomeArq, { type: 'application/pdf' });
     $('ax-corpo').innerHTML = `
-      <div id="ax-paginas"><p class="ax-carregando mono">Desenhando o documento…</p></div>
+      <div class="ax-zoom" id="ax-zoom">
+        <div class="ax-conteudo" id="ax-conteudo">
+          <div id="ax-paginas"><p class="ax-carregando mono">Desenhando o documento…</p></div>
+        </div>
+      </div>
+      ${barraZoom()}
       <div class="ax-acoes">
         <button type="button" class="btn-primary" id="ax-share">Compartilhar / Salvar</button>
         <a class="btn-secondary ax-baixar" id="ax-baixar" href="${url}" download="${esc(nomeArq)}">Baixar</a>
       </div>`;
+    ligarZoom();
     $('ax-share').addEventListener('click', async () => {
       try {
         if (navigator.share) await navigator.share({ files: [arquivo], title: meta.nome || 'Nota fiscal' });
@@ -1270,8 +1363,15 @@ async function abrirAnexo(id) {
   const blobImg = dataURLparaBlob(dados);
   const arqImg = new File([blobImg], meta && meta.nome ? meta.nome : 'nota-fiscal.jpg', { type: blobImg.type });
   const podeImg = !!(navigator.canShare && navigator.canShare({ files: [arqImg] }));
-  $('ax-corpo').innerHTML = `<img class="ax-img" src="${dados}" alt="Nota fiscal" />`
+  $('ax-corpo').innerHTML = `
+    <div class="ax-zoom" id="ax-zoom">
+      <div class="ax-conteudo" id="ax-conteudo">
+        <img class="ax-img" src="${dados}" alt="Nota fiscal" />
+      </div>
+    </div>
+    ${barraZoom()}`
     + (podeImg ? '<div class="ax-acoes"><button type="button" class="btn-secondary" id="ax-share-img">Compartilhar / Salvar</button></div>' : '');
+  ligarZoom();
   if (podeImg) $('ax-share-img').addEventListener('click', async () => {
     try { await navigator.share({ files: [arqImg], title: (meta && meta.nome) || 'Nota fiscal' }); }
     catch (e) { if (e && e.name !== 'AbortError') toast('Não deu para compartilhar'); }
@@ -1285,8 +1385,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=29';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=29';
+const PDFJS_JS = 'vendor/pdf.min.js?v=30';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=30';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1304,35 +1404,86 @@ function carregarPdfJs() {
   });
   return pdfjsPronto;
 }
+const barraZoom = () => `
+  <div class="ax-lupa">
+    <button type="button" class="ax-lupa-btn" id="ax-menos" aria-label="Diminuir">−</button>
+    <span class="ax-nivel mono" id="ax-nivel">100%</span>
+    <button type="button" class="ax-lupa-btn" id="ax-mais" aria-label="Ampliar">+</button>
+    <button type="button" class="ax-lupa-btn ax-cabe" id="ax-ajustar" hidden>Caber na tela</button>
+  </div>
+  <p class="ax-dica mono">Pinça de dois dedos ou dois toques para ampliar</p>`;
+
+// PDF é desenhado, não é foto: ampliar o desenho pronto só deixa a letra grande
+// e borrada. Então, quando o zoom para de mexer, as páginas são redesenhadas na
+// resolução nova — é aí que o CNPJ e o valor ficam legíveis de verdade.
+let axPdfDoc = null, axNitidezTimer = null, axDesenhando = false, axZoomDesenhado = 1;
+const PX_MAX_CANVAS = 12e6;  // teto de segurança: iPhone recusa canvas gigante
+function agendarNitidez() {
+  if (!axPdfDoc) return;
+  clearTimeout(axNitidezTimer);
+  axNitidezTimer = setTimeout(() => {
+    // Redesenhar custa caro; só vale quando a diferença é visível de fato.
+    if (Math.abs(axZoom - axZoomDesenhado) / axZoomDesenhado > 0.25) desenharPaginas();
+  }, 350);
+}
+async function desenharPaginas() {
+  const alvo = $('ax-paginas');
+  if (!alvo || !axPdfDoc || axDesenhando) return;
+  axDesenhando = true;
+  const doc = axPdfDoc, zoom = axZoom;
+  try {
+    const caixa = $('ax-zoom');
+    const largura = Math.min((caixa && caixa.clientWidth) || alvo.clientWidth || 640, 900);
+    const densidade = window.devicePixelRatio > 1 ? 2 : 1.5;
+    const paginas = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const pag = await doc.getPage(n);
+      const base = pag.getViewport({ scale: 1 });
+      let escala = (largura / base.width) * densidade * zoom;
+      // Sem o teto, ampliar muito uma página grande estoura a memória do
+      // aparelho e a nota simplesmente não aparece.
+      const px = (base.width * escala) * (base.height * escala);
+      if (px > PX_MAX_CANVAS) escala *= Math.sqrt(PX_MAX_CANVAS / px);
+      const vp = pag.getViewport({ scale: escala });
+      const cv = document.createElement('canvas');
+      cv.className = 'ax-pagina';
+      cv.width = Math.max(1, Math.floor(vp.width));
+      cv.height = Math.max(1, Math.floor(vp.height));
+      cv.style.width = '100%';
+      await pag.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+      paginas.push(cv);
+    }
+    // Troca só no fim: a nota nunca pisca nem some da tela enquanto redesenha.
+    alvo.innerHTML = '';
+    if (doc.numPages > 1) {
+      const p = document.createElement('p');
+      p.className = 'ax-carregando mono';
+      p.textContent = `${doc.numPages} páginas`;
+      alvo.appendChild(p);
+    }
+    paginas.forEach(cv => alvo.appendChild(cv));
+    axZoomDesenhado = zoom;
+  } catch (e) {
+    if (!alvo.querySelector('.ax-pagina')) {
+      alvo.innerHTML = `<p class="ax-carregando mono">Não deu para desenhar o PDF aqui (${esc(e.message || 'erro')}).<br>Use Compartilhar ou Baixar.</p>`;
+    }
+  } finally {
+    axDesenhando = false;
+    // O dedo pode ter continuado ampliando enquanto isto desenhava
+    if (Math.abs(axZoom - axZoomDesenhado) / axZoomDesenhado > 0.25) agendarNitidez();
+  }
+}
 async function desenharPdf(blob, meta) {
   const alvo = $('ax-paginas');
   if (!alvo) return;
   try {
     const lib = await carregarPdfJs();
     const buf = await blob.arrayBuffer();
-    const doc = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
-    alvo.innerHTML = '';
-    const largura = Math.min(alvo.clientWidth || 640, 900);
-    for (let n = 1; n <= doc.numPages; n++) {
-      const pag = await doc.getPage(n);
-      const base = pag.getViewport({ scale: 1 });
-      // 2x para a nota continuar legível em tela de retina
-      const escala = (largura / base.width) * (window.devicePixelRatio > 1 ? 2 : 1.5);
-      const vp = pag.getViewport({ scale: escala });
-      const cv = document.createElement('canvas');
-      cv.className = 'ax-pagina';
-      cv.width = vp.width; cv.height = vp.height;
-      cv.style.width = '100%';
-      alvo.appendChild(cv);
-      await pag.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
-    }
-    if (doc.numPages > 1) {
-      const p = document.createElement('p');
-      p.className = 'ax-carregando mono';
-      p.textContent = `${doc.numPages} páginas`;
-      alvo.insertBefore(p, alvo.firstChild);
-    }
+    axPdfDoc = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
+    axZoomDesenhado = 1;
+    await desenharPaginas();
   } catch (e) {
+    axPdfDoc = null;
     alvo.innerHTML = `<p class="ax-carregando mono">Não deu para desenhar o PDF aqui (${esc(e.message || 'erro')}).<br>Use Compartilhar ou Baixar.</p>`;
   }
 }
