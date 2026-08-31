@@ -264,7 +264,15 @@ export default async function () {
   });
   t.conferir('brinco com ";" entre aspas', csvTexto.includes('"BR;001"'));
   t.conferir('aspas internas duplicadas', csvTexto.includes('"Aspas""X"'));
-  t.conferir('observação com quebra de linha entre aspas', csvTexto.includes('"linha1\nlinha2"'));
+  // Quebra de linha dentro do campo é CSV válido, mas parte o registro em duas
+  // linhas do arquivo: "uma linha por pesagem" deixa de poder ser conferido, e
+  // importador simples lê o pedaço de baixo como um registro novo. Vira ponto.
+  t.conferir('observação com quebra de linha vira uma linha só',
+    csvTexto.includes('linha1 · linha2') && !csvTexto.includes('linha1\nlinha2'),
+    (csvTexto.split('\n').find(l => l.includes('linha1')) || '').slice(0, 80));
+  t.conferir('e o arquivo tem exatamente uma linha por pesagem',
+    csvTexto.split('\n').filter(Boolean).length === 3,
+    csvTexto.split('\n').filter(Boolean).length + ' linhas (1 cabeçalho + 2)');
   t.conferir('observação com ";" entre aspas', csvTexto.includes('"com;ponto"'));
 
   // ---------- apagar tudo exige confirmação escrita ----------

@@ -102,10 +102,20 @@ export default async function () {
       // --- CSV: o que sai tem de poder voltar ---
       const txt = ['', 'a', 'x;y', 'com "aspas"', 'linha1\nlinha2', base][ent(0, 5)];
       const saida = csv(txt);
-      const precisaAspas = /[";\n\r]/.test(txt);
+      const precisaAspas = /[";]/.test(txt);
       regra('CSV protege o que quebraria a planilha', !precisaAspas || (saida.startsWith('"') && saida.endsWith('"')), `"${txt}" → ${saida}`);
       regra('CSV dobra as aspas de dentro',
         !txt.includes('"') || saida.slice(1, -1).includes('""'), `"${txt}" → ${saida}`);
+      // Nenhum campo pode carregar quebra de linha: ela parte o registro em
+      // duas linhas do arquivo e "uma linha por lançamento" deixa de valer.
+      regra('CSV nunca deixa quebra de linha dentro de um campo',
+        !/[\r\n]/.test(saida), `"${txt}" → ${saida}`);
+      // Round-trip: desfazendo as aspas, tem de voltar exatamente o texto
+      // digitado (só com a quebra de linha virada ponto). É a única forma de
+      // garantir que o escape não come nem inventa caractere.
+      const devolvido = saida.startsWith('"') ? saida.slice(1, -1).replace(/""/g, '"') : saida;
+      regra('CSV devolve exatamente o texto digitado',
+        devolvido === txt.replace(/\s*[\r\n]+\s*/g, ' · '), `"${txt}" → ${saida}`);
 
       // --- rebanho: as três listas somam o total, sempre ---
       const nA = ent(0, 12);

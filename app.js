@@ -1406,8 +1406,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=33';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=33';
+const PDFJS_JS = 'vendor/pdf.min.js?v=34';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=34';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2430,8 +2430,12 @@ $('btn-confirm-import').addEventListener('click', async () => {
 // sem isso, um brinco com ";" ou uma observação com quebra de linha desalinha
 // as colunas e corrompe a planilha inteira.
 function csv(v) {
-  const t = String(v == null ? '' : v);
-  return /[;"\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  // Quebra de linha dentro de um campo é CSV válido, mas parte o registro em
+  // duas linhas no arquivo: conferir "uma linha por lançamento" deixa de
+  // funcionar, e importador simples lê o pedaço de baixo como registro novo.
+  // Numa observação de fazenda a quebra não carrega informação — vira ponto.
+  const t = String(v == null ? '' : v).replace(/\s*[\r\n]+\s*/g, ' · ');
+  return /[;"]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
 }
 function download(name, content, mime) {
   const blob = new Blob(['\ufeff' + content], { type: (mime || 'text/plain') + ';charset=utf-8' });
@@ -2450,7 +2454,8 @@ $('menu-exp-pes').addEventListener('click', () => {
   // ainda não pesado não saía de jeito nenhum, porque o arquivo era montado a
   // partir das pesagens: o arquivo mostrava um rebanho menor do que o real.
   const rows = ['identificacao;categoria;data;peso_kg;arrobas;gmd_kg_dia;dias_desde_anterior;'
-    + 'jejum;situacao;data_entrada;data_saida;peso_venda;preco_venda;causa_morte;observacoes'];
+    + 'jejum;situacao;data_entrada;peso_entrada;manejo_data;manejo_medicamento;'
+    + 'data_saida;peso_venda;preco_venda;causa_morte;observacoes;obs_animal'];
   const situacaoDe = a => !a ? 'desconhecido' : a.dead ? 'morto' : a.sold ? 'vendido' : 'rebanho';
   const saidaDe = a => !a ? '' : a.dead ? (a.deadDate || '') : a.sold ? (a.soldDate || '') : '';
   const linha = (a, w, gmd, dias) => [
@@ -2464,11 +2469,19 @@ $('menu-exp-pes').addEventListener('click', () => {
     w ? (w.jejum ? 'sim' : 'nao') : '',
     situacaoDe(a),
     a && a.entryDate ? fmtBRfull(a.entryDate) : '',
+    a && Number.isFinite(a.entryWeight) ? numCsv(a.entryWeight) : '',
+    // Manejo sanitário: a carência do medicamento decide se o animal pode ir
+    // para o abate. Estava no cadastro e não saía em exportação nenhuma.
+    a && a.manejoData ? fmtBRfull(a.manejoData) : '',
+    csv(a && a.manejoMedicamento ? a.manejoMedicamento : ''),
     saidaDe(a) ? fmtBRfull(saidaDe(a)) : '',
     a && Number.isFinite(a.soldWeight) ? numCsv(a.soldWeight) : '',
     a && Number.isFinite(a.soldPrice) ? fmtN(a.soldPrice, 2) : '',
     csv(a && a.deadCause ? a.deadCause : ''),
-    csv(w ? w.notes : (a && a.notes) || '')
+    csv(w ? w.notes : ''),
+    // A observação do cadastro é outra coisa que a da pesagem, e some se as
+    // duas dividirem a mesma coluna.
+    csv(a && a.notes ? a.notes : '')
   ].join(';');
 
   // Uma linha por pesagem, em ordem de data, com o ganho desde a anterior DO
@@ -2539,6 +2552,88 @@ function exportFinTudo() {
   closeAllM();
   toast(`CSV da fazenda inteira · ${rows.length - 1} lançamentos dos 3 livros`);
 }
+// Os CSVs de dados trazem linha por linha, e é o que o contador quer. Quem
+// administra a fazenda precisa do FECHAMENTO: quanto entrou, quanto saiu, por
+// atividade, por natureza, por categoria, o que ainda se deve, e como estão o
+// rebanho e o estoque. Tudo isso existia só na tela — não dava para levar para
+// o banco, para o sócio nem para o contador.
+// Quatro colunas fixas (secao;item;valor;detalhe) porque um arquivo com blocos
+// de larguras diferentes abre torto em qualquer planilha.
+function exportRelatorio() {
+  const R = resumoFazenda('all');
+  const linhas = [];
+  const põe = (secao, item, valor, detalhe) =>
+    linhas.push([csv(secao), csv(item), csv(valor), csv(detalhe || '')].join(';'));
+
+  põe('Resumo', 'Período', 'todos os lançamentos', 'relatório gerado em ' + fmtBRfull(todayISO()));
+  põe('Resumo', 'Receitas', fmtN(R.receitas, 2), `${R.n} lançamento(s) no total`);
+  põe('Resumo', 'Custos', fmtN(R.custos, 2), '');
+  põe('Resumo', 'Saldo', fmtN(R.saldo, 2), R.saldo < 0 ? 'negativo' : '');
+  põe('Resumo', 'A pagar em aberto', fmtN(R.aPagarTotal, 2), `${R.contas.length} conta(s)`);
+
+  R.atividades.forEach(a => põe('Atividade', a.nome, fmtN(a.saldo, 2),
+    `entradas ${fmtN(a.entrada, 2)} · saídas ${fmtN(a.saida, 2)} · ${a.n} lançamento(s)`));
+
+  ['Receita', 'Custeio', 'Investimento'].forEach(c =>
+    põe('Natureza', c, fmtN(R.classes[c] || 0, 2),
+      c === 'Investimento' ? 'vira patrimônio, não some no ciclo' : ''));
+
+  R.categorias.forEach(([chave, v]) => {
+    const [tp, cat] = chave.split('|');
+    põe('Categoria', `${cat} (${tp === 'saida' ? 'saída' : 'entrada'})`, fmtN(v, 2), '');
+  });
+
+  R.contas.forEach(({ t, livro }) => põe('A pagar', `${livro} · ${t.category || 'Sem categoria'}${rotuloParcela(t)}`,
+    fmtN(t.amount, 2),
+    `vence ${fmtBRfull(t.venc)} · ${t.dias < 0 ? `venceu há ${-t.dias} dia(s)` : t.dias === 0 ? 'vence hoje' : `em ${t.dias} dia(s)`}`));
+
+  // Rebanho: os mesmos números da tela do Rebanho e da Mortalidade, para o
+  // relatório e o aplicativo nunca contarem histórias diferentes.
+  const noRebanhoAgora = animals.filter(noRebanho);
+  const vendidos = animals.filter(a => a.sold && !a.dead);
+  const mortos = animals.filter(a => a.dead);
+  const pesoDe = a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; };
+  const pesos = noRebanhoAgora.map(pesoDe).filter(Number.isFinite);
+  const kgTotal = pesos.reduce((s, w) => s + w, 0);
+  const gmds = noRebanhoAgora.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite);
+  const base = noRebanhoAgora.length + mortos.length;
+  põe('Rebanho', 'Animais no rebanho', String(noRebanhoAgora.length), '');
+  põe('Rebanho', 'Vendidos', String(vendidos.length),
+    `receita registrada ${fmtN(vendidos.reduce((s, a) => s + (Number.isFinite(a.soldPrice) ? a.soldPrice : 0), 0), 2)}`);
+  põe('Rebanho', 'Mortos', String(mortos.length), '');
+  põe('Rebanho', 'Taxa de mortalidade', base ? fmtN(mortos.length / base * 100, 1) + '%' : '—',
+    base ? `${mortos.length} de ${base} (rebanho + mortos)` : 'sem base de cálculo');
+  põe('Rebanho', 'Peso total no rebanho', pesos.length ? fmtN(kgTotal, 0) + ' kg' : '—',
+    `${pesos.length} animal(is) com pesagem`);
+  põe('Rebanho', 'Arrobas no rebanho', pesos.length ? fmtN(arrobasDe(kgTotal, settings.yield), 1) : '—',
+    `rendimento de carcaça ${fmtN(settings.yield, 0)}%`);
+  põe('Rebanho', 'Peso médio', pesos.length ? fmtN(kgTotal / pesos.length, 0) + ' kg' : '—', '');
+  põe('Rebanho', 'GMD médio', gmds.length ? fmtN(gmds.reduce((s, g) => s + g, 0) / gmds.length, 3) : '—',
+    `${gmds.length} animal(is) com duas pesagens ou mais`);
+
+  items.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'pt-BR')).forEach(it => {
+    const q = qtyOf(it.id), med = avgCostOf(it.id);
+    põe('Estoque', it.name, `${numCsv(q)} ${it.unit}`,
+      (med != null ? `custo médio ${fmtN(med, 2)} · valor ${fmtN(q * med, 2)}` : 'sem preço de compra')
+      + (Number.isFinite(it.minQty) && q < it.minQty ? ` · ABAIXO DO MÍNIMO (${numCsv(it.minQty)})` : ''));
+  });
+
+  // Custo da arroba: só entra quando há conta feita, senão o relatório
+  // anunciaria um custo que ninguém calculou.
+  const c = calcCusto();
+  if (Number.isFinite(c.custoArroba)) {
+    põe('Custo da arroba', 'Custo por arroba produzida', fmtN(c.custoArroba, 2), '');
+    põe('Custo da arroba', 'Custo por dia por animal', fmtN(c.custoDia, 2),
+      `sal ${fmtN(c.salDia, 2)} · sanidade ${fmtN(c.sanDia, 2)} · mão de obra ${fmtN(c.moDia, 2)} · terra ${fmtN(c.terraDia, 2)}`);
+    põe('Custo da arroba', 'Arrobas ganhas por dia', fmtN(c.arrobaDia, 4),
+      `GMD ${custoParams.gmd != null ? fmtN(custoParams.gmd, 3) : '—'} kg/dia · rendimento ${fmtN(c.rend, 0)}%`);
+  }
+
+  download('relatorio-fazendajs-' + todayISO() + '.csv',
+    'secao;item;valor;detalhe\n' + linhas.join('\n'), 'text/csv');
+  closeAllM(); toast('Relatório de custos e receitas exportado');
+}
+$('menu-exp-relatorio').addEventListener('click', exportRelatorio);
 $('menu-exp-tudo').addEventListener('click', exportFinTudo);
 $('menu-exp-bfin').addEventListener('click', () => exportFin('bov'));
 $('menu-exp-afin').addEventListener('click', () => exportFin('av'));
@@ -2548,7 +2643,14 @@ $('menu-exp-gfin').addEventListener('click', () => exportFin('ger'));
 // ao contador. O saldo vai acumulado linha a linha, para conferir o estoque
 // físico contra o que o app diz.
 $('menu-exp-estoque').addEventListener('click', () => {
-  const rows = ['item;unidade;data;tipo;quantidade;custo_unitario;total;saldo_apos;observacoes'];
+  // estoque_minimo e carencia vêm do cadastro do item: o mínimo é o que dispara
+  // a recompra, e a carência é quantos dias o medicamento impede o abate. Os
+  // dois só existiam dentro do aplicativo.
+  const rows = ['item;unidade;estoque_minimo;carencia_dias;data;tipo;quantidade;'
+    + 'custo_unitario;total;saldo_apos;observacoes'];
+  const doItem = it => [csv(it.name), csv(it.unit),
+    Number.isFinite(it.minQty) ? numCsv(it.minQty) : '',
+    Number.isFinite(it.carencia) ? String(it.carencia) : ''];
   items.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'pt-BR')).forEach(it => {
     let saldo = 0;
     moves.filter(m => m.itemId === it.id)
@@ -2557,7 +2659,7 @@ $('menu-exp-estoque').addEventListener('click', () => {
         saldo += m.type === 'entrada' ? m.qty : -m.qty;
         const total = m.type === 'entrada' && Number.isFinite(m.unitCost) ? m.qty * m.unitCost : null;
         rows.push([
-          csv(it.name), csv(it.unit), fmtBRfull(m.date), m.type,
+          ...doItem(it), fmtBRfull(m.date), m.type,
           numCsv(m.qty), Number.isFinite(m.unitCost) ? fmtN(m.unitCost, 2) : '',
           total != null ? fmtN(total, 2) : '', numCsv(saldo),
           csv(m.notes)
@@ -2566,7 +2668,7 @@ $('menu-exp-estoque').addEventListener('click', () => {
     // Item cadastrado sem nenhuma movimentação também aparece: ele existe no
     // estoque, e um arquivo que o esconde mostra um estoque menor do que o real.
     if (!moves.some(m => m.itemId === it.id)) {
-      rows.push([csv(it.name), csv(it.unit), '', '', '', '', '', '0', csv(it.notes)].join(';'));
+      rows.push([...doItem(it), '', '', '', '', '', '0', csv(it.notes)].join(';'));
     }
   });
   download('estoque-fazendajs.csv', rows.join('\n'), 'text/csv');

@@ -272,6 +272,99 @@ export default async function () {
       linhasEst.slice(1).every(l => l.split(';').length === cabEst.split(';').length), cabEst);
   }
 
+  // ---------- relatório: custos e receitas prontos para decidir ----------
+  // Os CSVs de dados trazem linha por linha, e é o que o contador quer. Mas
+  // quem administra a fazenda precisa do FECHAMENTO: quanto entrou, quanto
+  // saiu, por atividade, por natureza, por categoria, o que ainda se deve, e
+  // como está o rebanho e o estoque. Sem isso, tudo isso só existe na tela.
+  t.secao('relatório de custos e receitas');
+  const rel = await baixar('menu-exp-relatorio');
+  t.conferir('existe um relatório de custos e receitas', !!rel, rel ? rel.arq : 'não existe');
+  if (rel) {
+    const linhas = rel.corpo.split('\n').filter(Boolean);
+    const cab = linhas[0];
+    const corpo = linhas.slice(1);
+    const secoes = new Set(corpo.map(l => l.split(';')[0]));
+    const acha = (secao, item) => corpo.find(l => l.startsWith(secao + ';' + item + ';'));
+    const valorDe = l => l ? l.split(';')[2] : '';
+
+    t.conferir('o relatório é uma tabela simples, legível em qualquer planilha',
+      cab.split(';').length === 4, cab);
+    t.conferir('traz o resumo do dinheiro', secoes.has('Resumo'), [...secoes].join(', '));
+    t.conferir('as receitas do resumo somam os três livros',
+      valorDe(acha('Resumo', 'Receitas')) === '38.200,50', valorDe(acha('Resumo', 'Receitas')));
+    t.conferir('os custos do resumo somam os três livros',
+      valorDe(acha('Resumo', 'Custos')) === '2.150,75', valorDe(acha('Resumo', 'Custos')));
+    t.conferir('e o saldo é receitas menos custos',
+      valorDe(acha('Resumo', 'Saldo')) === '36.049,75', valorDe(acha('Resumo', 'Saldo')));
+
+    t.conferir('traz o resultado de cada atividade', secoes.has('Atividade'), '');
+    t.conferir('as três atividades aparecem, mesmo a que não movimentou',
+      ['Bovinos', 'Aviários', 'Geral'].every(n => !!acha('Atividade', n)),
+      corpo.filter(l => l.startsWith('Atividade;')).join(' | '));
+
+    t.conferir('separa Custeio de Investimento (o que some do que vira patrimônio)',
+      secoes.has('Natureza') && !!acha('Natureza', 'Custeio'), '');
+    t.conferir('traz o gasto por categoria', secoes.has('Categoria'), '');
+    t.conferir('traz o que ainda se deve, com vencimento',
+      secoes.has('A pagar'), '');
+    t.conferir('e a conta em aberto do Geral aparece nela',
+      corpo.some(l => l.startsWith('A pagar;') && /Funrural/.test(l)),
+      corpo.filter(l => l.startsWith('A pagar;')).join(' | '));
+
+    t.conferir('traz o retrato do rebanho', secoes.has('Rebanho'), '');
+    t.conferir('com a contagem de quem está no rebanho',
+      valorDe(acha('Rebanho', 'Animais no rebanho')) === '2',
+      valorDe(acha('Rebanho', 'Animais no rebanho')));
+    t.conferir('com vendidos e mortos separados',
+      valorDe(acha('Rebanho', 'Vendidos')) === '1' && valorDe(acha('Rebanho', 'Mortos')) === '1',
+      `${valorDe(acha('Rebanho', 'Vendidos'))}/${valorDe(acha('Rebanho', 'Mortos'))}`);
+    t.conferir('e com a taxa de mortalidade', !!acha('Rebanho', 'Taxa de mortalidade'),
+      corpo.filter(l => l.startsWith('Rebanho;')).join(' | '));
+    t.conferir('traz as arrobas do rebanho', !!acha('Rebanho', 'Arrobas no rebanho'), '');
+
+    t.conferir('traz o estoque com saldo e custo médio', secoes.has('Estoque'), '');
+    t.conferir('o saldo do item bate com entradas menos saídas',
+      /380/.test(acha('Estoque', 'Proteinado') || ''), acha('Estoque', 'Proteinado') || '');
+
+    t.conferir('nenhum valor do relatório sai NaN ou undefined',
+      !corpo.some(l => /NaN|undefined/.test(l)),
+      (corpo.find(l => /NaN|undefined/.test(l)) || '').slice(0, 90));
+    t.conferir('todas as linhas do relatório têm as 4 colunas',
+      corpo.every(l => l.split(';').length === 4),
+      (corpo.find(l => l.split(';').length !== 4) || '').slice(0, 90));
+  }
+
+  // ---------- o que o app guarda do animal e do item ----------
+  t.secao('campos que só existiam dentro do app');
+  const cabPes2 = await pagina.evaluate(() => {
+    let pego = null;
+    const orig = window.download;
+    window.download = (arq, corpo) => { pego = corpo; };
+    $('menu-exp-pes').click();
+    $('menu-exp-estoque').click();
+    const est = pego;
+    window.download = orig;
+    return { est };
+  });
+  const pes2 = await baixar('menu-exp-pes');
+  const cabP = pes2 ? pes2.corpo.split('\n')[0] : '';
+  const linhasP = pes2 ? pes2.corpo.split('\n').slice(1).filter(Boolean) : [];
+  // Carência de medicamento decide se o animal pode ir para o abate. Estava
+  // guardada no cadastro e não saía em exportação nenhuma.
+  t.conferir('o CSV de pesagens traz o manejo sanitário (data e medicamento)',
+    /manejo/i.test(cabP), cabP);
+  t.conferir('e o medicamento aparece na linha do animal que o recebeu',
+    linhasP.some(l => /Ivermectina/.test(l)),
+    linhasP.filter(l => l.startsWith('101;')).join(' | ').slice(0, 160));
+  t.conferir('o CSV de pesagens traz o peso de entrada do animal',
+    /peso_entrada/i.test(cabP), cabP);
+  t.conferir('e a observação do cadastro do animal, além da da pesagem',
+    /obs_animal/i.test(cabP) && linhasP.some(l => /lote da esquerda/.test(l)), cabP);
+  const cabE = (cabPes2.est || '').split('\n')[0] || '';
+  t.conferir('o CSV de estoque traz o estoque mínimo e a carência',
+    /minimo/i.test(cabE) && /carencia/i.test(cabE), cabE);
+
   // ---------- o CSV sobrevive a texto sujo ----------
   t.secao('texto que quebraria a planilha');
   const sujo = await pagina.evaluate(() => {
