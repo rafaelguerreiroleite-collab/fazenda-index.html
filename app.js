@@ -1406,8 +1406,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=31';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=31';
+const PDFJS_JS = 'vendor/pdf.min.js?v=32';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=32';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2441,21 +2441,70 @@ function download(name, content, mime) {
   document.body.appendChild(a); a.click();
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
 }
+// Número em português para planilha: 370,5 e não 370.5.
+const numCsv = (n, c) => Number.isFinite(n) ? (c == null ? String(n).replace('.', ',') : fmtN(n, c)) : '';
 $('menu-exp-pes').addEventListener('click', () => {
-  const rows = ['identificacao;data;peso_kg;jejum;situacao;observacoes'];
-  weighings.slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(w => {
+  // O que faltava aqui não era linha: era COLUNA. Saíam brinco, data e peso —
+  // e ficavam de fora a categoria, o GMD (o número que a fazenda inteira
+  // acompanha), a arroba e tudo sobre a saída do animal. E o animal cadastrado
+  // ainda não pesado não saía de jeito nenhum, porque o arquivo era montado a
+  // partir das pesagens: o arquivo mostrava um rebanho menor do que o real.
+  const rows = ['identificacao;categoria;data;peso_kg;arrobas;gmd_kg_dia;dias_desde_anterior;'
+    + 'jejum;situacao;data_entrada;data_saida;peso_venda;preco_venda;causa_morte;observacoes'];
+  const situacaoDe = a => !a ? 'desconhecido' : a.dead ? 'morto' : a.sold ? 'vendido' : 'rebanho';
+  const saidaDe = a => !a ? '' : a.dead ? (a.deadDate || '') : a.sold ? (a.soldDate || '') : '';
+  const linha = (a, w, gmd, dias) => [
+    csv(a ? a.ident : '?'),
+    csv(a ? (a.cat || '') : ''),
+    w ? fmtBRfull(w.date) : '',
+    w ? numCsv(w.weight) : '',
+    w ? numCsv(arrobasDe(w.weight, settings.yield), 2) : '',
+    Number.isFinite(gmd) ? numCsv(gmd, 3) : '',
+    Number.isFinite(dias) ? String(dias) : '',
+    w ? (w.jejum ? 'sim' : 'nao') : '',
+    situacaoDe(a),
+    a && a.entryDate ? fmtBRfull(a.entryDate) : '',
+    saidaDe(a) ? fmtBRfull(saidaDe(a)) : '',
+    a && Number.isFinite(a.soldWeight) ? numCsv(a.soldWeight) : '',
+    a && Number.isFinite(a.soldPrice) ? fmtN(a.soldPrice, 2) : '',
+    csv(a && a.deadCause ? a.deadCause : ''),
+    csv(w ? w.notes : (a && a.notes) || '')
+  ].join(';');
+
+  // Uma linha por pesagem, em ordem de data, com o ganho desde a anterior DO
+  // MESMO animal — é assim que a planilha reproduz o que a tela mostra.
+  const linhas = [];
+  weighings.slice().sort((x, y) => x.date < y.date ? -1 : x.date > y.date ? 1 : 0).forEach(w => {
     const a = animals.find(x => x.id === w.animalId);
-    const situacao = !a ? 'desconhecido' : a.dead ? 'morto' : a.sold ? 'vendido' : 'rebanho';
-    rows.push([csv(a ? a.ident : '?'), fmtBRfull(w.date), String(w.weight).replace('.', ','), w.jejum ? 'sim' : 'nao', situacao, csv(w.notes)].join(';'));
+    const hist = a ? wOf(a.id) : [];
+    const anterior = hist.filter(x => x.date < w.date).pop();
+    const dias = anterior ? daysBetween(anterior.date, w.date) : null;
+    const gmd = anterior && dias > 0 ? (w.weight - anterior.weight) / dias : null;
+    linhas.push({ data: w.date, texto: linha(a, w, gmd, dias) });
   });
+  // E os animais que ainda não passaram pela balança, para o arquivo bater com
+  // a contagem do rebanho.
+  const pesados = new Set(weighings.map(w => w.animalId));
+  animals.filter(a => !pesados.has(a.id)).forEach(a => {
+    linhas.push({ data: a.entryDate || '', texto: linha(a, null, null, null) });
+  });
+  linhas.sort((x, y) => x.data < y.data ? -1 : x.data > y.data ? 1 : 0);
+  linhas.forEach(l => rows.push(l.texto));
+
   download('pesagens-fazendajs.csv', rows.join('\n'), 'text/csv');
-  closeAllM(); toast('CSV de pesagens exportado');
+  closeAllM();
+  toast(`CSV exportado · ${weighings.length} pesagens · ${animals.length} animais`);
 });
 // Nome do arquivo por livro. Sem o Geral aqui, o CSV dele saía com o nome de
 // Bovinos e sobrescrevia o outro na pasta de downloads.
 const ARQ_LIVRO = { bov: 'bovinos', av: 'aviarios', ger: 'geral' };
+const ORIGEM = { stock: 'compra de estoque', animal: 'venda de animal' };
 function exportFin(book) {
-  const rows = ['data;tipo;valor;categoria;classificacao;parcela;vencimento;pago;descricao'];
+  // pago_em e não só "sim": contabilidade em regime de caixa precisa da data em
+  // que o dinheiro SAIU, não da data em que a conta venceu. E a coluna da nota
+  // fiscal é o que liga o lançamento ao documento na hora da declaração.
+  const rows = ['data;tipo;valor;categoria;classificacao;parcela;vencimento;pago;pago_em;'
+    + 'nota_fiscal;origem;descricao'];
   arrLivro(book).slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(t => {
     const cat = t.category || '';
     rows.push([
@@ -2463,6 +2512,9 @@ function exportFin(book) {
       t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
       t.venc ? fmtBRfull(t.venc) : '',
       t.venc ? (t.pago ? 'sim' : 'nao') : '',
+      t.pagoEm ? fmtBRfull(t.pagoEm) : '',
+      csv((t.anexos || []).map(a => a.nome).join(' | ')),
+      ORIGEM[t.lock] || 'lançamento manual',
       csv(t.notes)
     ].join(';'));
   });
@@ -2472,12 +2524,70 @@ function exportFin(book) {
 $('menu-exp-bfin').addEventListener('click', () => exportFin('bov'));
 $('menu-exp-afin').addEventListener('click', () => exportFin('av'));
 $('menu-exp-gfin').addEventListener('click', () => exportFin('ger'));
+// Ração e suplemento são o maior custo do confinamento, e esse gasto só existia
+// dentro do aplicativo: não havia como levá-lo para uma planilha nem mostrá-lo
+// ao contador. O saldo vai acumulado linha a linha, para conferir o estoque
+// físico contra o que o app diz.
+$('menu-exp-estoque').addEventListener('click', () => {
+  const rows = ['item;unidade;data;tipo;quantidade;custo_unitario;total;saldo_apos;observacoes'];
+  items.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'pt-BR')).forEach(it => {
+    let saldo = 0;
+    moves.filter(m => m.itemId === it.id)
+      .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+      .forEach(m => {
+        saldo += m.type === 'entrada' ? m.qty : -m.qty;
+        const total = m.type === 'entrada' && Number.isFinite(m.unitCost) ? m.qty * m.unitCost : null;
+        rows.push([
+          csv(it.name), csv(it.unit), fmtBRfull(m.date), m.type,
+          numCsv(m.qty), Number.isFinite(m.unitCost) ? fmtN(m.unitCost, 2) : '',
+          total != null ? fmtN(total, 2) : '', numCsv(saldo),
+          csv(m.notes)
+        ].join(';'));
+      });
+    // Item cadastrado sem nenhuma movimentação também aparece: ele existe no
+    // estoque, e um arquivo que o esconde mostra um estoque menor do que o real.
+    if (!moves.some(m => m.itemId === it.id)) {
+      rows.push([csv(it.name), csv(it.unit), '', '', '', '', '', '0', csv(it.notes)].join(';'));
+    }
+  });
+  download('estoque-fazendajs.csv', rows.join('\n'), 'text/csv');
+  closeAllM(); toast(`CSV de estoque exportado · ${items.length} itens · ${moves.length} movimentações`);
+});
 
 // ===== Backup / restauração =====
-$('menu-backup').addEventListener('click', () => {
-  const data = { app: 'fazendajs', v: 5, exportedAt: new Date().toISOString(), animals, weighings, bovT, avT, gerT, items, moves, settings, custo: custoParams };
-  download(`backup-fazendajs-${todayISO()}.json`, JSON.stringify(data, null, 1), 'application/json');
-  closeAllM(); toast('Backup baixado');
+// A nota fiscal não mora no lançamento: mora num registro à parte, que o app só
+// busca quando alguém abre a nota. Por isso ela ficava de fora do backup — o
+// arquivo trazia um lançamento dizendo "1 nota anexada" e a nota não existia em
+// lugar nenhum. Um backup que não devolve a nota não é backup da nota.
+async function anexosParaBackup() {
+  const metas = LIVROS.flatMap(b => arrLivro(b).flatMap(t => (t.anexos || [])
+    .map(a => Object.assign({}, a, { transId: t.id, col: colLivro(b) }))));
+  const saida = [], faltaram = [];
+  for (const m of metas) {
+    const dados = await carregarAnexo(m.id);
+    if (dados) saida.push(Object.assign({}, m, { dados }));
+    else faltaram.push(m.nome || m.id);
+  }
+  return { anexos: saida, faltaram };
+}
+$('menu-backup').addEventListener('click', async () => {
+  closeAllM();
+  const metas = LIVROS.flatMap(b => arrLivro(b).flatMap(t => t.anexos || []));
+  if (metas.length) toast(`Juntando ${metas.length} nota(s) fiscal(is) ao backup…`);
+  const { anexos, faltaram } = await anexosParaBackup();
+  const data = { app: 'fazendajs', v: 6, exportedAt: new Date().toISOString(),
+    animals, weighings, bovT, avT, gerT, items, moves, anexos, settings, custo: custoParams };
+  const corpo = JSON.stringify(data, null, 1);
+  download(`backup-fazendajs-${todayISO()}.json`, corpo, 'application/json');
+  // O tamanho importa: com as notas dentro, o arquivo passa de alguns KB para
+  // dezenas de MB. Quem baixa precisa saber o que está guardando.
+  const tam = kb(corpo.length);
+  if (faltaram.length) {
+    alert(`⚠️ Backup baixado SEM ${faltaram.length} nota(s) fiscal(is)\n\n`
+      + faltaram.slice(0, 8).join('\n') + (faltaram.length > 8 ? `\n… e mais ${faltaram.length - 8}` : '')
+      + '\n\nElas não puderam ser lidas agora (provavelmente sem internet).\n'
+      + 'Refaça o backup com sinal para guardar as notas junto.');
+  } else toast(`Backup baixado · ${tam}${anexos.length ? ` · ${anexos.length} nota(s)` : ''}`);
 });
 $('menu-restore').addEventListener('click', () => $('restore-input').click());
 $('restore-input').addEventListener('change', e => {
@@ -2496,6 +2606,9 @@ $('restore-input').addEventListener('change', e => {
         ...bovT.map(x => ({ col: 'bovtrans', del: x.id })),
         ...avT.map(x => ({ col: 'avtrans', del: x.id })),
         ...gerT.map(x => ({ col: 'gertrans', del: x.id })),
+        // As notas do que está sendo substituído saem junto: senão ficariam na
+        // nuvem para sempre, sem lançamento que as alcance.
+        ...anexosDeTudo().map(id => ({ col: 'anexos', del: id })),
         ...items.map(x => ({ col: 'items', del: x.id })),
         ...moves.map(x => ({ col: 'moves', del: x.id }))
       ];
@@ -2507,8 +2620,13 @@ $('restore-input').addEventListener('change', e => {
         ...(d.avT || []).map(x => ({ col: 'avtrans', obj: x })),
         ...(d.gerT || []).map(x => ({ col: 'gertrans', obj: x })),
         ...(d.items || []).map(x => ({ col: 'items', obj: x })),
-        ...(d.moves || []).map(x => ({ col: 'moves', obj: x }))
+        ...(d.moves || []).map(x => ({ col: 'moves', obj: x })),
+        // As notas fiscais do backup voltam para a coleção delas. Sem isto, os
+        // lançamentos restaurados anunciariam notas que não existem mais.
+        ...(d.anexos || []).filter(x => x && x.id && x.dados).map(x => ({ col: 'anexos', obj: x }))
       ];
+      // Já disponíveis nesta sessão, sem precisar buscar na nuvem de novo
+      (d.anexos || []).forEach(x => { if (x && x.id && x.dados) anexoCache.set(x.id, x.dados); });
       // A tela tem de mostrar o backup JÁ. Antes isto dependia da nuvem
       // responder: sem internet a restauração parecia não ter feito nada, e o
       // aparelho seguia com os dados velhos enquanto a fila carregava os novos.

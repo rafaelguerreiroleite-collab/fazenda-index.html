@@ -9,8 +9,9 @@ import varredura from './varredura.mjs';
 import integridade from './integridade.mjs';
 import consistencia from './consistencia.mjs';
 import financeiro from './financeiro.mjs';
+import exportacao from './exportacao.mjs';
 
-const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Varredura', varredura]];
+const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Varredura', varredura]];
 let total = 0;
 
 for (const [nome, rodar] of baterias) {
