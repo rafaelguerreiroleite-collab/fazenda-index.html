@@ -435,6 +435,50 @@ export default async function () {
   t.conferir('voltando a 100%, o PDF é redesenhado menor de novo',
     nitidez.pixelsDeVolta < nitidez.pixelsEm300, `${nitidez.pixelsEm300}px → ${nitidez.pixelsDeVolta}px`);
 
+  // ---------- o código da fazenda tem de estar à mão ----------
+  // As regras da nuvem não deixam ninguém listar fazendas, de propósito: o
+  // código é a senha dos próprios dados. Esquecido, não há recuperação. Então
+  // ele precisa estar visível e copiável dentro do próprio app.
+  t.secao('código da fazenda');
+  const codigo = await pagina.evaluate(async () => {
+    const copiados = [];
+    if (!navigator.clipboard) Object.defineProperty(navigator, 'clipboard', { value: {}, configurable: true });
+    navigator.clipboard.writeText = async txt => { copiados.push(txt); };
+    farm = 'fazendajs-2026';
+    $('btn-menu').click();
+    const r = {
+      mostra: $('menu-farm-info').innerText.includes('fazendajs-2026'),
+      temBotao: !!$('mf-copiar'),
+      diz: /mesmo/i.test($('menu-farm-info').innerText),
+      // o código não pode sair escapado errado nem cortado
+      exato: $('mf-copiar') && $('mf-copiar').textContent === 'fazendajs-2026'
+    };
+    if ($('mf-copiar')) $('mf-copiar').click();
+    await new Promise(x => setTimeout(x, 80));
+    r.copiou = copiados[0];
+    r.avisou = $('toast').textContent;
+    closeAllM();
+    return r;
+  });
+  t.conferir('o menu mostra o código da fazenda', codigo.mostra === true);
+  t.conferir('e o código sai inteiro, sem cortar nem escapar errado', codigo.exato === true);
+  t.conferir('avisa que é o MESMO código em todo aparelho', codigo.diz === true);
+  t.conferir('um toque copia o código', codigo.copiou === 'fazendajs-2026', String(codigo.copiou));
+  t.conferir('e confirma que copiou', /copiado/i.test(codigo.avisou), codigo.avisou);
+
+  // Código com caractere que quebraria o HTML não pode virar buraco na tela
+  const codigoSujo = await pagina.evaluate(() => {
+    farm = '<b>x</b>&"1';
+    $('btn-menu').click();
+    const r = { texto: $('mf-copiar') ? $('mf-copiar').textContent : '',
+      semTagInjetada: !$('menu-farm-info').querySelector('b') };
+    closeAllM();
+    return r;
+  });
+  t.conferir('código com caractere especial aparece como foi digitado',
+    codigoSujo.texto === '<b>x</b>&"1', codigoSujo.texto);
+  t.conferir('e não injeta HTML na tela', codigoSujo.semTagInjetada === true);
+
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
 

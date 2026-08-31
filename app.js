@@ -1406,8 +1406,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=34';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=34';
+const PDFJS_JS = 'vendor/pdf.min.js?v=35';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=35';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2970,9 +2970,34 @@ document.querySelectorAll('.back-btn').forEach(b => b.addEventListener('click', 
 }));
 $('btn-menu').addEventListener('click', () => {
   $('set-yield').value = settings.yield;
-  $('menu-farm-info').textContent = farm ? `Fazenda: ${farm} · ${navigator.onLine ? 'on-line' : 'off-line (sincroniza depois)'}` : 'Não conectado';
+  // O código da fazenda é a senha dos próprios dados: é ele que faz o mesmo
+  // rebanho aparecer em outro aparelho, e as regras da nuvem não deixam
+  // ninguém listar fazendas — esquecido o código, não há como recuperá-lo.
+  // Por isso ele fica em destaque, com um toque para copiar: era um texto
+  // pequeno no meio do estado da conexão, e quem ia configurar o segundo
+  // aparelho tinha de copiar à mão, olhando de um celular para o outro.
+  $('menu-farm-info').innerHTML = farm
+    ? `<span class="mf-rotulo">Código da fazenda — use o MESMO em todo aparelho</span>
+       <button type="button" class="mf-codigo mono" id="mf-copiar" title="Toque para copiar">${esc(farm)}</button>
+       <span class="mf-estado mono">${navigator.onLine ? 'on-line' : 'off-line — sincroniza quando a internet voltar'}</span>`
+    : '<span class="mf-estado mono">Não conectado</span>';
   updateMigrateBtn();
   openM('modal-menu');
+});
+document.addEventListener('click', async e => {
+  if (!e.target.closest('#mf-copiar') || !farm) return;
+  try {
+    await navigator.clipboard.writeText(farm);
+    toast('Código copiado — cole no outro aparelho');
+  } catch (err) {
+    // Sem permissão de área de transferência, seleciona para copiar à mão
+    const alvo = $('mf-copiar');
+    const faixa = document.createRange();
+    faixa.selectNodeContents(alvo);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(faixa);
+    toast('Segure sobre o código para copiar');
+  }
 });
 $('btn-move-in').addEventListener('click', () => openMove(detailItem, 'entrada'));
 $('btn-move-out').addEventListener('click', () => openMove(detailItem, 'saida'));
