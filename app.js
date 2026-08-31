@@ -335,6 +335,27 @@ function findDupTrans(list, data, ignoreId) {
     && (t.category || '') === (data.category || '')
   );
 }
+// A mesma compra PARCELADA lançada duas vezes escapava do aviso: o que se
+// digita é o total (R$ 900) e o que está gravado são as parcelas (3 de R$ 300).
+// Comparando um com o outro nunca batia, e o carnê duplicado entrava calado —
+// dobrando a dívida no "A pagar" sem ninguém perceber.
+function findDupCarne(list, data, total, ignoreGrupo) {
+  const porGrupo = new Map();
+  list.forEach(t => {
+    if (!t.grupo) return;
+    const g = porGrupo.get(t.grupo) || { itens: [], soma: 0 };
+    g.itens.push(t); g.soma += t.amount;
+    porGrupo.set(t.grupo, g);
+  });
+  for (const [grupo, g] of porGrupo) {
+    if (grupo === ignoreGrupo) continue;
+    const p = g.itens[0];
+    if (p.date === data.date && p.type === data.type
+      && (p.category || '') === (data.category || '')
+      && sameMoney(g.soma, total)) return { soma: g.soma, n: g.itens.length, p };
+  }
+  return null;
+}
 
 // ===== Cálculos =====
 const wOf = aid => weighings.filter(w => w.animalId === aid).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
@@ -1385,8 +1406,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=30';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=30';
+const PDFJS_JS = 'vendor/pdf.min.js?v=31';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=31';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1818,7 +1839,15 @@ $('form-transaction').addEventListener('submit', e => {
   data.pago = aPrazo ? $('t-pago').checked : false;
   const arr = arrLivro(book);
   const col = colLivro(book);
-  const dup = findDupTrans(arr, data, id);
+  const atual = id ? arr.find(x => x.id === id) : null;
+  const dupCarne = nParc > 1 ? findDupCarne(arr, data, amount, atual && atual.grupo) : null;
+  if (dupCarne) {
+    const c = dupCarne;
+    if (!askDuplicate(`Já existe uma compra parcelada de ${fmtRS(c.soma)} em ${fmtBRfull(c.p.date)}`
+      + `\n${c.n} parcelas${c.p.category ? `\nCategoria: ${c.p.category}` : ''}`
+      + `${c.p.notes ? `\nDescrição: ${c.p.notes}` : ''}`)) return;
+  }
+  const dup = dupCarne ? null : findDupTrans(arr, data, id);
   if (dup) {
     const tipo = dup.type === 'entrada' ? 'entrada' : 'saída';
     const origem = dup.lock === 'stock' ? '\n(gerado por uma compra de estoque)'
@@ -1829,9 +1858,34 @@ $('form-transaction').addEventListener('submit', e => {
   if (id) {
     t = arr.find(x => x.id === id);
     if (!t) return sumiu('Este lançamento foi removido');
-    // Editar uma parcela mexe só nela: o resto do carnê continua de pé.
-    Object.assign(t, data, t.grupo ? { grupo: t.grupo, parcela: t.parcela, parcelas: t.parcelas } : {});
-    aplicarAnexos(t, col); upsert(col, t);
+    // Lançamento à vista que agora vai ser parcelado. Antes o pedido era lido,
+    // a prévia anunciava "3× de R$ 300,00" e o salvamento jogava fora: ficava
+    // UM lançamento de R$ 900 e ninguém era avisado.
+    const virarCarne = !t.grupo && nParc > 1;
+    if (virarCarne && t.lock) {
+      // Este lançamento é o reflexo de outra coisa. Parcelar por aqui deixaria
+      // a compra (ou a venda) apontando para uma parcela só, e as outras
+      // ficariam soltas quando ela fosse apagada.
+      toast(t.lock === 'stock'
+        ? 'Parcele pela movimentação de estoque que gerou este lançamento'
+        : 'Parcele pelo cadastro do animal que gerou este lançamento');
+      return;
+    }
+    if (virarCarne) {
+      const grupo = uid();
+      const partes = montarParcelas({ base: data, total: amount, venc: data.venc, n: nParc, grupo });
+      // A parcela 1 continua sendo ESTE registro, com o mesmo id: a nota fiscal
+      // anexada e tudo o que aponte para ele seguem valendo.
+      Object.assign(t, partes[0], { id });
+      const novas = partes.slice(1);
+      novas.forEach(p => arr.push(p));
+      aplicarAnexos(t, col);
+      escreverVarias(col, [t, ...novas]);
+    } else {
+      // Editar uma parcela mexe só nela: o resto do carnê continua de pé.
+      Object.assign(t, data, t.grupo ? { grupo: t.grupo, parcela: t.parcela, parcelas: t.parcelas } : {});
+      aplicarAnexos(t, col); upsert(col, t);
+    }
   } else if (nParc > 1) {
     // Parcelado: a despesa inteira entra no dia do lançamento e cada parcela
     // carrega só o seu vencimento.
