@@ -1406,8 +1406,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=32';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=32';
+const PDFJS_JS = 'vendor/pdf.min.js?v=33';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=33';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2499,28 +2499,47 @@ $('menu-exp-pes').addEventListener('click', () => {
 // Bovinos e sobrescrevia o outro na pasta de downloads.
 const ARQ_LIVRO = { bov: 'bovinos', av: 'aviarios', ger: 'geral' };
 const ORIGEM = { stock: 'compra de estoque', animal: 'venda de animal' };
+// pago_em e não só "sim": contabilidade em regime de caixa precisa da data em
+// que o dinheiro SAIU, não da data em que a conta venceu. E a coluna da nota
+// fiscal é o que liga o lançamento ao documento na hora da declaração.
+const COLS_FIN = 'data;tipo;valor;categoria;classificacao;parcela;vencimento;pago;pago_em;'
+  + 'nota_fiscal;origem;descricao';
+const linhaFin = t => {
+  const cat = t.category || '';
+  return [
+    fmtBRfull(t.date), t.type, fmtN(t.amount, 2), csv(cat), classOf(cat, t.type),
+    t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
+    t.venc ? fmtBRfull(t.venc) : '',
+    t.venc ? (t.pago ? 'sim' : 'nao') : '',
+    t.pagoEm ? fmtBRfull(t.pagoEm) : '',
+    csv((t.anexos || []).map(a => a.nome).join(' | ')),
+    ORIGEM[t.lock] || 'lançamento manual',
+    csv(t.notes)
+  ].join(';');
+};
+const porData = (a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
 function exportFin(book) {
-  // pago_em e não só "sim": contabilidade em regime de caixa precisa da data em
-  // que o dinheiro SAIU, não da data em que a conta venceu. E a coluna da nota
-  // fiscal é o que liga o lançamento ao documento na hora da declaração.
-  const rows = ['data;tipo;valor;categoria;classificacao;parcela;vencimento;pago;pago_em;'
-    + 'nota_fiscal;origem;descricao'];
-  arrLivro(book).slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach(t => {
-    const cat = t.category || '';
-    rows.push([
-      fmtBRfull(t.date), t.type, fmtN(t.amount, 2), csv(cat), classOf(cat, t.type),
-      t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
-      t.venc ? fmtBRfull(t.venc) : '',
-      t.venc ? (t.pago ? 'sim' : 'nao') : '',
-      t.pagoEm ? fmtBRfull(t.pagoEm) : '',
-      csv((t.anexos || []).map(a => a.nome).join(' | ')),
-      ORIGEM[t.lock] || 'lançamento manual',
-      csv(t.notes)
-    ].join(';'));
-  });
+  const rows = [COLS_FIN];
+  arrLivro(book).slice().sort(porData).forEach(t => rows.push(linhaFin(t)));
   download(`financeiro-${ARQ_LIVRO[book] || 'bovinos'}-fazendajs.csv`, rows.join('\n'), 'text/csv');
-  closeAllM(); toast(`CSV de ${NOME_LIVRO[book] || 'Bovinos'} exportado`);
+  closeAllM();
+  toast(`CSV de ${NOME_LIVRO[book] || 'Bovinos'} exportado · ${rows.length - 1} lançamentos`);
 }
+// "Geral" é o nome do TERCEIRO livro — os custos da sede que não são de
+// bovinos nem de aviários. Quem lê "exportar financeiro Geral" entende
+// "exportar tudo", pede o arquivo e recebe um punhado de linhas achando que
+// perdeu o resto. Esta aqui é a que exporta mesmo a fazenda inteira, com uma
+// coluna dizendo de qual atividade é cada lançamento.
+function exportFinTudo() {
+  const rows = ['atividade;' + COLS_FIN];
+  LIVROS.flatMap(b => arrLivro(b).map(t => ({ t, nome: NOME_LIVRO[b] })))
+    .sort((a, b) => porData(a.t, b.t))
+    .forEach(({ t, nome }) => rows.push(nome + ';' + linhaFin(t)));
+  download('financeiro-fazenda-inteira-fazendajs.csv', rows.join('\n'), 'text/csv');
+  closeAllM();
+  toast(`CSV da fazenda inteira · ${rows.length - 1} lançamentos dos 3 livros`);
+}
+$('menu-exp-tudo').addEventListener('click', exportFinTudo);
 $('menu-exp-bfin').addEventListener('click', () => exportFin('bov'));
 $('menu-exp-afin').addEventListener('click', () => exportFin('av'));
 $('menu-exp-gfin').addEventListener('click', () => exportFin('ger'));

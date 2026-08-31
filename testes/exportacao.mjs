@@ -215,6 +215,43 @@ export default async function () {
     linhasFin.every(l => l.split(';').length === cabFin.split(';').length),
     `cabeçalho ${cabFin.split(';').length} colunas`);
 
+  // ---------- CSV da fazenda inteira ----------
+  // "Geral" é o nome do terceiro livro, mas se lê como "tudo". Quem pede o
+  // arquivo esperando a fazenda inteira e recebe só os custos da sede acha que
+  // a exportação perdeu dados. Tem de existir a que exporta MESMO tudo.
+  t.secao('CSV da fazenda inteira');
+  const tudo = await baixar('menu-exp-tudo');
+  t.conferir('existe exportação da fazenda inteira', !!tudo, tudo ? tudo.arq : 'não existe');
+  if (tudo) {
+    const linhas = tudo.corpo.split('\n').filter(Boolean);
+    const cab = linhas[0];
+    const corpo = linhas.slice(1);
+    t.conferir('o arquivo tem nome próprio, sem se confundir com o do livro Geral',
+      /fazenda-inteira/.test(tudo.arq), tudo.arq);
+    t.conferir('traz TODOS os lançamentos dos três livros',
+      corpo.length === 4, `${corpo.length} de 4`);
+    t.conferir('e uma coluna dizendo de qual atividade é cada um',
+      cab.startsWith('atividade;'), cab);
+    t.conferir('o lançamento de Bovinos aparece marcado como Bovinos',
+      corpo.some(l => l.startsWith('Bovinos;')), corpo.join(' | ').slice(0, 100));
+    t.conferir('o de Aviários aparece marcado como Aviários',
+      corpo.some(l => l.startsWith('Aviários;')), '');
+    t.conferir('o de Geral aparece marcado como Geral',
+      corpo.some(l => l.startsWith('Geral;')), '');
+    t.conferir('em ordem de data',
+      corpo.map(l => l.split(';')[1].split('/').reverse().join('-'))
+        .every((d, i, a) => i === 0 || d >= a[i - 1]), corpo.map(l => l.split(';')[1]).join(' '));
+    t.conferir('a soma do arquivo é a soma dos três livros',
+      Math.round(corpo.reduce((s2, l) => s2
+        + Math.round(parseFloat(l.split(';')[3].replace(/\./g, '').replace(',', '.')) * 100), 0))
+        === Math.round((8200.50 + 1200 + 30000 + 950.75) * 100),
+      corpo.map(l => l.split(';')[3]).join(' + '));
+    t.conferir('mesmas colunas do arquivo de um livro só, mais a atividade',
+      cab.split(';').length === (fin.bov.corpo.split('\n')[0].split(';').length + 1), cab);
+    t.conferir('nenhuma linha com NaN nem undefined',
+      !corpo.some(l => /NaN|undefined/.test(l)), '');
+  }
+
   // ---------- CSV de estoque ----------
   // Ração e suplemento são o maior custo do confinamento. Sem exportação, esse
   // gasto só existe dentro do aplicativo.
