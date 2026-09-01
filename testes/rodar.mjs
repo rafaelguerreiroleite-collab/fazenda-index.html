@@ -10,8 +10,9 @@ import integridade from './integridade.mjs';
 import consistencia from './consistencia.mjs';
 import financeiro from './financeiro.mjs';
 import exportacao from './exportacao.mjs';
+import auditoria from './auditoria.mjs';
 
-const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Varredura', varredura]];
+const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Auditoria', auditoria], ['Varredura', varredura]];
 let total = 0;
 
 for (const [nome, rodar] of baterias) {

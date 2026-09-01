@@ -135,17 +135,45 @@ function salvarFazenda(patch) {
 }
 function atualizarPendentes() {
   const d = $('sync-dot');
-  if (d) d.title = pendentes.length ? `${pendentes.length} registro(s) aguardando a internet` : 'Sincronização';
+  if (!d) return;
+  const recusados = pendentes.filter(p => p.recusado);
+  d.title = !pendentes.length ? 'Sincronização'
+    // Dizer "aguardando a internet" quando a nuvem está recusando o registro é
+    // mandar a pessoa esperar por algo que nunca vai acontecer.
+    : recusados.length ? `${recusados.length} registro(s) que a nuvem RECUSOU — faça um backup pelo menu`
+    : `${pendentes.length} registro(s) aguardando a internet`;
 }
+const opDaFila = p => p.del ? { col: p.col, del: p.id } : { col: p.col, obj: p.obj };
 async function enviarPendentes() {
   if (!db || !pendentes.length) return;
   const fila = pendentes.slice();
+  // Remove POR IDENTIDADE do item enfileirado, não por col+id do registro.
+  // Enquanto o lote sobe, o dedo continua trabalhando: se o mesmo lançamento
+  // for corrigido durante o envio, enfileirar troca o item por um NOVO, e
+  // apagar por col+id levaria a correção junto. A tela seguiria certa, o
+  // aparelho também, e a nuvem ficaria com o valor velho para sempre.
+  const feito = op => { pendentes = pendentes.filter(p => p !== op); };
   try {
-    await escreverLote(fila.map(p => p.del ? { col: p.col, del: p.id } : { col: p.col, obj: p.obj }));
-    pendentes = pendentes.filter(p => !fila.some(f => f.col === p.col && f.id === p.id));
+    await escreverLote(fila.map(opDaFila));
+    fila.forEach(feito);
     guardarFila(); atualizarPendentes();
     toast(`${fila.length} registro(s) enviados para a nuvem`);
-  } catch (e) { /* segue na fila para a próxima tentativa */ }
+    return;
+  } catch (e) { /* o lote inteiro caiu por causa de algum item — descobre qual */ }
+
+  // Um lote falha INTEIRO por um único registro (documento grande demais, campo
+  // inválido, permissão mudada). Reenviando sempre em lote, esse um segura
+  // TODOS os outros para sempre e nada mais sincroniza. Um a um, o resto passa.
+  let subiram = 0;
+  for (const op of fila) {
+    try { await escreverLote([opDaFila(op)]); feito(op); subiram++; }
+    catch (e) { /* fica na fila */ }
+  }
+  // Se outros subiram na mesma rodada, o que ficou não é falta de internet: é
+  // este registro que a nuvem não aceita. A diferença muda o que dizer ao dono.
+  if (subiram) fila.forEach(op => { if (pendentes.includes(op)) op.recusado = true; });
+  guardarFila(); atualizarPendentes();
+  if (subiram) toast(`${subiram} registro(s) enviados para a nuvem`);
 }
 
 // Nenhuma gravação pode derrubar a tela: sem nuvem, vai para a fila.
@@ -871,10 +899,10 @@ function renderEstoque() {
     return `<div class="list-item" data-item="${it.id}">
       <div class="item-main">
         <div class="item-title">${esc(it.name)}</div>
-        <div class="item-subtitle">${ac != null ? 'custo médio ' + fmtRS(ac) + '/' + it.unit : 'sem custo registrado'}${it.carencia ? ' · carência ' + it.carencia + 'd' : ''}</div>
+        <div class="item-subtitle">${ac != null ? 'custo médio ' + fmtRS(ac) + '/' + esc(it.unit) : 'sem custo registrado'}${it.carencia ? ' · carência ' + esc(it.carencia) + 'd' : ''}</div>
       </div>
       <div class="item-side">
-        <div class="value">${fmtN(q, q % 1 ? 2 : 0)} ${it.unit}</div>
+        <div class="value">${fmtN(q, q % 1 ? 2 : 0)} ${esc(it.unit)}</div>
         ${low ? '<div class="aux warn-low">⚠ estoque baixo</div>' : ''}
       </div>
     </div>`;
@@ -896,9 +924,9 @@ function renderStockDetail() {
       </div>
       <div class="meta">${it.carencia ? 'carência ' + it.carencia + ' dias · ' : ''}${esc(it.notes || '')}</div>
       <div class="metrics">
-        <div class="metric"><div class="lbl">Em estoque</div><div class="val">${fmtN(q, q % 1 ? 2 : 0)} ${it.unit}</div></div>
+        <div class="metric"><div class="lbl">Em estoque</div><div class="val">${fmtN(q, q % 1 ? 2 : 0)} ${esc(it.unit)}</div></div>
         <div class="metric"><div class="lbl">Custo médio</div><div class="val">${ac != null ? fmtRS(ac) : '—'}</div></div>
-        <div class="metric"><div class="lbl">Consumo 30d</div><div class="val">${fmtN(spent30, spent30 % 1 ? 1 : 0)} ${it.unit}</div></div>
+        <div class="metric"><div class="lbl">Consumo 30d</div><div class="val">${fmtN(spent30, spent30 % 1 ? 1 : 0)} ${esc(it.unit)}</div></div>
       </div>
     </div>`;
   $('btn-edit-item').onclick = () => openItem(it);
@@ -1512,8 +1540,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=41';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=41';
+const PDFJS_JS = 'vendor/pdf.min.js?v=42';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=42';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2553,7 +2581,12 @@ function csv(v) {
   // duas linhas no arquivo: conferir "uma linha por lançamento" deixa de
   // funcionar, e importador simples lê o pedaço de baixo como registro novo.
   // Numa observação de fazenda a quebra não carrega informação — vira ponto.
-  const t = String(v == null ? '' : v).replace(/\s*[\r\n]+\s*/g, ' · ');
+  let t = String(v == null ? '' : v).replace(/\s*[\r\n]+\s*/g, ' · ');
+  // Excel e Planilhas tratam texto começado em = + - @ como FÓRMULA e a
+  // EXECUTAM ao abrir o arquivo. Uma observação digitada como =HYPERLINK(...)
+  // roda na máquina do contador. Estes arquivos existem para sair da fazenda,
+  // então o texto vai neutralizado com uma apóstrofe, que a planilha não mostra.
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
   return /[;"]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
 }
 function download(name, content, mime) {
@@ -3186,7 +3219,17 @@ $('su-connect').addEventListener('click', () => {
   const cfg = parseConfig($('su-config').value);
   const farmCode = $('su-farm').value.trim().toLowerCase().replace(/\s+/g, '-');
   if (!cfg) { err.hidden = false; err.textContent = 'Configuração inválida. Cole o bloco firebaseConfig completo, com apiKey e projectId.'; return; }
-  if (!farmCode || farmCode.length < 4) { err.hidden = false; err.textContent = 'Código da fazenda precisa de pelo menos 4 caracteres.'; return; }
+  // Login anônimo é aberto a qualquer um, e as regras liberam LEITURA E ESCRITA
+  // dentro de farms/{código} para qualquer autenticado. Não há identidade e não
+  // há como limitar tentativas: quem adivinha o código lê tudo e APAGA tudo. O
+  // comprimento do código é literalmente a única barreira que existe.
+  if (!farmCode || farmCode.length < 12) {
+    err.hidden = false;
+    err.textContent = 'O código da fazenda é a SENHA dos seus dados: quem o adivinhar '
+      + 'lê e apaga tudo. Use pelo menos 12 caracteres, com algo que ninguém '
+      + 'associe à fazenda (ex.: js-boi-2026-x7k9m2).';
+    return;
+  }
   LS.s('fjs-fbconfig', cfg); LS.s('fjs-farm', farmCode);
   $('setup-screen').hidden = true;
   connect(cfg, farmCode);
