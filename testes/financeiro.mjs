@@ -457,6 +457,127 @@ export default async function () {
     dupl.diferente === 6 && perguntas.filter(m => /parcelada/i.test(m)).length === 1,
     String(dupl.diferente));
 
+  // ---------- competência x caixa ----------
+  // O mesmo dinheiro, duas leituras certas para perguntas diferentes:
+  // competência responde "quanto custou produzir neste mês", caixa responde
+  // "quanto saiu do bolso neste mês". Errar qual é qual falseia as duas.
+  t.secao('regime de competência e de caixa');
+  const regime = await pagina.evaluate(() => {
+    // Compra de 1.200 em 10/03, em 3× com vencimentos 10/04, 10/05 e 10/06.
+    // Só a primeira parcela foi paga, em 12/04.
+    bovT = [
+      { id: 'p1', date: '2026-03-10', type: 'saida', amount: 400, category: 'Ração/insumos',
+        grupo: 'gc', parcela: 1, parcelas: 3, venc: '2026-04-10', pago: true, pagoEm: '2026-04-12' },
+      { id: 'p2', date: '2026-03-10', type: 'saida', amount: 400, category: 'Ração/insumos',
+        grupo: 'gc', parcela: 2, parcelas: 3, venc: '2026-05-10', pago: false },
+      { id: 'p3', date: '2026-03-10', type: 'saida', amount: 400, category: 'Ração/insumos',
+        grupo: 'gc', parcela: 3, parcelas: 3, venc: '2026-06-10', pago: false },
+      // uma saída à vista em março: paga no dia, conta nos dois regimes
+      { id: 'av', date: '2026-03-05', type: 'saida', amount: 100, category: 'Combustível' },
+      // e uma receita em março
+      { id: 'rc', date: '2026-03-20', type: 'entrada', amount: 5000, category: 'Venda de gado' }
+    ];
+    avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+
+    const comp = resumoFazenda('all', 'competencia');
+    const caixa = resumoFazenda('all', 'caixa');
+    // e a data que cada regime usa para cada lançamento
+    const datas = bovT.map(t2 => ({ id: t2.id, comp: dataDoRegime(t2, 'competencia'), caixa: dataDoRegime(t2, 'caixa') }));
+    return {
+      compCustos: comp.custos, compReceitas: comp.receitas, compN: comp.n,
+      caixaCustos: caixa.custos, caixaReceitas: caixa.receitas, caixaN: caixa.n,
+      aPagarComp: comp.aPagarTotal, aPagarCaixa: caixa.aPagarTotal,
+      datas
+    };
+  });
+  t.conferir('competência: a compra parcelada conta inteira no mês da compra',
+    Math.abs(regime.compCustos - 1300) < 1e-9, String(regime.compCustos));
+  t.conferir('caixa: só o que foi realmente pago entra no custo',
+    Math.abs(regime.caixaCustos - 500) < 1e-9, `${regime.caixaCustos} (esperado 500 = 100 à vista + 400 pagos)`);
+  t.conferir('caixa: parcela não paga fica fora do caixa',
+    regime.datas.filter(d => d.caixa === null).length === 2,
+    JSON.stringify(regime.datas.map(d => d.caixa)));
+  t.conferir('caixa: a parcela paga conta na data do PAGAMENTO, não na do vencimento',
+    regime.datas.find(d => d.id === 'p1').caixa === '2026-04-12',
+    regime.datas.find(d => d.id === 'p1').caixa);
+  t.conferir('competência: toda parcela conta na data da compra',
+    regime.datas.filter(d => d.comp === '2026-03-10').length === 3,
+    JSON.stringify(regime.datas.map(d => d.comp)));
+  t.conferir('saída à vista conta na mesma data nos dois regimes',
+    regime.datas.find(d => d.id === 'av').comp === regime.datas.find(d => d.id === 'av').caixa, '');
+  t.conferir('a receita conta igual nos dois regimes',
+    Math.abs(regime.compReceitas - 5000) < 1e-9 && Math.abs(regime.caixaReceitas - 5000) < 1e-9,
+    `${regime.compReceitas} / ${regime.caixaReceitas}`);
+  t.conferir('a dívida em aberto é a mesma nos dois: dívida não muda por regime',
+    Math.abs(regime.aPagarComp - regime.aPagarCaixa) < 1e-9 && Math.abs(regime.aPagarComp - 800) < 1e-9,
+    `${regime.aPagarComp} / ${regime.aPagarCaixa}`);
+  t.conferir('o caixa nunca conta mais lançamentos que a competência',
+    regime.caixaN <= regime.compN, `${regime.caixaN} vs ${regime.compN}`);
+
+  // ---------- a tela tem de contar a mesma história do cálculo ----------
+  t.secao('a aba Fazenda no regime de caixa');
+  const tela = await pagina.evaluate(() => {
+    const ver = valor => {
+      $('fz-regime').value = valor;
+      $('fz-regime').dispatchEvent(new Event('change', { bubbles: true }));
+      tab = 'fazenda'; $('fz-period').value = 'all'; render();
+      return {
+        linhas: $('fz-lista').querySelectorAll('[data-trans]').length,
+        saldo: $('fz-balance').innerText,
+        nota: $('fz-regime-nota').innerText,
+        lista: $('fz-lista').innerText,
+        titulo: $('fz-lista-titulo').textContent
+      };
+    };
+    const comp = ver('competencia');
+    const caixa = ver('caixa');
+    const guardado = JSON.parse(localStorage.getItem('fjs-regime'));
+    $('fz-regime').value = 'competencia';
+    $('fz-regime').dispatchEvent(new Event('change', { bubbles: true }));
+    return { comp, caixa, guardado };
+  });
+  t.conferir('competência lista os 5 lançamentos', tela.comp.linhas === 5, String(tela.comp.linhas));
+  t.conferir('caixa lista só os 3 que moveram dinheiro', tela.caixa.linhas === 3, String(tela.caixa.linhas));
+  t.conferir('a lista do caixa mostra a data do pagamento',
+    tela.caixa.lista.includes('12/04/26'), tela.caixa.lista.split('\n').join(' | ').slice(0, 140));
+  t.conferir('e marca que aquela data é a do pagamento',
+    /pago/i.test(tela.caixa.lista), '');
+  t.conferir('o caixa avisa quanto ficou de fora por não estar pago',
+    /800/.test(tela.caixa.nota), tela.caixa.nota);
+  t.conferir('a competência explica que a parcelada conta inteira no mês da compra',
+    /inteira/i.test(tela.comp.nota), tela.comp.nota);
+  t.conferir('o título da lista muda para pagamentos no regime de caixa',
+    /Pagamentos/i.test(tela.caixa.titulo), tela.caixa.titulo);
+  t.conferir('nenhuma tela do regime de caixa escreve NaN',
+    !/NaN|Infinity/.test(tela.caixa.saldo + tela.caixa.lista), '');
+  t.conferir('a escolha do regime fica guardada no aparelho',
+    tela.guardado === 'caixa', String(tela.guardado));
+
+  // ---------- o relatório traz as duas visões ----------
+  t.secao('o relatório não obriga a adivinhar o regime');
+  const relatorio = await pagina.evaluate(() => {
+    let pego = null;
+    const orig = window.download;
+    window.download = (arq, corpo) => { pego = corpo; };
+    exportRelatorio();
+    window.download = orig;
+    const linhas = (pego || '').split('\n');
+    const valor = (secao, item) => {
+      const l = linhas.find(x => x.startsWith(secao + ';' + item + ';'));
+      return l ? l.split(';')[2] : '';
+    };
+    return {
+      compCustos: valor('Resumo', 'Custos'),
+      caixaCustos: valor('Caixa', 'Custos pagos'),
+      naoPago: valor('Caixa', 'Ainda não pago'),
+      temCaixa: linhas.some(l => l.startsWith('Caixa;'))
+    };
+  });
+  t.conferir('o relatório traz a seção de caixa', relatorio.temCaixa === true);
+  t.conferir('com o custo por competência', relatorio.compCustos === '1.300,00', relatorio.compCustos);
+  t.conferir('e o custo por caixa lado a lado', relatorio.caixaCustos === '500,00', relatorio.caixaCustos);
+  t.conferir('dizendo quanto ainda não foi pago', relatorio.naoPago === '800,00', relatorio.naoPago);
+
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
 

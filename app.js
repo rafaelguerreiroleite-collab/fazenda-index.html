@@ -1002,8 +1002,31 @@ document.addEventListener('click', e => {
 // A CONTA da fazenda inteira, separada da tela. Assim ela pode ser conferida
 // aos milhares por sorteio sem redesenhar nada, e a tela fica com um trabalho
 // só: mostrar o que esta função devolve.
-function resumoFazenda(period) {
-  const doLivro = (lista, nome) => lista.filter(t => inPeriod(t.date, period)).map(t => ({ t, livro: nome }));
+// Dois jeitos de olhar o mesmo dinheiro, e os dois são certos — para perguntas
+// diferentes.
+//
+// COMPETÊNCIA (padrão): a despesa conta no dia da compra. A ração comprada em
+// março foi comida em março, então é custo de março, mesmo paga em três vezes.
+// É a visão que mantém o custo da arroba honesto e responde "quanto custou
+// produzir neste mês".
+//
+// CAIXA: a despesa conta no dia em que o dinheiro SAIU. Responde "quanto saiu
+// do bolso neste mês" — é o que o extrato do banco mostra, e o que o contador
+// usa quando declara por caixa.
+//
+// Conta a prazo ainda não paga não aparece em caixa nenhum: o dinheiro não
+// saiu. Ela continua inteira no "A pagar", que não depende de regime nenhum —
+// dívida é dívida.
+function dataDoRegime(t, regime) {
+  if (regime !== 'caixa') return t.date;
+  if (!t.venc) return t.date;               // à vista: pagou no dia
+  if (!t.pago) return null;                 // ainda deve: não saiu do caixa
+  return t.pagoEm || t.venc;                // lançamento antigo sem pagoEm cai no vencimento
+}
+function resumoFazenda(period, regime) {
+  const doLivro = (lista, nome) => lista
+    .filter(t => { const d = dataDoRegime(t, regime); return d && inPeriod(d, period); })
+    .map(t => ({ t, livro: nome }));
   const tudo = LIVROS.flatMap(b => doLivro(arrLivro(b), NOME_LIVRO[b]));
   const soma = (arr, tipo) => arr.filter(x => x.t.type === tipo).reduce((s, x) => s + x.t.amount, 0);
   const receitas = soma(tudo, 'entrada'), custos = soma(tudo, 'saida');
@@ -1036,14 +1059,28 @@ function resumoFazenda(period) {
 }
 function renderFazenda() {
   const period = $('fz-period').value;
-  const R = resumoFazenda(period);
-  const tudo = LIVROS.flatMap(b => arrLivro(b).filter(t => inPeriod(t.date, period))
-    .map(t => ({ t, livro: NOME_LIVRO[b], book: b })));
+  const regime = $('fz-regime').value;
+  const R = resumoFazenda(period, regime);
+  // A lista embaixo tem de mostrar exatamente o que o saldo somou, e no regime
+  // de caixa a data que vale é outra. Mostrando pela data da compra, o saldo
+  // diria uma coisa e a lista, outra.
+  const tudo = LIVROS.flatMap(b => arrLivro(b)
+    .map(t => ({ t, livro: NOME_LIVRO[b], book: b, quando: dataDoRegime(t, regime) }))
+    .filter(x => x.quando && inPeriod(x.quando, period)));
   $('fz-empty').hidden = R.n > 0;
   const inn = R.receitas, out = R.custos, bal = R.saldo;
 
+  // O que o regime escolhido deixa DE FORA precisa estar escrito, senão a
+  // pessoa lê um custo menor e conclui que gastou menos do que gastou.
+  const aberto = LIVROS.flatMap(b => arrLivro(b)).filter(emAberto);
+  const somaAberto = aberto.reduce((s, t) => s + t.amount, 0);
+  $('fz-regime-nota').innerHTML = regime === 'caixa'
+    ? `Contando pela data em que o dinheiro saiu.`
+      + (aberto.length ? ` <b>${aberto.length} conta(s) a pagar (${fmtRS(somaAberto)}) ficam de fora até serem pagas.</b>` : '')
+    : 'Contando pela data da compra — a compra parcelada conta inteira no mês em que foi feita.';
+
   $('fz-balance').innerHTML = `
-    <div class="bc-label">Fazenda inteira · saldo do período</div>
+    <div class="bc-label">Fazenda inteira · saldo do período${regime === 'caixa' ? ' · caixa' : ''}</div>
     <div class="bc-value ${bal < 0 ? 'negative' : 'positive'}">${fmtRS(bal)}</div>
     <div class="bc-split">
       <div><div class="lbl">Receitas</div><div class="val in">${fmtRS(inn)}</div></div>
@@ -1119,19 +1156,24 @@ function renderFazenda() {
   // Sem esta lista, um lançamento Geral só existiria dentro de somatórios: não
   // haveria como vê-lo, corrigi-lo nem apagá-lo, porque Geral não tem aba
   // própria. Aqui aparecem os três livros, cada linha dizendo de qual é.
-  const ordenados = [...tudo].sort((a, b) => a.t.date < b.t.date ? 1 : -1);
+  const ordenados = [...tudo].sort((a, b) => a.quando < b.quando ? 1 : -1);
+  $('fz-lista-titulo').textContent = regime === 'caixa'
+    ? 'Pagamentos e recebimentos do período' : 'Lançamentos do período';
   $('fz-lista-titulo').hidden = !ordenados.length;
-  $('fz-lista').innerHTML = ordenados.map(({ t, livro, book }) => `
+  $('fz-lista').innerHTML = ordenados.map(({ t, livro, book, quando }) => `
     <div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
-        <div class="item-subtitle">${fmtBR(t.date)} · ${esc(livro)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
+        <div class="item-subtitle">${fmtBR(quando)}${regime === 'caixa' && quando !== t.date ? ' (pago)' : ''} · ${esc(livro)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
         ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
     </div>`).join('');
 }
 $('fz-period').addEventListener('change', render);
+// A escolha do regime fica guardada: quem trabalha por caixa não quer voltar
+// para competência toda vez que abre o aplicativo.
+$('fz-regime').addEventListener('change', () => { LS.s('fjs-regime', $('fz-regime').value); render(); });
 
 // ===== Nota fiscal anexada =====
 // A nuvem guarda no máximo 1 MB por registro, e foto de celular tem 3 a 5 MB.
@@ -1406,8 +1448,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=35';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=35';
+const PDFJS_JS = 'vendor/pdf.min.js?v=36';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=36';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2571,6 +2613,16 @@ function exportRelatorio() {
   põe('Resumo', 'Saldo', fmtN(R.saldo, 2), R.saldo < 0 ? 'negativo' : '');
   põe('Resumo', 'A pagar em aberto', fmtN(R.aPagarTotal, 2), `${R.contas.length} conta(s)`);
 
+  // As duas visões saem juntas, sempre. Exportar só uma obrigaria quem lê a
+  // adivinhar qual é — e as duas respondem perguntas diferentes sobre o mesmo
+  // dinheiro. Acima, por competência (o custo do período). Aqui, por caixa.
+  const C = resumoFazenda('all', 'caixa');
+  põe('Caixa', 'Receitas recebidas', fmtN(C.receitas, 2), 'pela data em que o dinheiro entrou');
+  põe('Caixa', 'Custos pagos', fmtN(C.custos, 2), 'pela data em que o dinheiro saiu');
+  põe('Caixa', 'Saldo de caixa', fmtN(C.saldo, 2), '');
+  põe('Caixa', 'Ainda não pago', fmtN(R.aPagarTotal, 2),
+    'conta a prazo em aberto não entra no caixa até ser paga');
+
   R.atividades.forEach(a => põe('Atividade', a.nome, fmtN(a.saldo, 2),
     `entradas ${fmtN(a.entrada, 2)} · saídas ${fmtN(a.saida, 2)} · ${a.n} lançamento(s)`));
 
@@ -3007,6 +3059,11 @@ $('av-period').addEventListener('change', render);
 if (![...$('bov-sort').options].some(o => o.value === bovSort)) bovSort = 'ident-asc';
 $('bov-sort').value = bovSort;
 $('bov-sort').addEventListener('change', e => { bovSort = e.target.value; LS.s('fjs-sort-rebanho', bovSort); render(); });
+// Mesmo cuidado com o regime: valor guardado por uma versão antiga não pode
+// deixar o seletor num estado que não existe mais.
+const regimeGuardado = LS.g('fjs-regime', 'competencia');
+$('fz-regime').value = [...$('fz-regime').options].some(o => o.value === regimeGuardado)
+  ? regimeGuardado : 'competencia';
 
 document.addEventListener('click', e => {
   const aed = e.target.closest('[data-animal-edit]');
