@@ -1540,8 +1540,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=43';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=43';
+const PDFJS_JS = 'vendor/pdf.min.js?v=44';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=44';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2374,6 +2374,8 @@ function openWeighMode() {
   $('wm-last').textContent = ''; $('wm-count').textContent = '';
   $('wm-previa').hidden = true;
   renderSessao();
+  wmCampo = 'wm-ident';
+  $('wm-virgula').disabled = true;
   $('weigh-mode').hidden = false;
   setTimeout(() => $('wm-ident').focus(), 100);
 }
@@ -2435,6 +2437,45 @@ function atualizarPreviaPesagem() {
 // prévia abaixo, que mostra o peso anterior assim que o número está completo.
 const porBrinco = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true });
 ['wm-ident', 'wm-peso'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
+
+// ===== Teclado do curral =====
+// Os campos usam inputmode="none": o teclado do sistema não abre. Quem digita
+// é o teclado abaixo, com teclas grandes o bastante para dedo sujo e de luva.
+// No iPadOS não havia como conseguir isso por atributo — ele só oferece a
+// régua inteira, com todos os símbolos e teclas pequenas.
+let wmCampo = 'wm-ident';
+['wm-ident', 'wm-peso'].forEach(id => $(id).addEventListener('focus', () => {
+  wmCampo = id;
+  // A vírgula só faz sentido no peso; no brinco ela só atrapalharia.
+  $('wm-virgula').disabled = id !== 'wm-peso';
+}));
+// Escreve na POSIÇÃO DO CURSOR, não no fim: quem toca no meio do número para
+// corrigir um dígito espera que a correção caia ali.
+function teclar(tecla) {
+  const campo = $(wmCampo);
+  if (!campo) return;
+  const texto = campo.value;
+  let ini = campo.selectionStart, fim = campo.selectionEnd;
+  // Campo que nunca recebeu cursor devolve null: nesse caso, fim do texto.
+  if (ini == null || fim == null) { ini = fim = texto.length; }
+  if (tecla === 'apagar') {
+    if (ini === fim && ini === 0) return;
+    if (ini === fim) ini--;                       // sem seleção: apaga um antes
+    campo.value = texto.slice(0, ini) + texto.slice(fim);
+  } else {
+    // Uma vírgula só, e nunca no brinco.
+    if (tecla === ',' && (wmCampo !== 'wm-peso' || texto.includes(','))) return;
+    campo.value = texto.slice(0, ini) + tecla + texto.slice(fim);
+    ini = ini + tecla.length;
+  }
+  try { campo.setSelectionRange(ini, ini); } catch (e) { /* campo sem seleção */ }
+  campo.dispatchEvent(new Event('input', { bubbles: true }));
+}
+$('wm-teclado').addEventListener('click', e => {
+  const b = e.target.closest('[data-tecla]');
+  if (!b || b.disabled) return;
+  teclar(b.dataset.tecla);
+});
 $('wm-date').addEventListener('change', () => { atualizarPreviaPesagem(); renderSessao(); });
 $('btn-weigh-mode').addEventListener('click', openWeighMode);
 $('wm-close').addEventListener('click', () => { $('weigh-mode').hidden = true; render(); });

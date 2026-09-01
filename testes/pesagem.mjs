@@ -543,32 +543,82 @@ export default async function () {
   // números. Estes atributos são o que o iOS lê para abrir já no numérico.
   // O que NÃO dá para testar aqui: se o teclado do iPad de fato obedece —
   // nenhum navegador desta máquina desenha teclado de iOS.
-  t.secao('teclado dos campos do curral');
+  t.secao('teclado do curral');
   const teclado = await pagina.evaluate(() => {
-    const at = (id, nome) => $(id).getAttribute(nome);
+    const teclas = [...document.querySelectorAll('#wm-teclado [data-tecla]')]
+      .map(b => b.dataset.tecla);
     return {
-      identModo: at('wm-ident', 'inputmode'),
-      identPadrao: at('wm-ident', 'pattern'),
-      identCaixaAlta: at('wm-ident', 'autocapitalize'),
-      identCorretor: at('wm-ident', 'autocorrect'),
-      pesoModo: at('wm-peso', 'inputmode'),
-      // decimal e não numeric: o peso tem vírgula, e numeric esconderia ela
-      pesoPadrao: at('wm-peso', 'pattern')
+      identModo: $('wm-ident').getAttribute('inputmode'),
+      pesoModo: $('wm-peso').getAttribute('inputmode'),
+      teclas,
+      // layout de calculadora: 7-8-9 na primeira linha, como a balança
+      comecaEmSete: teclas[0] === '7'
     };
   });
-  t.conferir('o brinco pede teclado numérico', teclado.identModo === 'numeric', String(teclado.identModo));
-  t.conferir('e leva o pattern que o iOS antigo exige',
-    teclado.identPadrao === '[0-9]*', String(teclado.identPadrao));
-  t.conferir('sem forçar caixa alta, que puxa o teclado de letras',
-    teclado.identCaixaAlta === null, String(teclado.identCaixaAlta));
-  t.conferir('e sem corretor automático', teclado.identCorretor === 'off', String(teclado.identCorretor));
-  t.conferir('o peso pede teclado decimal, não numérico puro',
-    teclado.pesoModo === 'decimal', String(teclado.pesoModo));
-  t.conferir('e o peso NÃO leva pattern só de dígitos — esconderia a vírgula',
-    teclado.pesoPadrao === null, String(teclado.pesoPadrao));
+  // inputmode="none" é o que impede o teclado do sistema de abrir. Sem isso,
+  // os dois teclados apareceriam juntos e a tela do curral viraria um aperto.
+  t.conferir('o brinco não abre o teclado do sistema',
+    teclado.identModo === 'none', String(teclado.identModo));
+  t.conferir('o peso também não', teclado.pesoModo === 'none', String(teclado.pesoModo));
+  t.conferir('o teclado do app tem os dez dígitos, vírgula e apagar',
+    ['0','1','2','3','4','5','6','7','8','9',',','apagar'].every(k => teclado.teclas.includes(k)),
+    teclado.teclas.join(' '));
+  t.conferir('em layout de calculadora, como a balança', teclado.comecaEmSete === true);
 
-  // O pattern não pode barrar nada: o modo pesagem salva por clique, não por
-  // submit de formulário. Brinco com letra tem de continuar gravando.
+  const digitar = await pagina.evaluate(async () => {
+    animals = []; weighings = [];
+    openWeighMode();
+    const bater = tecla => document.querySelector(`#wm-teclado [data-tecla="${tecla}"]`).click();
+    const r = {};
+    // brinco: a vírgula tem de estar desligada
+    $('wm-ident').focus();
+    r.virgulaDesligadaNoBrinco = $('wm-virgula').disabled === true;
+    ['2','9','2'].forEach(bater);
+    bater(',');                       // não pode entrar
+    r.brinco = $('wm-ident').value;
+
+    // peso: vírgula liberada, e só uma
+    $('wm-peso').focus();
+    r.virgulaLigadaNoPeso = $('wm-virgula').disabled === false;
+    ['4','1','5',',','5'].forEach(bater);
+    bater(',');                       // segunda vírgula não entra
+    r.peso = $('wm-peso').value;
+
+    // apagar tira o último
+    bater('apagar');
+    r.aposApagar = $('wm-peso').value;
+
+    // e a prévia acompanha o que o teclado escreve
+    r.previaApareceu = !$('wm-previa').hidden;
+
+    // escrever no MEIO do número, onde o dedo tocou
+    $('wm-ident').focus();
+    $('wm-ident').setSelectionRange(1, 1);
+    bater('0');
+    r.noMeio = $('wm-ident').value;
+
+    // e salvar pelo caminho normal
+    $('wm-ident').value = '292'; $('wm-peso').value = '415,5';
+    $('wm-save').click();
+    r.gravou = weighings.length;
+    r.pesoGravado = weighings[0] && weighings[0].weight;
+    $('weigh-mode').hidden = true;
+    return r;
+  });
+  t.conferir('no brinco a vírgula fica desligada', digitar.virgulaDesligadaNoBrinco === true);
+  t.conferir('e não entra nem se for tocada', digitar.brinco === '292', digitar.brinco);
+  t.conferir('no peso a vírgula fica liberada', digitar.virgulaLigadaNoPeso === true);
+  t.conferir('o teclado escreve o peso com vírgula', digitar.peso === '415,5', digitar.peso);
+  t.conferir('e recusa uma segunda vírgula', (digitar.peso.match(/,/g) || []).length === 1, digitar.peso);
+  t.conferir('apagar tira o último dígito', digitar.aposApagar === '415,', digitar.aposApagar);
+  t.conferir('a prévia acompanha o que o teclado escreve', digitar.previaApareceu === true);
+  t.conferir('tocando no meio do número, o dígito cai onde o dedo tocou',
+    digitar.noMeio === '2092', digitar.noMeio);
+  t.conferir('e a pesagem salva normalmente',
+    digitar.gravou === 1 && digitar.pesoGravado === 415.5, String(digitar.pesoGravado));
+
+  // Brinco com letra ainda existe (importação de CSV, cadastro pela outra tela)
+  // e tem de continuar sendo gravável aqui.
   const comLetra = await pagina.evaluate(() => {
     animals = []; weighings = [];
     openWeighMode();

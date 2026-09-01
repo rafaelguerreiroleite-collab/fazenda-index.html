@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=43" />
+<link rel="stylesheet" href="style.css?v=44" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -308,11 +308,29 @@
     </div>
   </div>
   <label class="mono">Brinco / identificação</label>
-  <input type="text" inputmode="numeric" pattern="[0-9]*" id="wm-ident" placeholder="292" autocomplete="off" autocorrect="off" spellcheck="false" />
+  <input type="text" inputmode="none" id="wm-ident" placeholder="292" autocomplete="off" autocorrect="off" spellcheck="false" />
   <label class="mono">Peso (kg)</label>
-  <input type="text" inputmode="decimal" id="wm-peso" placeholder="415" />
+  <input type="text" inputmode="none" id="wm-peso" placeholder="415" />
   <div class="wm-previa" id="wm-previa" hidden></div>
   <button class="wm-save" id="wm-save">Salvar e próximo →</button>
+  <!-- Teclado do próprio aplicativo. O iPadOS não oferece teclado numérico
+       compacto para a web: com inputmode="numeric" ele abre nos números, mas
+       sempre com a régua inteira de símbolos e teclas pequenas. Com teclas
+       nossas dá para fazê-las do tamanho que o curral exige. -->
+  <div class="wm-teclado" id="wm-teclado">
+    <button type="button" data-tecla="7">7</button>
+    <button type="button" data-tecla="8">8</button>
+    <button type="button" data-tecla="9">9</button>
+    <button type="button" data-tecla="4">4</button>
+    <button type="button" data-tecla="5">5</button>
+    <button type="button" data-tecla="6">6</button>
+    <button type="button" data-tecla="1">1</button>
+    <button type="button" data-tecla="2">2</button>
+    <button type="button" data-tecla="3">3</button>
+    <button type="button" data-tecla="," id="wm-virgula">,</button>
+    <button type="button" data-tecla="0">0</button>
+    <button type="button" data-tecla="apagar" class="wm-apagar" aria-label="Apagar">⌫</button>
+  </div>
   <div class="wm-sessao" id="wm-sessao" hidden></div>
   <p class="wm-last mono" id="wm-last"></p>
   <p class="wm-count mono" id="wm-count"></p>
@@ -666,6 +684,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=43"></script>
+<script src="app.js?v=44"></script>
 </body>
 </html>
