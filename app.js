@@ -1540,8 +1540,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=42';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=42';
+const PDFJS_JS = 'vendor/pdf.min.js?v=43';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=43';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;

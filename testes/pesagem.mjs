@@ -538,6 +538,54 @@ export default async function () {
   t.conferir('o GMD digitado fica guardado no aparelho',
     geral.guardado === '-0,5', String(geral.guardado));
 
+  // ---------- teclado numérico no curral ----------
+  // No iPad o teclado completo abre em cima da tela e obriga a procurar os
+  // números. Estes atributos são o que o iOS lê para abrir já no numérico.
+  // O que NÃO dá para testar aqui: se o teclado do iPad de fato obedece —
+  // nenhum navegador desta máquina desenha teclado de iOS.
+  t.secao('teclado dos campos do curral');
+  const teclado = await pagina.evaluate(() => {
+    const at = (id, nome) => $(id).getAttribute(nome);
+    return {
+      identModo: at('wm-ident', 'inputmode'),
+      identPadrao: at('wm-ident', 'pattern'),
+      identCaixaAlta: at('wm-ident', 'autocapitalize'),
+      identCorretor: at('wm-ident', 'autocorrect'),
+      pesoModo: at('wm-peso', 'inputmode'),
+      // decimal e não numeric: o peso tem vírgula, e numeric esconderia ela
+      pesoPadrao: at('wm-peso', 'pattern')
+    };
+  });
+  t.conferir('o brinco pede teclado numérico', teclado.identModo === 'numeric', String(teclado.identModo));
+  t.conferir('e leva o pattern que o iOS antigo exige',
+    teclado.identPadrao === '[0-9]*', String(teclado.identPadrao));
+  t.conferir('sem forçar caixa alta, que puxa o teclado de letras',
+    teclado.identCaixaAlta === null, String(teclado.identCaixaAlta));
+  t.conferir('e sem corretor automático', teclado.identCorretor === 'off', String(teclado.identCorretor));
+  t.conferir('o peso pede teclado decimal, não numérico puro',
+    teclado.pesoModo === 'decimal', String(teclado.pesoModo));
+  t.conferir('e o peso NÃO leva pattern só de dígitos — esconderia a vírgula',
+    teclado.pesoPadrao === null, String(teclado.pesoPadrao));
+
+  // O pattern não pode barrar nada: o modo pesagem salva por clique, não por
+  // submit de formulário. Brinco com letra tem de continuar gravando.
+  const comLetra = await pagina.evaluate(() => {
+    animals = []; weighings = [];
+    openWeighMode();
+    $('wm-date').value = '2026-09-01';
+    $('wm-ident').value = 'BR001';
+    $('wm-peso').value = '380,5';
+    $('wm-save').click();
+    const r = { animais: animals.length, brinco: animals[0] && animals[0].ident,
+      pesagens: weighings.length, peso: weighings[0] && weighings[0].weight };
+    $('weigh-mode').hidden = true;
+    return r;
+  });
+  t.conferir('brinco com letra continua sendo gravado',
+    comLetra.animais === 1 && comLetra.brinco === 'BR001', String(comLetra.brinco));
+  t.conferir('e o peso com vírgula entra certo',
+    comLetra.pesagens === 1 && comLetra.peso === 380.5, String(comLetra.peso));
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;
