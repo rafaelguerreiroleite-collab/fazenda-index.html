@@ -1466,8 +1466,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=37';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=37';
+const PDFJS_JS = 'vendor/pdf.min.js?v=38';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=38';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2287,6 +2287,7 @@ function pesagemSuspeita(ident, peso, gmd, anterior, dias) {
 function openWeighMode() {
   wmCount = 0;
   $('wm-date').value = todayISO();
+  $('wm-gmd-sim').value = LS.g('fjs-gmd-sim', '');
   $('wm-ident').value = ''; $('wm-peso').value = '';
   $('wm-last').textContent = ''; $('wm-count').textContent = '';
   $('wm-previa').hidden = true;
@@ -2297,16 +2298,69 @@ function openWeighMode() {
 // Prévia do GMD com o animal ainda na balança: mostra como ele vem ganhando
 // antes de salvar, para a decisão ser tomada ali mesmo.
 const gmdFaixa = g => !Number.isFinite(g) ? '' : g < 0.4 ? 'g-baixo' : g < 0.8 ? 'g-medio' : g < 1.2 ? 'g-bom' : 'g-otimo';
+// Estimativa: onde o animal DEVERIA estar hoje, com um GMD que quem conhece o
+// lote informa à mão. Serve para duas coisas no curral: saber quanto esperar
+// antes de o animal subir na balança, e conferir o que a balança mostrou. Não
+// grava nada e não entra em conta nenhuma do aplicativo — é só uma projeção.
+function estimativaPeso(animal, data) {
+  const gmdSim = parseNum($('wm-gmd-sim').value);
+  if (!animal || !Number.isFinite(gmdSim) || !data) return null;
+  const ultima = wOf(animal.id).filter(w => w.date < data).pop();
+  if (!ultima) return null;
+  const dias = daysBetween(ultima.date, data);
+  if (dias <= 0) return null;
+  const peso = ultima.weight + gmdSim * dias;
+  if (!Number.isFinite(peso) || peso <= 0) return null;
+  return { peso, arrobas: arrobasDe(peso, settings.yield), dias, gmdSim, ultima,
+    ganho: gmdSim * dias };
+}
+function blocoEstimativa(est, pesoReal) {
+  if (!est) return '';
+  // Com o peso já digitado, a estimativa vira conferência: a diferença entre o
+  // que a balança mostrou e o que era esperado é o que interessa saber ali.
+  const dif = Number.isFinite(pesoReal) && pesoReal > 0 ? pesoReal - est.peso : null;
+  return `<div class="wp-est">
+      <div class="wp-est-titulo mono">Estimado em ${fmtBR($('wm-date').value)} com GMD ${fmtN(est.gmdSim, 3)}</div>
+      <div class="wp-est-linha">
+        <span class="wp-est-valor">${fmtN(est.peso, 1)}<span class="un">kg</span></span>
+        <span class="wp-est-valor">${fmtN(est.arrobas, 2)}<span class="un">@</span></span>
+      </div>
+      <p class="wp-nota">${fmtN(est.ultima.weight, est.ultima.weight % 1 ? 1 : 0)} kg em ${fmtBR(est.ultima.date)}
+        ${est.ganho >= 0 ? '+' : ''}${fmtN(est.ganho, 1)} kg em ${est.dias} dias</p>
+      ${dif === null ? '' : `<p class="wp-est-dif ${dif < 0 ? 'abaixo' : 'acima'}">balança ${
+        fmtN(Math.abs(dif), 1)} kg ${dif < 0 ? 'ABAIXO' : 'acima'} do estimado</p>`}
+    </div>`;
+}
 function atualizarPreviaPesagem() {
   const el = $('wm-previa');
   const ident = $('wm-ident').value.trim();
   const peso = parseNum($('wm-peso').value);
   const data = $('wm-date').value;
-  if (!ident || !Number.isFinite(peso) || peso <= 0 || !data) { el.hidden = true; return; }
+  const esconder = () => { el.hidden = true; el.innerHTML = ''; };
+  if (!ident || !data) { esconder(); return; }
+  const animal = animalDoBrinco(ident);
+  const est = estimativaPeso(animal, data);
+
+  // Sem o peso ainda: mostra só o que dá para saber antes da balança. Antes a
+  // prévia inteira ficava escondida até o peso ser digitado, e a estimativa
+  // chegaria tarde demais — ela serve justamente ANTES de pesar.
+  if (!Number.isFinite(peso) || peso <= 0) {
+    const ultima = animal ? wOf(animal.id).filter(w => w.date < data).pop() : null;
+    if (!est && !ultima) { esconder(); return; }
+    el.innerHTML = `
+      <div class="wp-topo">
+        <div class="wp-gmd">${esc(ident)}</div>
+        <div class="wp-lado">${ultima
+          ? `última ${fmtN(ultima.weight, ultima.weight % 1 ? 1 : 0)} kg<br>em ${fmtBR(ultima.date)}`
+          : 'sem pesagem anterior'}</div>
+      </div>
+      ${blocoEstimativa(est, null)}`;
+    el.hidden = false;
+    return;
+  }
 
   const arrobas = peso * (settings.yield / 100) / 15;
   const pesoTxt = `${fmtN(peso, peso % 1 ? 1 : 0)} kg · ${fmtN(arrobas, 1)} @`;
-  const animal = animalDoBrinco(ident);
   // Mesma regra do salvamento: compara com a última pesagem anterior a esta data
   const anterior = animal ? wOf(animal.id).filter(w => w.date < data).pop() : null;
   const dias = anterior ? daysBetween(anterior.date, data) : 0;
@@ -2326,6 +2380,7 @@ function atualizarPreviaPesagem() {
         <div class="wp-lado">${pesoTxt}</div>
       </div>
       <p class="wp-nota">${animal ? 'Primeira pesagem deste animal — sem GMD ainda' : 'Brinco novo — o animal será cadastrado'}</p>
+      ${blocoEstimativa(est, peso)}
       ${aviso}`;
   } else {
     const ganho = peso - anterior.weight;
@@ -2337,6 +2392,7 @@ function atualizarPreviaPesagem() {
       </div>
       <p class="wp-nota">anterior ${fmtN(anterior.weight, anterior.weight % 1 ? 1 : 0)} kg em ${fmtBR(anterior.date)}${anterior.jejum ? ' (jejum)' : ''}</p>
       ${misturado ? `<p class="wp-alerta">⚠ comparando ${anterior.jejum ? 'jejum com cheio' : 'cheio com jejum'} — o ganho real é ${anterior.jejum ? 'menor' : 'maior'} que este</p>` : ''}
+      ${blocoEstimativa(est, peso)}
       ${aviso}`;
   }
   el.hidden = false;
@@ -2347,7 +2403,10 @@ function atualizarPreviaPesagem() {
 // gravar no animal errado por um toque sem querer. Quem confere o brinco é a
 // prévia abaixo, que mostra o peso anterior assim que o número está completo.
 const porBrinco = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true });
-['wm-ident', 'wm-peso'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
+['wm-ident', 'wm-peso', 'wm-gmd-sim'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
+// O GMD da estimativa fica guardado: quem pesa um lote inteiro usa o mesmo
+// número o dia todo e não vai redigitar a cada animal.
+$('wm-gmd-sim').addEventListener('input', () => LS.s('fjs-gmd-sim', $('wm-gmd-sim').value.trim()));
 $('wm-date').addEventListener('change', () => { atualizarPreviaPesagem(); renderSessao(); });
 $('btn-weigh-mode').addEventListener('click', openWeighMode);
 $('wm-close').addEventListener('click', () => { $('weigh-mode').hidden = true; render(); });

@@ -342,6 +342,18 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .wp-nota { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: #9dbcaa; margin: 0.5rem 0 0; }
 .wp-alerta { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: #fcd34d; margin: 0.35rem 0 0; }
 
+/* Estimativa: separada por uma linha do resto da prévia, porque não é peso
+   medido — é projeção de um GMD informado à mão. Confundir os dois seria pior
+   do que não mostrar. */
+.wp-est { margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px dashed #4a7159; }
+.wp-est-titulo { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: #9dbcaa; }
+.wp-est-linha { display: flex; gap: 1.25rem; align-items: baseline; margin-top: 0.2rem; }
+.wp-est-valor { font-size: 1.35rem; font-weight: 800; line-height: 1; color: #cfe3d6; }
+.wp-est-valor .un { font-size: 0.72rem; font-weight: 400; margin-left: 0.2rem; }
+.wp-est-dif { font-family: 'DM Mono', monospace; font-size: 0.68rem; margin: 0.35rem 0 0; }
+.wp-est-dif.acima { color: #6ee7b7; }
+.wp-est-dif.abaixo { color: #fcd34d; }
+
 .wm-last { color: #a7f3d0; font-size: 0.9rem; margin: 1rem 0 0; min-height: 1.4em; }
 .wm-count { color: #78716c; font-size: 0.78rem; margin: 0.25rem 0 0; }
 .wm-hint { color: #57534e; font-size: 0.75rem; margin-top: auto; padding-top: 1.5rem; }
