@@ -266,7 +266,17 @@ export default async function () {
             type: rnd() < 0.35 ? 'entrada' : 'saida', amount: dec(0.01, 99999, 2),
             category: ['Venda de gado', 'Ração/insumos', 'Benfeitorias', 'Equipamentos',
               'Mão de obra', 'Pagamento Seara', 'Energia elétrica', '', 'Categoria nova'][ent(0, 8)] };
-          if (t.type === 'saida' && rnd() < 0.4) { t.venc = dataAleatoria(); t.pago = rnd() < 0.4; }
+          if (t.type === 'saida' && rnd() < 0.4) {
+            t.venc = dataAleatoria();
+            t.pago = rnd() < 0.4;
+            // Paga sem pagoEm existe: é lançamento de antes de o campo existir.
+            if (t.pago && rnd() < 0.7) t.pagoEm = dataAleatoria();
+          }
+          // Dado que o formulário de hoje não produz mas o BANCO pode conter:
+          // backup antigo restaurado, edição interrompida, corrida entre dois
+          // aparelhos. Se o regime tropeça nisso, o valor some da tela sem
+          // deixar rastro — e some justamente de quem confia no total.
+          if (t.type === 'entrada' && rnd() < 0.15) { t.venc = dataAleatoria(); t.pago = rnd() < 0.5; }
           arr.push(t);
         }
         return arr;
@@ -322,6 +332,61 @@ export default async function () {
         R.receitas >= 0 && R.custos >= 0, `${R.receitas} / ${R.custos}`);
       // Um período mais largo nunca pode mover menos dinheiro que um estreito.
       const largo = resumoFazenda('all');
+      // --- regime de caixa: o mesmo dinheiro, contado pela data do pagamento ---
+      // Estas regras existem porque "sumiu do total" é o erro mais caro e mais
+      // silencioso possível: nada quebra na tela, o número só fica menor.
+      const todosT = [...bovT, ...avT, ...gerT];
+      const Ccx = resumoFazenda('all', 'caixa');
+      const Ccp = resumoFazenda('all', 'competencia');
+
+      regra('caixa: nenhum lançamento fica sem data por engano',
+        todosT.every(t => {
+          const d = dataDoRegime(t, 'caixa');
+          // só saída a prazo NÃO PAGA pode ficar de fora do caixa
+          return d !== null || (t.type === 'saida' && !!t.venc && !t.pago);
+        }), 'um lançamento sumiu do caixa sem ser conta em aberto');
+      regra('caixa: receita nunca some — dinheiro que entrou sempre conta',
+        Math.abs(Ccx.receitas - Ccp.receitas) < 1e-6,
+        `caixa ${Ccx.receitas} vs competência ${Ccp.receitas}`);
+      regra('competência: toda linha conta na data do próprio lançamento',
+        todosT.every(t => dataDoRegime(t, 'competencia') === t.date), '');
+      regra('caixa: à vista conta na mesma data dos dois jeitos',
+        todosT.filter(t => !t.venc).every(t => dataDoRegime(t, 'caixa') === t.date), '');
+      regra('caixa: conta paga usa a data do pagamento, não a do vencimento',
+        todosT.filter(t => t.venc && t.pago && t.pagoEm)
+          .every(t => dataDoRegime(t, 'caixa') === t.pagoEm), '');
+      regra('caixa: conta paga sem data de pagamento cai no vencimento',
+        todosT.filter(t => t.venc && t.pago && !t.pagoEm)
+          .every(t => dataDoRegime(t, 'caixa') === t.venc), '');
+      // A identidade que fecha tudo: em todo o período, o que o caixa deixa de
+      // fora é EXATAMENTE a dívida em aberto. Nem um centavo a mais nem a menos.
+      regra('caixa: o que falta para a competência é exatamente o que se deve',
+        Math.abs((Ccp.custos - Ccx.custos) - Ccp.aPagarTotal) < 1e-6,
+        `diferença ${Ccp.custos - Ccx.custos} vs a pagar ${Ccp.aPagarTotal}`);
+      regra('caixa: em todo o período nunca conta mais custo que a competência',
+        Ccx.custos <= Ccp.custos + 1e-9, `${Ccx.custos} vs ${Ccp.custos}`);
+      regra('caixa: em todo o período nunca conta mais lançamentos',
+        Ccx.n <= Ccp.n, `${Ccx.n} vs ${Ccp.n}`);
+      regra('a dívida em aberto é a mesma nos dois regimes',
+        Math.abs(Ccx.aPagarTotal - Ccp.aPagarTotal) < 1e-9,
+        `${Ccx.aPagarTotal} vs ${Ccp.aPagarTotal}`);
+      regra('caixa: os saldos por atividade somam o saldo da fazenda',
+        Math.abs(Ccx.atividades.reduce((s, a) => s + a.saldo, 0) - Ccx.saldo) < 1e-6, '');
+      regra('caixa: as categorias somam o movimento',
+        Math.abs(Ccx.categorias.reduce((s, [, v]) => s + v, 0) - Ccx.movimento) < 1e-6, '');
+      regra('caixa: nada de NaN em nenhum número',
+        [Ccx.receitas, Ccx.custos, Ccx.saldo, Ccx.movimento, Ccx.aPagarTotal].every(Number.isFinite), '');
+      regra('caixa: receitas e custos nunca negativos',
+        Ccx.receitas >= 0 && Ccx.custos >= 0, `${Ccx.receitas} / ${Ccx.custos}`);
+      // Num período estreito o caixa PODE ser maior que a competência (compra de
+      // março paga em abril), então a soma dos meses é que tem de fechar.
+      const Ccx2 = resumoFazenda(periodo, 'caixa');
+      regra('caixa: um filtro estreito nunca soma mais que todo o período',
+        Ccx2.custos <= Ccx.custos + 1e-6 && Ccx2.receitas <= Ccx.receitas + 1e-6,
+        `${Ccx2.custos} vs ${Ccx.custos}`);
+      regra('caixa: regime desconhecido cai na competência, não em branco',
+        Math.abs(resumoFazenda('all', 'qualquer-coisa').custos - Ccp.custos) < 1e-9, '');
+
       regra('Fazenda: todo período nunca movimenta menos que um filtro estreito',
         largo.movimento >= R.movimento - 1e-6, `${largo.movimento} vs ${R.movimento}`);
 

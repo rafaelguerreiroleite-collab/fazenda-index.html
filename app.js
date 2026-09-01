@@ -1019,9 +1019,16 @@ document.addEventListener('click', e => {
 // dívida é dívida.
 function dataDoRegime(t, regime) {
   if (regime !== 'caixa') return t.date;
-  if (!t.venc) return t.date;               // à vista: pagou no dia
-  if (!t.pago) return null;                 // ainda deve: não saiu do caixa
-  return t.pagoEm || t.venc;                // lançamento antigo sem pagoEm cai no vencimento
+  // emAberto e não uma cópia da condição dele. Escrever "venc && !pago" aqui de
+  // novo já custou caro: faltou o teste de tipo, e uma ENTRADA que carregasse
+  // vencimento — dado que o formulário de hoje não cria, mas que um backup
+  // antigo ou uma edição interrompida deixam no banco — era lida como "ainda
+  // não paga". A receita sumia do total, e sumia sem rastro, porque o A pagar
+  // só aceita saída e ela não reaparecia em lugar nenhum. Com a chamada, as
+  // duas telas não têm como discordar sobre o que ainda está em aberto.
+  if (emAberto(t)) return null;                        // ainda deve: não saiu do caixa
+  if (t.type === 'saida' && t.venc) return t.pagoEm || t.venc;  // pago: vale a data do pagamento
+  return t.date;                                       // à vista, ou entrada: no dia
 }
 function resumoFazenda(period, regime) {
   const doLivro = (lista, nome) => lista
@@ -1068,6 +1075,17 @@ function renderFazenda() {
     .map(t => ({ t, livro: NOME_LIVRO[b], book: b, quando: dataDoRegime(t, regime) }))
     .filter(x => x.quando && inPeriod(x.quando, period)));
   $('fz-empty').hidden = R.n > 0;
+  // "Nenhum lançamento" seria mentira no regime de caixa quando existem
+  // lançamentos e nenhum foi pago ainda: eles existem, só não saíram do caixa.
+  const existemNoPeriodo = LIVROS.flatMap(b => arrLivro(b)).some(t => inPeriod(t.date, period));
+  if (R.n === 0 && regime === 'caixa' && existemNoPeriodo) {
+    $('fz-empty-titulo').textContent = 'Nada saiu nem entrou no caixa neste período';
+    $('fz-empty-texto').textContent = 'Há lançamentos no período, mas nenhum pago ainda. '
+      + 'Troque para "Por competência" para ver o custo do período.';
+  } else {
+    $('fz-empty-titulo').textContent = 'Nenhum lançamento no período';
+    $('fz-empty-texto').textContent = 'Os lançamentos de Bovinos, Aviários e Geral aparecem somados aqui.';
+  }
   const inn = R.receitas, out = R.custos, bal = R.saldo;
 
   // O que o regime escolhido deixa DE FORA precisa estar escrito, senão a
@@ -1448,8 +1466,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=36';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=36';
+const PDFJS_JS = 'vendor/pdf.min.js?v=37';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=37';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;

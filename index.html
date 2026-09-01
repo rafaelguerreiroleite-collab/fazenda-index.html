@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=36" />
+<link rel="stylesheet" href="style.css?v=37" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -281,8 +281,8 @@
   <div class="fz-titulo mono" id="fz-lista-titulo" hidden>Lançamentos do período</div>
   <div class="list" id="fz-lista"></div>
   <div class="empty" id="fz-empty" hidden>
-    <p class="eyebrow mono">Nenhum lançamento no período</p>
-    <p>Os lançamentos de Bovinos e Aviários aparecem somados aqui.</p>
+    <p class="eyebrow mono" id="fz-empty-titulo">Nenhum lançamento no período</p>
+    <p id="fz-empty-texto">Os lançamentos de Bovinos, Aviários e Geral aparecem somados aqui.</p>
   </div>
 </section>
 
@@ -655,6 +655,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=36"></script>
+<script src="app.js?v=37"></script>
 </body>
 </html>

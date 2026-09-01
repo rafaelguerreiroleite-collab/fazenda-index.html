@@ -578,6 +578,103 @@ export default async function () {
   t.conferir('e o custo por caixa lado a lado', relatorio.caixaCustos === '500,00', relatorio.caixaCustos);
   t.conferir('dizendo quanto ainda não foi pago', relatorio.naoPago === '800,00', relatorio.naoPago);
 
+  // ---------- entrada com vencimento: o dado que o banco pode conter ----------
+  // O formulário não cria isso hoje, mas backup antigo, edição interrompida e
+  // corrida entre dois aparelhos criam. Se o regime tropeça, a receita some do
+  // total e não reaparece em lugar nenhum — o A pagar só aceita saída.
+  t.secao('receita não pode sumir no caixa');
+  const receitaTeimosa = await pagina.evaluate(() => {
+    bovT = [
+      { id: 'e1', date: '2026-03-10', type: 'entrada', amount: 9000, category: 'Venda de gado',
+        venc: '2026-04-10', pago: false },
+      { id: 'e2', date: '2026-03-11', type: 'entrada', amount: 1000, category: 'Venda de gado' }
+    ];
+    avT = []; gerT = [];
+    const cx = resumoFazenda('all', 'caixa'), cp = resumoFazenda('all', 'competencia');
+    return {
+      caixa: cx.receitas, competencia: cp.receitas,
+      dataNoCaixa: dataDoRegime(bovT[0], 'caixa'),
+      naoEntrouNoAPagar: cx.contas.length,
+      // e continua contando como lançamento nos dois
+      nCaixa: cx.n, nComp: cp.n
+    };
+  });
+  t.conferir('entrada com vencimento continua contando no caixa',
+    receitaTeimosa.caixa === 10000, String(receitaTeimosa.caixa));
+  t.conferir('e vale o mesmo por competência',
+    receitaTeimosa.competencia === 10000, String(receitaTeimosa.competencia));
+  t.conferir('a entrada usa a data do lançamento, não o vencimento',
+    receitaTeimosa.dataNoCaixa === '2026-03-10', String(receitaTeimosa.dataNoCaixa));
+  t.conferir('e ela não é confundida com conta a pagar',
+    receitaTeimosa.naoEntrouNoAPagar === 0, String(receitaTeimosa.naoEntrouNoAPagar));
+  t.conferir('nenhum lançamento é perdido na contagem',
+    receitaTeimosa.nCaixa === 2 && receitaTeimosa.nComp === 2,
+    `${receitaTeimosa.nCaixa}/${receitaTeimosa.nComp}`);
+
+  // ---------- as telas não podem discordar ----------
+  t.secao('Fazenda por competência bate com os três Financeiros');
+  const bateu = await pagina.evaluate(() => {
+    const fazer = (pref, n) => Array.from({ length: n }, (_, k) => ({
+      id: pref + k, date: `2026-0${(k % 9) + 1}-1${k % 9}`,
+      type: k % 3 === 0 ? 'entrada' : 'saida',
+      amount: 100 * (k + 1) + 0.37, category: ['Ração/insumos', 'Venda de gado', 'Frete'][k % 3],
+      ...(k % 4 === 0 ? { venc: '2026-1' + (k % 2) + '-01', pago: k % 8 === 0, pagoEm: k % 8 === 0 ? '2026-11-05' : undefined } : {})
+    }));
+    bovT = fazer('cb', 7); avT = fazer('ca', 5); gerT = fazer('cg', 3);
+    const soma = (lista, tipo) => lista.filter(t2 => t2.type === tipo && inPeriod(t2.date, 'all'))
+      .reduce((s2, t2) => s2 + t2.amount, 0);
+    const R = resumoFazenda('all', 'competencia');
+    const cent = v => Math.round(v * 100);
+    return {
+      receitasIguais: cent(R.receitas) === cent(soma(bovT, 'entrada') + soma(avT, 'entrada') + soma(gerT, 'entrada')),
+      custosIguais: cent(R.custos) === cent(soma(bovT, 'saida') + soma(avT, 'saida') + soma(gerT, 'saida')),
+      nIgual: R.n === bovT.length + avT.length + gerT.length,
+      // e a tela desenha o mesmo número de linhas que somou, nos dois regimes
+      linhasComp: (() => { $('fz-regime').value = 'competencia';
+        tab = 'fazenda'; $('fz-period').value = 'all'; render();
+        return $('fz-lista').querySelectorAll('[data-trans]').length; })(),
+      nComp: R.n,
+      linhasCaixa: (() => { $('fz-regime').value = 'caixa'; render();
+        return $('fz-lista').querySelectorAll('[data-trans]').length; })(),
+      nCaixa: resumoFazenda('all', 'caixa').n
+    };
+  });
+  t.conferir('as receitas da Fazenda somam as dos três livros', bateu.receitasIguais === true);
+  t.conferir('os custos também', bateu.custosIguais === true);
+  t.conferir('e a contagem de lançamentos também', bateu.nIgual === true);
+  t.conferir('por competência, a tela desenha o mesmo tanto que somou',
+    bateu.linhasComp === bateu.nComp, `${bateu.linhasComp} linhas para ${bateu.nComp}`);
+  t.conferir('por caixa, também', bateu.linhasCaixa === bateu.nCaixa,
+    `${bateu.linhasCaixa} linhas para ${bateu.nCaixa}`);
+
+  // ---------- a tela vazia não pode mentir ----------
+  t.secao('tela vazia no regime de caixa');
+  const vazio = await pagina.evaluate(() => {
+    // Há lançamentos no período, mas nenhum foi pago: no caixa dá zero.
+    bovT = [{ id: 'z1', date: '2026-03-10', type: 'saida', amount: 500, category: 'Ração/insumos',
+      venc: '2026-04-10', pago: false }];
+    avT = []; gerT = [];
+    const ver = r => { $('fz-regime').value = r; tab = 'fazenda'; $('fz-period').value = 'all'; render();
+      return { escondido: $('fz-empty').hidden, titulo: $('fz-empty-titulo').textContent,
+        texto: $('fz-empty-texto').textContent }; };
+    const caixa = ver('caixa');
+    // e sem NENHUM lançamento, a mensagem volta a ser a normal
+    bovT = [];
+    const nada = ver('caixa');
+    $('fz-regime').value = 'competencia'; render();
+    return { caixa, nada };
+  });
+  t.conferir('com lançamento não pago, o caixa não diz "nenhum lançamento"',
+    !/Nenhum lançamento/i.test(vazio.caixa.titulo), vazio.caixa.titulo);
+  t.conferir('ele explica que existem lançamentos, só nenhum pago',
+    /nenhum pago/i.test(vazio.caixa.texto), vazio.caixa.texto);
+  t.conferir('e ensina como ver o custo do período',
+    /compet/i.test(vazio.caixa.texto), vazio.caixa.texto);
+  t.conferir('sem lançamento nenhum, a mensagem volta a ser a normal',
+    /Nenhum lançamento/i.test(vazio.nada.titulo), vazio.nada.titulo);
+  t.conferir('e ela cita os três livros, não dois',
+    /Geral/.test(vazio.nada.texto), vazio.nada.texto);
+
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
 
