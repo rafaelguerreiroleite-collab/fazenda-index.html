@@ -479,6 +479,106 @@ export default async function () {
     codigoSujo.texto === '<b>x</b>&"1', codigoSujo.texto);
   t.conferir('e não injeta HTML na tela', codigoSujo.semTagInjetada === true);
 
+  // ---------- pagar direto da aba Fazenda ----------
+  // É a única tela que mostra as contas dos TRÊS livros juntas. Sem o botão,
+  // era preciso descobrir de qual atividade era a conta e ir procurá-la lá.
+  t.secao('pagar pela aba Fazenda');
+  pagina.on('dialog', aceitarTudo);
+  const pagarFazenda = await pagina.evaluate(async () => {
+    const r = {};
+    for (const [livro, col] of [['bov', 'bovtrans'], ['av', 'avtrans'], ['ger', 'gertrans']]) {
+      window.__zerar();
+      bovT = []; avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+      const conta = { id: 'fz-' + livro, date: '2026-08-01', type: 'saida', amount: 1500,
+        category: 'Seguro', venc: '2026-09-30', pago: false };
+      setLivro(livro, [conta]);
+      tab = 'fazenda'; $('fz-period').value = 'all'; $('fz-regime').value = 'competencia'; render();
+      const botao = $('fz-apagar').querySelector(`[data-pagar="${conta.id}"]`);
+      r[livro] = { temBotao: !!botao, livroNoBotao: botao && botao.dataset.livro };
+      if (!botao) continue;
+      botao.click();
+      await new Promise(x => setTimeout(x, 80));
+      r[livro].marcou = !!conta.pago;
+      r[livro].carimbouData = conta.pagoEm === todayISO();
+      r[livro].gravouEm = window.__nuvem.grava.map(g => g.col).join(',');
+      r[livro].colCerta = window.__nuvem.grava.every(g => g.col === col);
+      r[livro].sumiuDaLista = !$('fz-apagar').querySelector(`[data-pagar="${conta.id}"]`);
+    }
+    return r;
+  });
+  pagina.removeListener('dialog', aceitarTudo);
+  for (const livro of ['bov', 'av', 'ger']) {
+    const x = pagarFazenda[livro];
+    t.conferir(`a conta de ${livro} tem botão Pagar na aba Fazenda`, x.temBotao === true);
+    t.conferir(`e o botão sabe que o livro é ${livro}`, x.livroNoBotao === livro, String(x.livroNoBotao));
+    t.conferir(`pagar pela Fazenda marca a conta de ${livro}`, x.marcou === true);
+    t.conferir(`e grava no livro certo de ${livro}`, x.colCerta === true, x.gravouEm);
+    t.conferir(`e registra a data do pagamento (${livro})`, x.carimbouData === true);
+    t.conferir(`e a conta sai da lista de a pagar (${livro})`, x.sumiuDaLista === true);
+  }
+
+  // ---------- a data do pagamento tem de ser corrigível ----------
+  // É ela que o regime de caixa usa. Se só o botão pudesse gravá-la, conta paga
+  // na semana passada cairia no mês errado e não haveria como arrumar.
+  t.secao('data do pagamento');
+  const dataPgto = await pagina.evaluate(() => {
+    bovT = [{ id: 'dp', date: '2026-08-01', type: 'saida', amount: 900, category: 'Seguro',
+      venc: '2026-09-10', pago: true, pagoEm: '2026-09-11' }];
+    avT = []; gerT = []; anexosForm = []; anexosRemover = [];
+    openTrans('bov', bovT[0]);
+    const r = {
+      trouxe: $('t-pago-em').value,
+      visivel: $('t-pago-em-wrap').style.display !== 'none'
+    };
+    // corrige para o dia em que o dinheiro realmente saiu
+    $('t-pago-em').value = '2026-08-28';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    r.gravou = bovT[0].pagoEm;
+    r.noCaixa = dataDoRegime(bovT[0], 'caixa');
+
+    // desmarcar "pago" tem de levar a data junto
+    openTrans('bov', bovT[0]);
+    $('t-pago').checked = false;
+    $('t-pago').dispatchEvent(new Event('change', { bubbles: true }));
+    r.escondeuAoDesmarcar = $('t-pago-em-wrap').style.display === 'none';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    r.limpou = bovT[0].pagoEm;
+    r.voltouADever = emAberto(bovT[0]);
+
+    // marcar pago sem informar data assume hoje
+    openTrans('bov', bovT[0]);
+    $('t-pago').checked = true;
+    $('t-pago').dispatchEvent(new Event('change', { bubbles: true }));
+    $('t-pago-em').value = '';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    r.assumiuHoje = bovT[0].pagoEm === todayISO();
+
+    // e um carnê novo não nasce com data de pagamento
+    bovT = []; anexosForm = [];
+    openTrans('bov');
+    $('t-date').value = '2026-08-01'; $('t-amount').value = '1200';
+    $('t-category').value = 'Ração/insumos';
+    $('t-prazo').checked = true; $('t-prazo').dispatchEvent(new Event('change', { bubbles: true }));
+    $('t-venc').value = '2026-09-10'; $('t-parcelas').value = '3';
+    $('t-pago').checked = true; $('t-pago').dispatchEvent(new Event('change', { bubbles: true }));
+    $('t-pago-em').value = '2026-08-05';
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    r.parcelasSemData = bovT.every(x => !x.pagoEm && !x.pago);
+    return r;
+  });
+  t.conferir('o formulário traz a data do pagamento gravada', dataPgto.trouxe === '2026-09-11', dataPgto.trouxe);
+  t.conferir('e o campo aparece quando a conta está paga', dataPgto.visivel === true);
+  t.conferir('corrigir a data grava a data corrigida', dataPgto.gravou === '2026-08-28', String(dataPgto.gravou));
+  t.conferir('e o regime de caixa passa a usar a data corrigida',
+    dataPgto.noCaixa === '2026-08-28', String(dataPgto.noCaixa));
+  t.conferir('desmarcar "pago" esconde o campo da data', dataPgto.escondeuAoDesmarcar === true);
+  t.conferir('e apaga a data — conta que voltou a dever não tem pagamento',
+    dataPgto.limpou === null, String(dataPgto.limpou));
+  t.conferir('e ela volta para o A pagar', dataPgto.voltouADever === true);
+  t.conferir('marcar pago sem informar a data assume hoje', dataPgto.assumiuHoje === true);
+  t.conferir('parcela nova nunca nasce com data de pagamento',
+    dataPgto.parcelasSemData === true);
+
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
 

@@ -909,8 +909,11 @@ function vencimentoParcela(iso, k) {
 // vencimento, para o lembrete avisar uma de cada vez.
 function montarParcelas({ base, total, venc, n, grupo }) {
   const valores = parcelasDe(total, n);
+  // pagoEm: null junto com pago: false. Sem isso, a data de pagamento do
+  // formulário vazava para parcelas que nascem devendo — e o CSV sairia com
+  // "pago_em" preenchido numa conta que ainda não foi paga.
   return valores.map((v, i) => Object.assign({}, base, {
-    id: uid(), amount: v, venc: vencimentoParcela(venc, i), pago: false,
+    id: uid(), amount: v, venc: vencimentoParcela(venc, i), pago: false, pagoEm: null,
     grupo, parcela: i + 1, parcelas: n
   }));
 }
@@ -986,7 +989,13 @@ document.addEventListener('click', e => {
   const lista = arrLivro(livro);
   const t = lista.find(x => x.id === b.dataset.pagar);
   if (!t) return sumiu('Este lançamento foi removido');
-  if (!confirm(`Marcar como PAGO?\n\n${t.category || 'Lançamento'} · ${fmtRS(t.amount)}\nVencimento ${fmtBRfull(t.venc)}`)) return;
+  // A data entra no aviso porque ela DECIDE coisa: é a data que o regime de
+  // caixa usa. Carimbar hoje em silêncio numa conta paga semana passada joga o
+  // gasto no mês errado, e ninguém veria de onde veio.
+  if (!confirm(`Marcar como PAGO em ${fmtBRfull(todayISO())}?\n\n`
+    + `${t.category || 'Lançamento'}${rotuloParcela(t)} · ${fmtRS(t.amount)}\n`
+    + `Vencimento ${fmtBRfull(t.venc)}\n\n`
+    + 'Se pagou em outro dia, abra o lançamento e corrija a data do pagamento.')) return;
   t.pago = true; t.pagoEm = todayISO();
   // colLivro e não um "se é aviário": com três livros, o ternário mandava a
   // conta do Geral para dentro de Bovinos — a marca de paga se perdia e ainda
@@ -1050,7 +1059,8 @@ function resumoFazenda(period, regime) {
     const cl = classOf(x.t.category, x.t.type);
     classes[cl] = (classes[cl] || 0) + x.t.amount;
   });
-  const contas = LIVROS.flatMap(b => contasAPagar(arrLivro(b)).map(t => ({ t, livro: NOME_LIVRO[b] })))
+  const contas = LIVROS.flatMap(b => contasAPagar(arrLivro(b))
+    .map(t => ({ t, livro: NOME_LIVRO[b], book: b })))
     .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
   const categorias = Object.entries(tudo.reduce((acc, x) => {
     const k = x.t.type + '|' + (x.t.category || 'Sem categoria');
@@ -1141,16 +1151,20 @@ function renderFazenda() {
         <span class="ap-total">${fmtRS(contas.reduce((s, x) => s + x.t.amount, 0))}</span>
       </div>
       ${vencidas.length ? `<div class="ap-vencidas mono">${vencidas.length} vencida${vencidas.length > 1 ? 's' : ''} · ${fmtRS(vencidas.reduce((s, x) => s + x.t.amount, 0))}</div>` : ''}
-      ${contas.map(({ t, livro }) => {
+      ${contas.map(({ t, livro, book }) => {
         const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
         const quando = t.dias < 0 ? `venceu há ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
           : t.dias === 0 ? 'vence hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
+        // Esta é a única tela que mostra as contas dos TRÊS livros juntas: é
+        // aqui que se paga olhando a fazenda inteira. Sem o botão, era preciso
+        // descobrir de qual atividade era a conta e ir procurá-la na aba dela.
         return `<div class="ap-linha ${estado}">
           <div class="ap-quem">
             <span class="cat">${esc(livro)} · ${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}</span>
             <span class="quando mono">${fmtBR(t.venc)} · ${quando}</span>
           </div>
           <span class="ap-valor">${fmtRS(t.amount)}</span>
+          <button type="button" class="ap-pagar" data-pagar="${t.id}" data-livro="${book}">Pagar</button>
         </div>`;
       }).join('')}`;
   }
@@ -1466,8 +1480,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=38';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=38';
+const PDFJS_JS = 'vendor/pdf.min.js?v=39';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=39';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1863,6 +1877,10 @@ function openTrans(book, t) {
   anexosRemover = [];
   renderAnexosForm();
   $('t-pago').checked = !!(t && t.pago);
+  // Sem este campo, pagoEm só podia ser o dia em que se tocou em "Pagar" — e
+  // conta paga na semana passada caía no mês errado do regime de caixa, sem
+  // nenhum jeito de arrumar.
+  $('t-pago-em').value = t && t.pagoEm ? t.pagoEm : '';
   syncPrazoUI(); previewParcelas();
   const ctx = $('t-context');
   if (t && t.lock === 'stock') { ctx.hidden = false; ctx.textContent = 'Gerado pelo estoque — prefira editar pela movimentação de estoque.'; }
@@ -1897,6 +1915,10 @@ $('form-transaction').addEventListener('submit', e => {
   const nParc = aPrazo ? Math.min(36, Math.max(1, Math.round(parseNum($('t-parcelas').value) || 1))) : 1;
   data.venc = aPrazo ? $('t-venc').value : null;
   data.pago = aPrazo ? $('t-pago').checked : false;
+  // Marcou pago e não disse quando: assume hoje, que é o que o botão "Pagar"
+  // já fazia. Desmarcou: a data sai junto, senão sobraria uma data de pagamento
+  // numa conta que voltou a ser devida.
+  data.pagoEm = data.pago ? ($('t-pago-em').value || todayISO()) : null;
   const arr = arrLivro(book);
   const col = colLivro(book);
   const atual = id ? arr.find(x => x.id === id) : null;
@@ -2066,6 +2088,7 @@ function syncPrazoUI() {
   const ehSaida = !tSaida || tSaida.value === 'saida';
   $('t-prazo-box').style.display = ehSaida ? '' : 'none';
   $('t-prazo-wrap').style.display = ehSaida && $('t-prazo').checked ? '' : 'none';
+  $('t-pago-em-wrap').style.display = ehSaida && $('t-prazo').checked && $('t-pago').checked ? '' : 'none';
 }
 // Mostra em quanto fica cada parcela antes de salvar: quem parcela quer saber
 // o valor da prestação, não o total.
@@ -2095,7 +2118,7 @@ function previewParcelas() {
   }
   desenhar('t-amount', 't-parcelas', 't-venc', 't-parcelas-nota', '');
 }
-['m-prazo', 'm-postfin', 't-prazo'].forEach(id => $(id).addEventListener('change', syncPrazoUI));
+['m-prazo', 'm-postfin', 't-prazo', 't-pago'].forEach(id => $(id).addEventListener('change', syncPrazoUI));
 ['m-parcelas', 'm-venc', 'm-qty', 'm-cost', 't-parcelas', 't-venc', 't-amount']
   .forEach(id => $(id).addEventListener('input', previewParcelas));
 document.querySelectorAll('input[name="t-type"]').forEach(r => r.addEventListener('change', syncPrazoUI));

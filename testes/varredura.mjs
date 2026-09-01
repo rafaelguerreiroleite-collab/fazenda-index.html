@@ -384,6 +384,9 @@ export default async function () {
       regra('caixa: um filtro estreito nunca soma mais que todo o período',
         Ccx2.custos <= Ccx.custos + 1e-6 && Ccx2.receitas <= Ccx.receitas + 1e-6,
         `${Ccx2.custos} vs ${Ccx.custos}`);
+      regra('nenhuma conta em aberto carrega data de pagamento',
+        todosT.every(t => !(emAberto(t) && t.pagoEm)),
+        'conta ainda devida com pagoEm preenchido');
       regra('caixa: regime desconhecido cai na competência, não em branco',
         Math.abs(resumoFazenda('all', 'qualquer-coisa').custos - Ccp.custos) < 1e-9, '');
 
