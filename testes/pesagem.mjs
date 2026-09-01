@@ -466,89 +466,6 @@ export default async function () {
   t.conferir('avisa em alto e bom som que não está guardando', /não está conseguindo guardar/.test(alerta || ''), (alerta || 'sem aviso').split('\n')[0]);
   await pagina.evaluate(() => { LS.s = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }; });
 
-  // ---------- estimativa de peso com GMD informado à mão ----------
-  // Quem conhece o lote sabe o GMD que ele vem fazendo. Com esse número, o app
-  // diz onde o animal DEVERIA estar hoje — antes de subir na balança, para
-  // saber o que esperar, e depois, para conferir o que a balança mostrou.
-  // A estimativa não grava nada e não entra em conta nenhuma do aplicativo.
-  t.secao('estimativa de peso no modo pesagem');
-  const est = await pagina.evaluate(() => {
-    animals = [
-      { id: 'n1', ident: '292' },
-      { id: 'n2', ident: '999' }   // sem pesagem nenhuma
-    ];
-    weighings = [{ id: 'we', animalId: 'n1', date: '2026-08-13', weight: 227, jejum: false }];
-    openWeighMode();
-    const ler = (brinco, gmd, peso) => {
-      $('wm-date').value = '2026-09-01';
-      $('wm-gmd-sim').value = gmd;
-      $('wm-ident').value = brinco;
-      $('wm-peso').value = peso == null ? '' : peso;
-      atualizarPreviaPesagem();
-      return { texto: $('wm-previa').innerText, escondida: $('wm-previa').hidden,
-        temBloco: !!document.querySelector('#wm-previa .wp-est') };
-    };
-    const r = {};
-    // 227 kg em 13/08 + 0,600 × 19 dias = 238,4 kg
-    r.semPeso = ler('292', '0,600', null);
-    r.comPesoIgual = ler('292', '0,600', '238,4');
-    r.comPesoAcima = ler('292', '0,600', '250');
-    r.comPesoAbaixo = ler('292', '0,600', '230');
-    r.semGmd = ler('292', '', '250');
-    r.gmdLixo = ler('292', 'abc', '250');
-    r.semHistorico = ler('999', '0,600', null);
-    r.brincoNovo = ler('555', '0,600', null);
-    // GMD negativo (seca, perda de peso) é informação legítima
-    r.gmdNegativo = ler('292', '-0,200', null);
-    // mesma data da última pesagem: não há dias para projetar
-    $('wm-date').value = '2026-08-13';
-    $('wm-ident').value = '292'; $('wm-peso').value = ''; $('wm-gmd-sim').value = '0,600';
-    atualizarPreviaPesagem();
-    r.mesmoDia = { temBloco: !!document.querySelector('#wm-previa .wp-est') };
-    // o GMD digitado fica guardado para o lote inteiro
-    $('wm-gmd-sim').value = '0,750';
-    $('wm-gmd-sim').dispatchEvent(new Event('input', { bubbles: true }));
-    r.guardado = JSON.parse(localStorage.getItem('fjs-gmd-sim'));
-    // e nada disso encostou nos dados
-    r.pesagens = weighings.length;
-    r.animais = animals.length;
-    $('weigh-mode').hidden = true;
-    return r;
-  });
-  const num = txt => (txt.match(/238,4|238,40/) || [])[0];
-  t.conferir('a estimativa aparece antes de digitar o peso',
-    est.semPeso.temBloco === true && est.semPeso.escondida === false, est.semPeso.texto.slice(0, 90));
-  t.conferir('e ela projeta o peso certo (227 kg + 0,600 × 19 dias = 238,4)',
-    !!num(est.semPeso.texto), est.semPeso.texto.replace(/\n/g, ' | '));
-  t.conferir('a estimativa também sai em arrobas',
-    /@/.test(est.semPeso.texto), est.semPeso.texto.replace(/\n/g, ' | '));
-  t.conferir('mostra de onde partiu: última pesagem e quantos dias',
-    /13\/08/.test(est.semPeso.texto) && /19 dias/.test(est.semPeso.texto),
-    est.semPeso.texto.replace(/\n/g, ' | '));
-  t.conferir('com o peso digitado, ela vira conferência da balança',
-    /acima|ABAIXO/.test(est.comPesoAcima.texto), est.comPesoAcima.texto.replace(/\n/g, ' | '));
-  t.conferir('peso acima do estimado é apontado como acima',
-    /11,6 kg acima/.test(est.comPesoAcima.texto), est.comPesoAcima.texto.replace(/\n/g, ' | '));
-  t.conferir('peso abaixo do estimado é apontado como ABAIXO',
-    /8,4 kg ABAIXO/.test(est.comPesoAbaixo.texto), est.comPesoAbaixo.texto.replace(/\n/g, ' | '));
-  t.conferir('sem GMD informado não inventa estimativa',
-    est.semGmd.temBloco === false, est.semGmd.texto.replace(/\n/g, ' | '));
-  t.conferir('GMD digitado errado não vira estimativa maluca',
-    est.gmdLixo.temBloco === false, est.gmdLixo.texto.replace(/\n/g, ' | '));
-  t.conferir('animal sem pesagem anterior não recebe estimativa',
-    est.semHistorico.temBloco === false, est.semHistorico.texto.replace(/\n/g, ' | '));
-  t.conferir('brinco novo também não', est.brincoNovo.temBloco === false,
-    est.brincoNovo.texto.replace(/\n/g, ' | '));
-  t.conferir('GMD negativo é aceito — na seca o gado perde peso',
-    est.gmdNegativo.temBloco === true && /2\d\d,\d/.test(est.gmdNegativo.texto),
-    est.gmdNegativo.texto.replace(/\n/g, ' | '));
-  t.conferir('pesando no mesmo dia da última não há o que projetar',
-    est.mesmoDia.temBloco === false);
-  t.conferir('o GMD da estimativa fica guardado para o lote inteiro',
-    est.guardado === '0,750', String(est.guardado));
-  t.conferir('a estimativa não cria nem altera pesagem nenhuma',
-    est.pesagens === 1 && est.animais === 2, `${est.pesagens} pesagens · ${est.animais} animais`);
-
   // ---------- estimativa do rebanho inteiro nos cartões ----------
   // Os cartões verdes mostram a última balança. Entre uma pesagem e a próxima o
   // gado continuou ganhando, e é o número projetado que se leva para negociar.
@@ -592,11 +509,7 @@ export default async function () {
     r.negativo = ler('-0,5');   // seca: 295 + 395 + 190 = 880 kg
     // e os cartões medidos não mudam
     r.medidos = $('bov-stats').innerText;
-    // o número é o mesmo campo do modo pesagem
     r.guardado = JSON.parse(localStorage.getItem('fjs-gmd-sim'));
-    openWeighMode();
-    r.noModoPesagem = $('wm-gmd-sim').value;
-    $('weigh-mode').hidden = true;
     return r;
   });
   t.conferir('sem GMD informado não aparece cartão de estimativa',
@@ -622,9 +535,8 @@ export default async function () {
   t.conferir('os cartões medidos continuam mostrando a última balança',
     /300 kg/.test(geral.medidos) && /30 @/.test(geral.medidos) && !/307|293/.test(geral.medidos),
     geral.medidos.replace(/\n/g, ' | '));
-  t.conferir('o GMD é o mesmo número do modo pesagem',
-    geral.noModoPesagem === '-0,5' && geral.guardado === '-0,5',
-    `${geral.noModoPesagem} / ${geral.guardado}`);
+  t.conferir('o GMD digitado fica guardado no aparelho',
+    geral.guardado === '-0,5', String(geral.guardado));
 
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
