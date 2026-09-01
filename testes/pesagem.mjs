@@ -547,13 +547,22 @@ export default async function () {
   const teclado = await pagina.evaluate(() => {
     const teclas = [...document.querySelectorAll('#wm-teclado [data-tecla]')]
       .map(b => b.dataset.tecla);
-    return {
+    // medir de verdade exige o teclado na tela
+    openWeighMode();
+    const umaTecla = document.querySelector('#wm-teclado [data-tecla="7"]').getBoundingClientRect();
+    const r = {
       identModo: $('wm-ident').getAttribute('inputmode'),
       pesoModo: $('wm-peso').getAttribute('inputmode'),
       teclas,
       // layout de calculadora: 7-8-9 na primeira linha, como a balança
-      comecaEmSete: teclas[0] === '7'
+      comecaEmSete: teclas[0] === '7',
+      alturaTecla: umaTecla.height,
+      larguraTecla: umaTecla.width,
+      larguraTeclado: $('wm-teclado').getBoundingClientRect().width,
+      larguraCampo: $('wm-peso').getBoundingClientRect().width
     };
+    $('weigh-mode').hidden = true;
+    return r;
   });
   // inputmode="none" é o que impede o teclado do sistema de abrir. Sem isso,
   // os dois teclados apareceriam juntos e a tela do curral viraria um aperto.
@@ -564,6 +573,12 @@ export default async function () {
     ['0','1','2','3','4','5','6','7','8','9',',','apagar'].every(k => teclado.teclas.includes(k)),
     teclado.teclas.join(' '));
   t.conferir('em layout de calculadora, como a balança', teclado.comecaEmSete === true);
+  t.conferir('as teclas são grandes o bastante para dedo de luva',
+    teclado.alturaTecla >= 64 && teclado.larguraTecla >= 80,
+    `${Math.round(teclado.larguraTecla)}x${Math.round(teclado.alturaTecla)} px`);
+  t.conferir('e o teclado ocupa a mesma faixa dos campos, sem sobrar tela',
+    teclado.larguraTeclado >= teclado.larguraCampo - 2,
+    `teclado ${Math.round(teclado.larguraTeclado)} vs campo ${Math.round(teclado.larguraCampo)}`);
 
   const digitar = await pagina.evaluate(async () => {
     animals = []; weighings = [];

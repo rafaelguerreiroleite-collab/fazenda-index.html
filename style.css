@@ -310,17 +310,22 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
    balança e o de quem digita número o dia inteiro. Teclas altas: no brete o
    dedo está sujo, às vezes de luva, e errar a tecla custa uma pesagem errada
    no animal errado. */
-.wm-teclado { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;
-  margin-top: 1rem; max-width: 26rem; margin-left: auto; margin-right: auto; }
+/* Sem trava de largura: o teclado ocupa a mesma faixa dos campos. No iPad a
+   trava de 26rem deixava as teclas espremidas no meio de uma tela larga.
+   A altura acompanha a tela (clamp por vh) — cresce no tablet sem estourar a
+   tela do celular, onde o botão de salvar precisa continuar à vista. */
+.wm-teclado { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem;
+  margin-top: 1rem; }
 .wm-teclado button {
-  min-height: 4rem; border: 1px solid #4a7159; border-radius: 4px;
+  min-height: clamp(4.5rem, 11vh, 7.5rem);
+  border: 1px solid #4a7159; border-radius: 4px;
   background: #2f6b46; color: #fafaf9;
-  font-family: 'DM Mono', monospace; font-size: 1.8rem; font-weight: 500;
+  font-family: 'DM Mono', monospace; font-size: clamp(2rem, 5vh, 3.2rem); font-weight: 500;
   -webkit-tap-highlight-color: transparent;
 }
 .wm-teclado button:active { background: #3d8557; }
 .wm-teclado button:disabled { opacity: 0.3; }
-.wm-teclado .wm-apagar { font-size: 1.4rem; }
+.wm-teclado .wm-apagar { font-size: clamp(1.6rem, 4vh, 2.6rem); }
 
 .wm-save {
   width: 100%; margin-top: 1.25rem; padding: 1rem;
