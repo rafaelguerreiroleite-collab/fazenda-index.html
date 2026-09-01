@@ -549,6 +549,83 @@ export default async function () {
   t.conferir('a estimativa não cria nem altera pesagem nenhuma',
     est.pesagens === 1 && est.animais === 2, `${est.pesagens} pesagens · ${est.animais} animais`);
 
+  // ---------- estimativa do rebanho inteiro nos cartões ----------
+  // Os cartões verdes mostram a última balança. Entre uma pesagem e a próxima o
+  // gado continuou ganhando, e é o número projetado que se leva para negociar.
+  t.secao('estimativa geral do rebanho');
+  const geral = await pagina.evaluate(() => {
+    const hoje = todayISO();
+    const menos = d => { const x = new Date(hoje + 'T12:00'); x.setDate(x.getDate() - d);
+      const p = k => String(k).padStart(2, '0');
+      return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`; };
+    settings.yield = 50;   // arroba = kg/2/15, para a conta fechar redonda
+    animals = [
+      { id: 'g1', ident: '01' },
+      { id: 'g2', ident: '02' },
+      { id: 'g3', ident: '03' },            // pesado em outro dia
+      { id: 'g4', ident: '04' },            // sem pesagem: fica de fora
+      { id: 'g5', ident: '05', sold: true },// vendido: fora do rebanho
+      { id: 'g6', ident: '06', dead: true } // morto: fora do rebanho
+    ];
+    weighings = [
+      { id: 'x1', animalId: 'g1', date: menos(10), weight: 300 },
+      { id: 'x2', animalId: 'g2', date: menos(10), weight: 400 },
+      { id: 'x3', animalId: 'g3', date: menos(20), weight: 200 },
+      { id: 'x5', animalId: 'g5', date: menos(10), weight: 900 },
+      { id: 'x6', animalId: 'g6', date: menos(10), weight: 900 }
+    ];
+    tab = 'bovinos'; seg = 'rebanho'; detailAnimal = null;
+    const ler = gmd => {
+      $('bov-gmd-sim').value = gmd;
+      $('bov-gmd-sim').dispatchEvent(new Event('input', { bubbles: true }));
+      render();
+      return { escondido: $('bov-stats-est').hidden,
+        texto: $('bov-stats-est').innerText, nota: $('bov-est-nota').textContent };
+    };
+    const r = {};
+    r.semGmd = ler('');
+    r.lixo = ler('abc');
+    // 300 + 0,5×10 = 305 · 400 + 0,5×10 = 405 · 200 + 0,5×20 = 210
+    // total 920 kg → média 306,67 → 307 · arrobas 920×0,5/15 = 30,67 → 31
+    // total medido 900 kg → 30 @ · ganho 0,67 @
+    r.comGmd = ler('0,5');
+    r.negativo = ler('-0,5');   // seca: 295 + 395 + 190 = 880 kg
+    // e os cartões medidos não mudam
+    r.medidos = $('bov-stats').innerText;
+    // o número é o mesmo campo do modo pesagem
+    r.guardado = JSON.parse(localStorage.getItem('fjs-gmd-sim'));
+    openWeighMode();
+    r.noModoPesagem = $('wm-gmd-sim').value;
+    $('weigh-mode').hidden = true;
+    return r;
+  });
+  t.conferir('sem GMD informado não aparece cartão de estimativa',
+    geral.semGmd.escondido === true, geral.semGmd.texto);
+  t.conferir('e a tela explica para que serve o campo',
+    /GMD/.test(geral.semGmd.nota), geral.semGmd.nota);
+  t.conferir('GMD digitado errado também não mostra estimativa',
+    geral.lixo.escondido === true, geral.lixo.texto);
+  t.conferir('com GMD, os cartões de estimativa aparecem',
+    geral.comGmd.escondido === false, geral.comGmd.texto.replace(/\n/g, ' | '));
+  t.conferir('peso médio estimado projeta cada animal da última balança DELE',
+    /307 kg/.test(geral.comGmd.texto), geral.comGmd.texto.replace(/\n/g, ' | '));
+  t.conferir('total estimado em arrobas confere',
+    /31 @/.test(geral.comGmd.texto), geral.comGmd.texto.replace(/\n/g, ' | '));
+  t.conferir('e mostra o ganho desde a última pesagem',
+    /\+0,7 @|\+0,6 @/.test(geral.comGmd.texto), geral.comGmd.texto.replace(/\n/g, ' | '));
+  t.conferir('vendido, morto e sem pesagem ficam de fora da conta',
+    /3 animal\(is\) com pesagem/.test(geral.comGmd.nota), geral.comGmd.nota);
+  t.conferir('GMD negativo projeta perda de peso',
+    /293 kg/.test(geral.negativo.texto), geral.negativo.texto.replace(/\n/g, ' | '));
+  // Os cartões medidos são a última balança: 900 kg em 3 animais = 300 kg de
+  // média e 30 @ no total. A estimativa não pode encostar neles.
+  t.conferir('os cartões medidos continuam mostrando a última balança',
+    /300 kg/.test(geral.medidos) && /30 @/.test(geral.medidos) && !/307|293/.test(geral.medidos),
+    geral.medidos.replace(/\n/g, ' | '));
+  t.conferir('o GMD é o mesmo número do modo pesagem',
+    geral.noModoPesagem === '-0,5' && geral.guardado === '-0,5',
+    `${geral.noModoPesagem} / ${geral.guardado}`);
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;

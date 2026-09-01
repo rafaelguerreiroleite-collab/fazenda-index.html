@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=39" />
+<link rel="stylesheet" href="style.css?v=40" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -90,6 +90,12 @@
   <div class="subview active" id="bov-rebanho">
     <button class="btn-weigh" id="btn-weigh-mode">⚖️ Modo pesagem</button>
     <div class="stats-row" id="bov-stats"></div>
+    <div class="est-geral">
+      <label class="mono" for="bov-gmd-sim">Estimar o rebanho hoje com GMD (kg/dia)</label>
+      <input type="text" inputmode="decimal" id="bov-gmd-sim" placeholder="Ex: 0,600" autocomplete="off" />
+      <p class="est-nota mono" id="bov-est-nota"></p>
+    </div>
+    <div class="stats-row" id="bov-stats-est" hidden></div>
     <div class="filter-row one">
       <select id="bov-sort">
         <option value="ident-asc" selected>Ordem: brinco crescente</option>
@@ -664,6 +670,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=39"></script>
+<script src="app.js?v=40"></script>
 </body>
 </html>

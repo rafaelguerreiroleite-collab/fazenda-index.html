@@ -67,6 +67,16 @@ main { padding: 1rem 1.25rem 0; max-width: 30rem; margin: 0 auto; }
 /* Vermelho claro: o vermelho escuro do GMD fica ilegível sobre o cartão verde */
 .stat-card .stat-value.neg { color: #fca5a5; }
 .stat-card .stat-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: #9dbcaa; margin-top: 0.3rem; font-family: 'DM Mono', monospace; }
+/* Cartão de estimativa: mesmo formato, borda tracejada e fundo mais claro.
+   Não é peso medido — é projeção de um GMD informado à mão, e confundir os
+   dois num cartão igual seria pior do que não mostrar. */
+.stat-card.est { background: #2f6b46; border: 1px dashed #6f9e83; }
+.est-geral { margin-bottom: 0.75rem; }
+.est-geral label { display: block; font-size: 0.66rem; text-transform: uppercase;
+  letter-spacing: 0.06em; color: #78716c; margin-bottom: 0.3rem; }
+.est-geral input { width: 100%; padding: 0.55rem; border: 1px solid #d6d3d1; border-radius: 3px;
+  background: white; font-family: 'DM Mono', monospace; font-size: 0.9rem; color: #225437; }
+.est-nota { font-size: 0.64rem; color: #78716c; margin: 0.35rem 0 0; }
 
 /* WEIGH LAUNCH */
 .btn-weigh {

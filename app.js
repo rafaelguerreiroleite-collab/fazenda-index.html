@@ -457,6 +457,38 @@ function renderRebanho() {
     <div class="stat-card"><div class="stat-value">${avgWeight != null ? fmtN(avgWeight, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
     <div class="stat-card"><div class="stat-value">${avgArroba != null ? fmtN(avgArroba, 1) + ' @' : '—'}</div><div class="stat-label">Média em @</div></div>
     <div class="stat-card"><div class="stat-value">${totalArroba != null ? fmtN(totalArroba, 0) + ' @' : '—'}</div><div class="stat-label">Total do rebanho</div></div>`;
+
+  // Estimativa do rebanho inteiro: onde ele estaria HOJE com um GMD informado
+  // à mão. Os cartões acima mostram a última balança; entre uma pesagem e a
+  // próxima o gado continuou ganhando, e é esse número que se leva para uma
+  // negociação. Projeta animal por animal a partir da última pesagem de cada
+  // um — não do peso médio —, porque cada um foi pesado num dia diferente.
+  const hoje = todayISO();
+  const gmdSim = parseNum($('bov-gmd-sim').value);
+  const pesosEst = activeAnimals.map(a => {
+    const ws = wOf(a.id);
+    if (!ws.length) return null;
+    const ultima = ws[ws.length - 1];
+    // Pesagem com data no futuro (digitação errada) não projeta para trás.
+    const dias = Math.max(0, daysBetween(ultima.date, hoje));
+    return ultima.weight + gmdSim * dias;
+  }).filter(p => Number.isFinite(p) && p > 0);
+  const temEst = Number.isFinite(gmdSim) && pesosEst.length > 0;
+  const totalEst = pesosEst.reduce((s, p) => s + p, 0);
+  const diasDesde = lastDates.length ? Math.max(0, daysBetween(lastDates[lastDates.length - 1], hoje)) : 0;
+  $('bov-stats-est').hidden = !temEst;
+  $('bov-est-nota').textContent = !Number.isFinite(gmdSim)
+    ? 'Informe o GMD que o lote vem fazendo para ver onde o rebanho estaria hoje.'
+    : !pesosEst.length ? 'Sem pesagem para projetar.'
+    : `${pesosEst.length} animal(is) com pesagem · projetado da última balança de cada um até ${fmtBR(hoje)}`;
+  if (temEst) {
+    const mediaEst = totalEst / pesosEst.length;
+    const ganho = arrobaOf(totalEst) - (totalArroba || 0);
+    $('bov-stats-est').innerHTML = `
+      <div class="stat-card est"><div class="stat-value">${fmtN(mediaEst, 0)} kg</div><div class="stat-label">Peso médio hoje (est.)</div></div>
+      <div class="stat-card est"><div class="stat-value">${fmtN(arrobaOf(totalEst), 0)} @</div><div class="stat-label">Total hoje (est.)</div></div>
+      <div class="stat-card est"><div class="stat-value ${ganho < 0 ? 'neg' : ''}">${ganho >= 0 ? '+' : ''}${fmtN(ganho, 1)} @</div><div class="stat-label">Ganho em ${diasDesde} dias</div></div>`;
+  } else $('bov-stats-est').innerHTML = '';
   const byIdent = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true });
   const sorted = [...activeAnimals].sort((a, b) => {
     if (bovSort === 'peso-desc' || bovSort === 'peso-asc') {
@@ -1480,8 +1512,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=39';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=39';
+const PDFJS_JS = 'vendor/pdf.min.js?v=40';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=40';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2429,7 +2461,10 @@ const porBrinco = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: t
 ['wm-ident', 'wm-peso', 'wm-gmd-sim'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
 // O GMD da estimativa fica guardado: quem pesa um lote inteiro usa o mesmo
 // número o dia todo e não vai redigitar a cada animal.
-$('wm-gmd-sim').addEventListener('input', () => LS.s('fjs-gmd-sim', $('wm-gmd-sim').value.trim()));
+$('wm-gmd-sim').addEventListener('input', () => {
+  LS.s('fjs-gmd-sim', $('wm-gmd-sim').value.trim());
+  $('bov-gmd-sim').value = $('wm-gmd-sim').value;
+});
 $('wm-date').addEventListener('change', () => { atualizarPreviaPesagem(); renderSessao(); });
 $('btn-weigh-mode').addEventListener('click', openWeighMode);
 $('wm-close').addEventListener('click', () => { $('weigh-mode').hidden = true; render(); });
@@ -3159,6 +3194,13 @@ $('av-period').addEventListener('change', render);
 if (![...$('bov-sort').options].some(o => o.value === bovSort)) bovSort = 'ident-asc';
 $('bov-sort').value = bovSort;
 $('bov-sort').addEventListener('change', e => { bovSort = e.target.value; LS.s('fjs-sort-rebanho', bovSort); render(); });
+// Mesmo GMD do modo pesagem, guardado no mesmo lugar: é um número só da
+// fazenda, e digitá-lo duas vezes acabaria com dois valores discordando.
+$('bov-gmd-sim').value = LS.g('fjs-gmd-sim', '');
+$('bov-gmd-sim').addEventListener('input', () => {
+  LS.s('fjs-gmd-sim', $('bov-gmd-sim').value.trim());
+  renderRebanho();
+});
 // Mesmo cuidado com o regime: valor guardado por uma versão antiga não pode
 // deixar o seletor num estado que não existe mais.
 const regimeGuardado = LS.g('fjs-regime', 'competencia');
