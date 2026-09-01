@@ -291,6 +291,61 @@ export default async function () {
   t.conferir('snapshot vazio vindo do SERVIDOR é respeitado — é verdade',
     cacheVazio.depoisVazioServidor === 0, `${cacheVazio.depoisVazioServidor} restaram`);
 
+  // ---------- o snapshot não pode apagar o que ainda está na fila ----------
+  // Bug relatado do curral: cadastrar um brinco novo, pesar, e ao pesar o MESMO
+  // brinco de novo o app criava outro animal, outra pesagem, e não mostrava
+  // GMD. Causa: o snapshot é a verdade DO SERVIDOR, e o servidor ainda não sabe
+  // do que está na fila. Aplicado cru, ele apagava da tela o animal cadastrado
+  // sem sinal — e a busca por brinco deixava de encontrá-lo.
+  t.secao('snapshot chegando antes de a fila subir');
+  const naoDuplica = await pagina.evaluate(() => {
+    const pesar = (b, p) => { $('wm-ident').value = b; $('wm-peso').value = p; $('wm-save').click(); };
+    animals = [{ id: 'velho', ident: '100' }]; weighings = []; pendentes = []; db = null;
+    localStorage.removeItem('fjs-pendentes');
+    openWeighMode(); $('wm-date').value = '2026-09-01';
+    pesar('505', '300');
+    // o servidor responde com o que ELE tem: o animal novo ainda não subiu
+    aplicarSnapshot('animals', [{ id: 'velho', ident: '100' }], { fromCache: false });
+    const sobreviveu = animals.some(a => a.ident === '505');
+    pesar('505', '310');
+    const r = { sobreviveu, animais: animals.length, pesagens: weighings.length,
+      aviso: $('wm-last').textContent, peso: weighings[0] && weighings[0].weight };
+
+    // e em dias diferentes o GMD tem de aparecer, não "novo animal"
+    animals = [{ id: 'velho', ident: '100' }]; weighings = []; pendentes = [];
+    $('wm-date').value = '2026-08-01'; pesar('507', '300');
+    aplicarSnapshot('animals', [{ id: 'velho', ident: '100' }], { fromCache: false });
+    aplicarSnapshot('weighings', [], { fromCache: false });
+    $('wm-date').value = '2026-09-01'; pesar('507', '330');
+    r.avisoGmd = $('wm-last').textContent;
+    r.animaisGmd = animals.length;
+
+    // exclusão sem sinal não pode ser ressuscitada pelo snapshot
+    animals = []; weighings = []; pendentes = [];
+    animals = [{ id: 'x1', ident: '800' }];
+    remove('animals', 'x1');
+    animals = animals.filter(a => a.id !== 'x1');
+    aplicarSnapshot('animals', [{ id: 'x1', ident: '800' }], { fromCache: false });
+    r.apagadoFicouApagado = !animals.some(a => a.id === 'x1');
+    $('weigh-mode').hidden = true;
+    return r;
+  });
+  t.conferir('o animal cadastrado sem sinal sobrevive ao snapshot do servidor',
+    naoDuplica.sobreviveu === true);
+  t.conferir('pesar o mesmo brinco de novo NÃO cria um segundo animal',
+    naoDuplica.animais === 2, `${naoDuplica.animais} animais`);
+  t.conferir('nem uma segunda pesagem no mesmo dia',
+    naoDuplica.pesagens === 1, `${naoDuplica.pesagens} pesagens`);
+  t.conferir('a segunda pesagem substitui, e o app diz isso',
+    /atualizada/.test(naoDuplica.aviso) && naoDuplica.peso === 310, naoDuplica.aviso);
+  t.conferir('em dias diferentes o GMD aparece, em vez de "novo animal"',
+    /GMD/.test(naoDuplica.avisoGmd) && !/novo animal/.test(naoDuplica.avisoGmd),
+    naoDuplica.avisoGmd);
+  t.conferir('e continua sendo um animal só', naoDuplica.animaisGmd === 2,
+    String(naoDuplica.animaisGmd));
+  t.conferir('exclusão sem sinal não é ressuscitada pelo snapshot',
+    naoDuplica.apagadoFicouApagado === true);
+
   // ---------- persistência recusada tem de ser dita ----------
   t.secao('persistência do Firestore recusada');
   const persistencia = await pagina.evaluate(() => {

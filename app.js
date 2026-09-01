@@ -345,7 +345,19 @@ function aplicarSnapshot(name, docs, metadata) {
     console.warn(name + ': snapshot vazio do cache ignorado — mantendo o que está no aparelho');
     return;
   }
-  COLS[name](docs);
+  // O snapshot é a verdade DO SERVIDOR, e o servidor ainda não sabe do que
+  // está na fila. Aplicando-o cru, o animal cadastrado no curral sumia da
+  // tela — e a próxima pesagem do mesmo brinco não o encontrava, criava outro
+  // animal, gravava outra pesagem e não mostrava GMD. Um brinco virava dois.
+  // Por isso o que está na fila é reposto por cima: já foi gravado aqui, só
+  // não chegou lá ainda. E o que está na fila para APAGAR fica fora, senão o
+  // snapshot ressuscitaria o que acabou de ser excluído sem sinal.
+  const mapa = new Map(docs.filter(d => d && d.id != null).map(d => [d.id, d]));
+  pendentes.filter(p => p.col === name).forEach(p => {
+    if (p.del) mapa.delete(p.id);
+    else if (p.obj) mapa.set(p.id, p.obj);
+  });
+  COLS[name]([...mapa.values()]);
   salvarEspelho();
   if (name === 'animals' && firstAnimalsSnap && metadata && !metadata.fromCache) {
     firstAnimalsSnap = false;
@@ -1618,8 +1630,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=46';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=46';
+const PDFJS_JS = 'vendor/pdf.min.js?v=47';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=47';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
