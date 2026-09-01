@@ -103,7 +103,19 @@ function carregarEspelho(codigo) {
 
 // Escritas que não alcançaram a nuvem ficam nesta fila até conseguirem subir.
 let pendentes = LS.g('fjs-pendentes', []);
-const guardarFila = () => LS.s('fjs-pendentes', pendentes);
+let filaFalhou = false;
+function guardarFila() {
+  const ok = LS.s('fjs-pendentes', pendentes);
+  // Fila que não é gravada não é fila: ao fechar o app, o que não subiu some.
+  // É o pior estado possível e não pode passar em silêncio.
+  if (!ok && !filaFalhou) {
+    filaFalhou = true;
+    alert('⚠️ ATENÇÃO\n\nO aparelho não está conseguindo guardar a fila de envio '
+      + '(memória cheia).\n\nO que você registrar agora pode se perder ao fechar o app. '
+      + 'Libere espaço ou faça um backup pelo menu (⋯) antes de continuar.');
+  } else if (ok) filaFalhou = false;
+  return ok;
+}
 function enfileirar(op) {
   // uma escrita nova substitui a anterior do mesmo registro
   pendentes = pendentes.filter(p => !(p.col === op.col && p.id === op.id));
@@ -176,19 +188,48 @@ async function enviarPendentes() {
   if (subiram) toast(`${subiram} registro(s) enviados para a nuvem`);
 }
 
-// Nenhuma gravação pode derrubar a tela: sem nuvem, vai para a fila.
+// Sai da fila só quando a NUVEM CONFIRMOU. Confere identidade: se uma edição
+// nova substituiu esta enquanto a antiga subia, a confirmação da antiga não
+// pode levar a nova junto.
+function confirmado(op) {
+  if (!pendentes.includes(op)) return;
+  pendentes = pendentes.filter(p => p !== op);
+  guardarFila(); atualizarPendentes();
+}
+// Toda gravação entra na fila ANTES de tentar a nuvem, e só sai de lá quando o
+// servidor confirma. Antes só ia para a fila quando db era nulo — e o caso do
+// curral é outro: o SDK carregado, a autenticação valendo pelo token guardado,
+// e o sinal caindo. Nesse estado set() NÃO REJEITA, fica pendente para sempre,
+// então o .catch nunca disparava e a escrita não entrava na fila. Ela existia
+// só dentro do Firestore; sem a persistência dele, só na MEMÓRIA. Fechou o app
+// no brete, perdeu a pesagem — e a cópia local ainda mostrava tudo certo.
+// Gravar duas vezes o mesmo registro não faz mal: set() por id é idempotente.
+// Anexo é o único registro pesado do app — foto em base64, até quase 1 MB.
+// Guardar uma cópia dele na fila a cada gravação encheria o armazenamento do
+// aparelho, e um armazenamento cheio derruba a fila INTEIRA. Ele fica de fora
+// da caixa de saída: entra na fila quando não há nuvem, como sempre foi.
+const PESADO = 'anexos';
 function upsert(col, obj) {
   salvarEspelho(true);   // ação do usuário: grava já, para nada se perder
-  if (!db) return enfileirar({ col, id: obj.id, obj: clean(obj) });
-  colRef(col).doc(obj.id).set(clean(obj)).catch(() => enfileirar({ col, id: obj.id, obj: clean(obj) }));
+  const op = { col, id: obj.id, obj: clean(obj) };
+  if (col === PESADO) {
+    if (!db) return enfileirar(op);
+    colRef(col).doc(obj.id).set(op.obj).catch(() => enfileirar(op));
+    return;
+  }
+  enfileirar(op);
+  if (!db) return;
+  colRef(col).doc(obj.id).set(op.obj).then(() => confirmado(op)).catch(() => {});
 }
 // Grava vários registros de uma vez. Cada um passa pelo mesmo caminho seguro do
 // upsert, então sem internet o carnê inteiro entra na fila em vez de sumir.
 function escreverVarias(col, objs) { objs.forEach(o => upsert(col, o)); }
 function remove(col, id) {
   salvarEspelho(true);
-  if (!db) return enfileirar({ col, id, del: true });
-  colRef(col).doc(id).delete().catch(() => enfileirar({ col, id, del: true }));
+  const op = { col, id, del: true };
+  enfileirar(op);
+  if (!db) return;
+  colRef(col).doc(id).delete().then(() => confirmado(op)).catch(() => {});
 }
 async function escreverLote(ops) { // ops: [{col, obj} | {col, del:id}]
   for (let i = 0; i < ops.length; i += 400) {
@@ -205,13 +246,20 @@ async function escreverLote(ops) { // ops: [{col, obj} | {col, del:id}]
     await b.commit();
   }
 }
+const itemDeFila = op => op.del ? { col: op.col, id: op.del, del: true }
+  : { col: op.col, id: op.obj.id, obj: clean(op.obj) };
+// Operação em massa (restaurar backup, apagar tudo, importar, apagar item) é
+// feita com o usuário olhando, já é aguardada e já avisa quando falha. Por isso
+// ela enfileira só NA FALHA, e não antes: pôr milhares de registros na fila —
+// com anexos em base64 entre eles — estouraria a cota do aparelho, e aí a fila
+// deixaria de ser gravada. Seria trocar a garantia por uma ilusão dela.
 async function batchWrite(ops) {
   salvarEspelho(true);
-  if (!db) { ops.forEach(op => enfileirar(op.del ? { col: op.col, id: op.del, del: true } : { col: op.col, id: op.obj.id, obj: clean(op.obj) })); return; }
+  if (!db) { ops.forEach(op => enfileirar(itemDeFila(op))); return; }
   try {
     await escreverLote(ops);
   } catch (e) {
-    ops.forEach(op => enfileirar(op.del ? { col: op.col, id: op.del, del: true } : { col: op.col, id: op.obj.id, obj: clean(op.obj) }));
+    ops.forEach(op => enfileirar(itemDeFila(op)));
     throw e;
   }
 }
@@ -231,6 +279,16 @@ function setSync(on) { const d = $('sync-dot'); d.classList.toggle('on', on); d.
 window.addEventListener('online', () => { setSync(true); enviarPendentes(); });
 window.addEventListener('offline', () => setSync(false));
 
+let semPersistencia = false;
+function avisarSemPersistencia(e) {
+  if (semPersistencia) return;
+  semPersistencia = true;
+  console.warn('persistência do Firestore indisponível', e);
+  // A fila do próprio app continua guardando tudo no aparelho, então nada se
+  // perde — mas quem estiver com o app aberto em duas abas precisa saber.
+  toast('Este aparelho não guarda cache da nuvem — feche outras abas do app');
+  atualizarPendentes();
+}
 function connect(cfg, farmCode) {
   farm = farmCode;
   if (typeof firebase === 'undefined') {
@@ -242,7 +300,10 @@ function connect(cfg, farmCode) {
   }
   try { firebase.initializeApp(cfg); } catch (e) { /* já inicializado */ }
   db = firebase.firestore();
-  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+  // Recusada — outra aba segurando, modo privado, armazenamento negado — o
+  // Firestore passa a guardar só na memória. Engolir isso em silêncio era o
+  // pior caso: no curral tudo parece salvo e fecha-se o app sem saber.
+  db.enablePersistence({ synchronizeTabs: true }).catch(e => avisarSemPersistencia(e));
   firebase.auth().onAuthStateChanged(async user => {
     if (!user) return;
     setSync(navigator.onLine);
@@ -269,17 +330,34 @@ function connect(cfg, farmCode) {
 }
 
 let firstAnimalsSnap = true;
+// O iOS despeja o IndexedDB de um site depois de dias sem uso, e um app de
+// fazenda aberto uma vez por semana cai nisso. Voltando com o cache despejado,
+// o Firestore entrega um snapshot VAZIO marcado como "do cache". Aplicá-lo
+// apagava o rebanho da tela e — pior — sobrescrevia a cópia local com o vazio,
+// destruindo a última defesa que existia. Vazio do SERVIDOR é outra coisa: aí
+// a fazenda foi mesmo apagada, e tem de ser respeitado.
+const listaDaColecao = { animals: () => animals, weighings: () => weighings,
+  bovtrans: () => bovT, avtrans: () => avT, gertrans: () => gerT,
+  items: () => items, moves: () => moves };
+function aplicarSnapshot(name, docs, metadata) {
+  const tinha = (listaDaColecao[name] ? listaDaColecao[name]() : []).length;
+  if (!docs.length && tinha && metadata && metadata.fromCache) {
+    console.warn(name + ': snapshot vazio do cache ignorado — mantendo o que está no aparelho');
+    return;
+  }
+  COLS[name](docs);
+  salvarEspelho();
+  if (name === 'animals' && firstAnimalsSnap && metadata && !metadata.fromCache) {
+    firstAnimalsSnap = false;
+    maybeOfferMigration();
+  }
+  render();
+}
 function subscribe() {
   unsubs.forEach(u => u()); unsubs = [];
   Object.keys(COLS).forEach(name => {
     unsubs.push(colRef(name).onSnapshot(snap => {
-      COLS[name](snap.docs.map(d => d.data()));
-      salvarEspelho();
-      if (name === 'animals' && firstAnimalsSnap && !snap.metadata.fromCache) {
-        firstAnimalsSnap = false;
-        maybeOfferMigration();
-      }
-      render();
+      aplicarSnapshot(name, snap.docs.map(d => d.data()), snap.metadata);
     }, err => { console.warn(name, err); }));
   });
   unsubs.push(db.collection('farms').doc(farm).onSnapshot(snap => {
@@ -1540,8 +1618,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=45';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=45';
+const PDFJS_JS = 'vendor/pdf.min.js?v=46';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=46';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
