@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Meus Gastos">
+<link rel="icon" href="icone-192.png">
 <link rel="apple-touch-icon" href="icone-192.png">
 <style>
   :root{
@@ -446,10 +447,24 @@ function marcarSinc(estado){
 }
 
 /* ===================== ações ===================== */
+// Arredondar com Math.round(n*100)/100 perde um centavo em valores como
+// 1,005: o binário mais próximo de 1.005 é um pouco menor, 1.005*100 dá
+// 100.49999999999999, e o valor caía para 1,00. Por isso o arredondamento
+// aqui é feito sobre os dígitos que a pessoa digitou, não sobre o binário
+// que os aproxima. Texto que não seja só número cai no caminho antigo, para
+// continuar aceitando o que já era aceito.
+function arredondarCentavos(texto, n){
+  const m = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(texto);
+  if(!m) return Math.round(n*100)/100;
+  const dec = ((m[3]||'') + '000').slice(0,3);
+  let centavos = Number(m[2]||'0')*100 + Number(dec.slice(0,2));
+  if(Number(dec[2]) >= 5) centavos += 1;
+  return (m[1]==='-' ? -1 : 1) * centavos / 100;
+}
 function lerValor(t){
   const s = String(t).trim().replace(/\s|R\$/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',','.');
   const n = parseFloat(s);
-  return isNaN(n) ? null : Math.round(n*100)/100;
+  return isNaN(n) ? null : arredondarCentavos(s, n);
 }
 function limparForm(){
   editando = null;
