@@ -528,6 +528,43 @@ function inPeriod(iso, sel) {
   return true;
 }
 
+// Lançamento com data fora do período escolhido sumia da tela sem deixar
+// rastro: quem acabou de lançar concluía que o lançamento se perdeu. Acontece
+// sobretudo com data futura, porque "Este mês" e "Este ano" a excluem — uma
+// parcela de 2027 lançada hoje não aparece em nenhum dos dois. O aviso conta
+// quantos ficaram de fora e leva para "Todo período" num toque.
+function avisoForaDoPeriodo(fora, seletor) {
+  if (!fora.length) return '';
+  const hoje = todayISO();
+  const soma = fora.reduce((s, t) => s + t.amount, 0);
+  const futuros = fora.filter(t => t.quando > hoje).length;
+  const quantos = `${fora.length} lançamento${fora.length > 1 ? 's' : ''}`;
+  const onde = futuros === fora.length ? 'com data futura'
+    : futuros ? `em outro período (${futuros} com data futura)`
+    : 'em outro período';
+  return `<button type="button" class="fora-periodo" data-ver-tudo="${seletor}">
+    <span class="fp-texto mono">+ ${quantos} ${onde} · ${fmtRS(soma)}</span>
+    <span class="fp-acao mono">Ver todo período</span>
+  </button>`;
+}
+
+// O período escolhido não era guardado: a cada abertura o Financeiro voltava
+// para "Este mês" e escondia de novo o que estava fora dele.
+const PERIODO_GUARDADO = {
+  'bfin-period': 'fjs-periodo-bov',
+  'av-period': 'fjs-periodo-av',
+  'fz-period': 'fjs-periodo-fz'
+};
+function guardarPeriodo(id) { LS.s(PERIODO_GUARDADO[id], $(id).value); }
+function restaurarPeriodos() {
+  Object.entries(PERIODO_GUARDADO).forEach(([id, chave]) => {
+    const v = LS.g(chave, null);
+    // valor guardado por uma versão antiga não pode deixar o seletor num
+    // estado que não existe mais
+    if (v && [...$(id).options].some(o => o.value === v)) $(id).value = v;
+  });
+}
+
 // ===== Navegação =====
 let tab = 'bovinos', seg = 'rebanho', detailAnimal = null, detailItem = null;
 let bovSort = LS.g('fjs-sort-rebanho', 'ident-asc');
@@ -1130,7 +1167,7 @@ $('lembrete').addEventListener('click', e => {
   // quem tinha conta vencida de Aviário ou Geral numa tela onde ela não estava:
   // o aviso dizia "1 conta vencida" e a tela não mostrava conta nenhuma.
   // A Fazenda é a única que lista os três de uma vez.
-  if (e.target.closest('#lb-ver')) { tab = 'fazenda'; $('fz-period').value = 'all'; render(); }
+  if (e.target.closest('#lb-ver')) { tab = 'fazenda'; $('fz-period').value = 'all'; guardarPeriodo('fz-period'); render(); }
 });
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-pagar]');
@@ -1350,9 +1387,16 @@ function renderFazenda() {
         ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
-    </div>`).join('');
+    </div>`).join('')
+    // Mesmo aviso do Financeiro, pela data que o regime escolhido usa: no
+    // caixa, o que conta é a data do pagamento, não a da compra.
+    + avisoForaDoPeriodo(
+        LIVROS.flatMap(b => arrLivro(b))
+          .map(t => ({ amount: t.amount, quando: dataDoRegime(t, regime) }))
+          .filter(x => x.quando && !inPeriod(x.quando, period)),
+        'fz-period');
 }
-$('fz-period').addEventListener('change', render);
+$('fz-period').addEventListener('change', () => { guardarPeriodo('fz-period'); render(); });
 // A escolha do regime fica guardada: quem trabalha por caixa não quer voltar
 // para competência toda vez que abre o aplicativo.
 $('fz-regime').addEventListener('change', () => { LS.s('fjs-regime', $('fz-regime').value); render(); });
@@ -1807,7 +1851,10 @@ function renderFin(book) {
         ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
-    </div>`).join('');
+    </div>`).join('')
+    + avisoForaDoPeriodo(
+        list.filter(t => !inPeriod(t.date, period)).map(t => ({ amount: t.amount, quando: t.date })),
+        isAv ? 'av-period' : 'bfin-period');
   if (isAv) $('av-empty').hidden = avT.length > 0;
 }
 
@@ -3294,8 +3341,9 @@ document.addEventListener('click', async e => {
 });
 $('btn-move-in').addEventListener('click', () => openMove(detailItem, 'entrada'));
 $('btn-move-out').addEventListener('click', () => openMove(detailItem, 'saida'));
-$('bfin-period').addEventListener('change', render);
-$('av-period').addEventListener('change', render);
+$('bfin-period').addEventListener('change', () => { guardarPeriodo('bfin-period'); render(); });
+$('av-period').addEventListener('change', () => { guardarPeriodo('av-period'); render(); });
+restaurarPeriodos();
 // valor guardado pode estar desatualizado por uma versão antiga do app
 if (![...$('bov-sort').options].some(o => o.value === bovSort)) bovSort = 'ident-asc';
 $('bov-sort').value = bovSort;
@@ -3314,6 +3362,8 @@ $('fz-regime').value = [...$('fz-regime').options].some(o => o.value === regimeG
   ? regimeGuardado : 'competencia';
 
 document.addEventListener('click', e => {
+  const vt = e.target.closest('[data-ver-tudo]');
+  if (vt) { $(vt.dataset.verTudo).value = 'all'; guardarPeriodo(vt.dataset.verTudo); render(); return; }
   const aed = e.target.closest('[data-animal-edit]');
   if (aed) { const a = animals.find(x => x.id === aed.dataset.animalEdit); if (a) openAnimal(a); return; }
   const ai = e.target.closest('[data-animal]');
