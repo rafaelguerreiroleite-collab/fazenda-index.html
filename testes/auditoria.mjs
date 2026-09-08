@@ -346,6 +346,102 @@ export default async function () {
   t.conferir('exclusão sem sinal não é ressuscitada pelo snapshot',
     naoDuplica.apagadoFicouApagado === true);
 
+  // ---------- o ajuste da fazenda também não pode ser desfeito ----------
+  // O rendimento de carcaça e os parâmetros de custo não vivem numa coleção:
+  // vivem no documento da fazenda, com snapshot próprio. Ele tinha o MESMO
+  // defeito do brinco duplicado — aplicava a verdade do servidor por cima do
+  // que ainda estava na fila. E o rendimento manda em TODA arroba do app.
+  t.secao('ajuste da fazenda feito sem sinal');
+  const fazendaOffline = await pagina.evaluate(async () => {
+    db = null; pendentes = []; localStorage.removeItem('fjs-pendentes');
+    settings.yield = 52;
+    // Mesma ordem do app: ajusta o valor e SÓ ENTÃO manda gravar.
+    settings.yield = 58; salvarFazenda({ yield: 58 });
+    const r = { naFila: pendentes.filter(p => p.col === '_fazenda').map(p => p.obj.yield) };
+    aplicarFazenda({ yield: 52 });                 // servidor ainda com o antigo
+    r.rendimento = settings.yield;
+    await new Promise(x => setTimeout(x, 700));    // o espelho grava com atraso
+    r.espelho = (JSON.parse(localStorage.getItem('fjs-espelho') || '{}').settings || {}).yield;
+
+    custoParams = Object.assign({}, CUSTO_VAZIO, { gmd: 0.9 });
+    salvarFazenda({ custo: { gmd: 0.9 } });
+    aplicarFazenda({ yield: 52, custo: { gmd: 0.4 } });
+    r.gmd = custoParams.gmd;
+
+    // já com a fila vazia, o servidor manda — é o caminho normal
+    pendentes = [];
+    aplicarFazenda({ yield: 55, custo: { gmd: 0.7 } });
+    r.semFilaRend = settings.yield;
+    r.semFilaGmd = custoParams.gmd;
+    return r;
+  });
+  t.conferir('o rendimento mudado sem sinal fica na fila',
+    fazendaOffline.naFila.includes(58), JSON.stringify(fazendaOffline.naFila));
+  t.conferir('e o snapshot do servidor NÃO o desfaz',
+    fazendaOffline.rendimento === 58, String(fazendaOffline.rendimento));
+  t.conferir('nem grava o valor antigo na cópia local',
+    fazendaOffline.espelho === 58, String(fazendaOffline.espelho));
+  t.conferir('o mesmo vale para os parâmetros do custo da arroba',
+    fazendaOffline.gmd === 0.9, String(fazendaOffline.gmd));
+  t.conferir('com a fila vazia, o servidor volta a mandar',
+    fazendaOffline.semFilaRend === 55 && fazendaOffline.semFilaGmd === 0.7,
+    `${fazendaOffline.semFilaRend} / ${fazendaOffline.semFilaGmd}`);
+
+  // ---------- apagar tudo não pode deixar escrita antiga ressuscitar ----------
+  t.secao('apagar tudo com fila pendente');
+  // o "apagar tudo" pede a palavra num prompt; sem responder, ele desiste e o
+  // teste mediria a desistência
+  const confirmarApagar = async d => { await d.accept(d.type() === 'prompt' ? 'APAGAR' : undefined); };
+  pagina.on('dialog', confirmarApagar);
+  const apagarComFila = await pagina.evaluate(async () => {
+    db = null; pendentes = []; localStorage.removeItem('fjs-pendentes');
+    animals = [{ id: 'z1', ident: '900' }];
+    weighings = [{ id: 'zw1', animalId: 'z1', date: '2026-09-01', weight: 300 }];
+    bovT = [{ id: 't1', date: '2026-09-01', type: 'saida', amount: 10,
+      anexos: [{ id: 'ax1', nome: 'n.pdf', tipo: 'application/pdf', tamanho: 9 }] }];
+    avT = []; gerT = []; items = []; moves = [];
+    upsert('animals', animals[0]);
+    upsert('weighings', weighings[0]);
+    upsert('anexos', { id: 'ax1', transId: 't1', dados: 'data:x' });
+    const antes = pendentes.filter(p => !p.del).length;
+    $('menu-clear').click();
+    await new Promise(r => setTimeout(r, 300));
+    return { antes, sobrouCriando: pendentes.filter(p => !p.del).map(p => p.col + ':' + p.id),
+      apagando: pendentes.filter(p => p.del).length };
+  });
+  pagina.removeListener('dialog', confirmarApagar);
+  t.conferir('havia escritas de criação na fila antes de apagar',
+    apagarComFila.antes === 3, String(apagarComFila.antes));
+  t.conferir('nenhuma escrita de criação sobrevive ao apagar tudo',
+    apagarComFila.sobrouCriando.length === 0,
+    'sobrou: ' + (apagarComFila.sobrouCriando.join(', ') || 'nada'));
+  t.conferir('elas viram exclusões — nada ressuscita ao voltar o sinal',
+    apagarComFila.apagando >= 3, `${apagarComFila.apagando} exclusões na fila`);
+
+  // ---------- quem tem lançamento preso precisa VER ----------
+  t.secao('aviso visível de lançamento não enviado');
+  const aviso = await pagina.evaluate(() => {
+    const d = $('sync-dot');
+    pendentes = []; atualizarPendentes();
+    const vazio = d.dataset.n;
+    pendentes = [{ col: 'weighings', id: 'a', obj: {} }, { col: 'weighings', id: 'b', obj: {} }];
+    atualizarPendentes();
+    const dois = d.dataset.n;
+    const visivelDois = getComputedStyle(d, '::after').content;
+    pendentes[0].recusado = true; atualizarPendentes();
+    const marcado = d.classList.contains('recusado');
+    pendentes = []; atualizarPendentes();
+    const visivelVazio = getComputedStyle(d, '::after').content;
+    return { vazio, dois, visivelDois, marcado, visivelVazio };
+  });
+  t.conferir('sem fila, o ponto não mostra número', aviso.vazio === '0', String(aviso.vazio));
+  t.conferir('com 2 na fila, o ponto carrega o 2', aviso.dois === '2', String(aviso.dois));
+  t.conferir('e o número é DESENHADO, não só um title que o iPhone não mostra',
+    aviso.visivelDois.includes('2'), aviso.visivelDois);
+  t.conferir('recusado pela nuvem fica marcado à parte', aviso.marcado === true);
+  t.conferir('esvaziando a fila, o número some',
+    aviso.visivelVazio === 'none' || aviso.visivelVazio === '""', aviso.visivelVazio);
+
   // ---------- persistência recusada tem de ser dita ----------
   t.secao('persistência do Firestore recusada');
   const persistencia = await pagina.evaluate(() => {

@@ -149,6 +149,10 @@ function atualizarPendentes() {
   const d = $('sync-dot');
   if (!d) return;
   const recusados = pendentes.filter(p => p.recusado);
+  // O title é dica de mouse: no iPhone NUNCA aparece. Quem tinha lançamento
+  // preso na fila não tinha como saber. O número vai para o próprio ponto.
+  d.dataset.n = pendentes.length;
+  d.classList.toggle('recusado', recusados.length > 0);
   d.title = !pendentes.length ? 'Sincronização'
     // Dizer "aguardando a internet" quando a nuvem está recusando o registro é
     // mandar a pessoa esperar por algo que nunca vai acontecer.
@@ -365,6 +369,22 @@ function aplicarSnapshot(name, docs, metadata) {
   }
   render();
 }
+function aplicarFazenda(d) {
+  // Mesma regra das coleções, e pelo mesmo motivo: o snapshot é a verdade DO
+  // SERVIDOR, e o servidor não sabe do que está na fila. Aplicado cru, mudar o
+  // rendimento de carcaça sem sinal era desfeito no primeiro snapshot — a tela
+  // voltava ao valor antigo, a cópia local era gravada com ele, e o rendimento
+  // manda em TODA arroba do aplicativo. O mesmo valia para os parâmetros de
+  // custo da arroba.
+  const naFila = pendentes.find(p => p.col === '_fazenda');
+  if (naFila && naFila.obj) d = Object.assign({}, d, naFila.obj);
+  settings.yield = Number.isFinite(d.yield) ? d.yield : 52;
+  salvarEspelho();
+  // Não sobrescreve o que está sendo digitado neste instante
+  const digitando = document.activeElement && document.activeElement.closest && document.activeElement.closest('.calc-form');
+  if (!digitando) custoParams = Object.assign({}, CUSTO_VAZIO, d.custo || {});
+  render();
+}
 function subscribe() {
   unsubs.forEach(u => u()); unsubs = [];
   Object.keys(COLS).forEach(name => {
@@ -372,15 +392,7 @@ function subscribe() {
       aplicarSnapshot(name, snap.docs.map(d => d.data()), snap.metadata);
     }, err => { console.warn(name, err); }));
   });
-  unsubs.push(db.collection('farms').doc(farm).onSnapshot(snap => {
-    const d = snap.data() || {};
-    settings.yield = Number.isFinite(d.yield) ? d.yield : 52;
-    salvarEspelho();
-    // Não sobrescreve o que está sendo digitado neste instante
-    const digitando = document.activeElement && document.activeElement.closest && document.activeElement.closest('.calc-form');
-    if (!digitando) custoParams = Object.assign({}, CUSTO_VAZIO, d.custo || {});
-    render();
-  }));
+  unsubs.push(db.collection('farms').doc(farm).onSnapshot(snap => aplicarFazenda(snap.data() || {})));
 }
 
 function maybeOfferMigration() {
@@ -1674,8 +1686,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=47';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=47';
+const PDFJS_JS = 'vendor/pdf.min.js?v=48';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=48';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;

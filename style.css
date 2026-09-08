@@ -425,6 +425,22 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .hdr-right { display: flex; align-items: center; gap: 0.6rem; }
 .sync-dot { width: 10px; height: 10px; border-radius: 50%; background: #9dbcaa; display: inline-block; }
 .sync-dot.on { background: #047857; }
+
+/* Contador de lançamentos aguardando envio, no próprio ponto de sincronia.
+   Antes o número só existia no atributo title, que é dica de mouse e no
+   iPhone nunca aparece: quem tinha pesagem presa na fila não tinha como
+   saber. Vermelho quando a nuvem RECUSOU — aí esperar não resolve. */
+.sync-dot { position: relative; }
+.sync-dot[data-n]:not([data-n="0"])::after {
+  content: attr(data-n);
+  position: absolute; top: -0.55rem; right: -0.6rem;
+  min-width: 1.1rem; padding: 0 0.22rem;
+  background: #b45309; color: #fafaf9;
+  border-radius: 999px; border: 1px solid #fafaf9;
+  font-family: 'DM Mono', monospace; font-size: 0.62rem; line-height: 1.15rem;
+  text-align: center; font-weight: 500;
+}
+.sync-dot.recusado[data-n]:not([data-n="0"])::after { background: #991b1b; }
 .sync-dot.off { background: #b45309; }
 .menu-farm { font-size: 0.72rem; color: #57534e; padding: 0.25rem 0.75rem; margin: 0;
   display: flex; flex-direction: column; gap: 0.3rem; align-items: flex-start; }
