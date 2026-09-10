@@ -153,6 +153,35 @@ export default async function () {
       // --- período: "todo período" nunca exclui nada ---
       regra('todo período aceita qualquer data', inPeriod(dataAleatoria(), 'all') === true, '');
 
+      // --- mês e ano escolhidos a dedo ---
+      // Comparação por texto, sem montar Date: é o que tira fuso, virada de mês
+      // e 29 de fevereiro do caminho. Estas regras existem para que ninguém
+      // "melhore" isso mais tarde voltando a usar Date e reintroduzindo o erro.
+      const dEsc = dataAleatoria();
+      const mesDela = dEsc.slice(0, 7), anoDela = dEsc.slice(0, 4);
+      regra('o mês da própria data sempre aceita a data',
+        inPeriod(dEsc, mesDela) === true, `${dEsc} em ${mesDela}`);
+      regra('o ano da própria data sempre aceita a data',
+        inPeriod(dEsc, anoDela) === true, `${dEsc} em ${anoDela}`);
+      regra('mês escolhido recusa data de outro mês',
+        inPeriod(dEsc, mesDela) && !inPeriod(dEsc, mesDela.slice(0, 5) + (mesDela.slice(5) === '12' ? '11' : '12')),
+        `${dEsc} vs ${mesDela}`);
+      regra('ano escolhido recusa data de outro ano',
+        !inPeriod(dEsc, String(Number(anoDela) + 1)), `${dEsc} vs ${Number(anoDela) + 1}`);
+      regra('mês escolhido está contido no ano dele',
+        !inPeriod(dEsc, mesDela) || inPeriod(dEsc, anoDela), `${dEsc}`);
+      regra('mês e ano escolhidos estão contidos em todo período',
+        inPeriod(dEsc, 'all') === true, dEsc);
+      // Um período escolhido nunca pode aceitar MAIS que "todo período", e a
+      // soma dos doze meses de um ano tem de dar o ano inteiro.
+      const dozeMeses = Array.from({ length: 12 }, (_, k) =>
+        `${anoDela}-${String(k + 1).padStart(2, '0')}`);
+      regra('a data cai em exatamente um dos doze meses do ano dela',
+        dozeMeses.filter(m => inPeriod(dEsc, m)).length === 1,
+        `${dEsc}: ${dozeMeses.filter(m => inPeriod(dEsc, m)).join(',')}`);
+      regra('data vazia não entra em mês nem ano escolhido',
+        !inPeriod('', mesDela) && !inPeriod(null, anoDela), '');
+
       // --- alarme de pesagem: nunca alarma um ganho normal ---
       const gOk = dec(0.2, 1.8, 3), pesoOk = dec(150, 600, 1), diasOk = ent(30, 300);
       regra('ganho normal não dispara alarme',

@@ -531,13 +531,76 @@ function avgCostOf(iid) {
   return ins.reduce((s, m) => s + m.qty * m.unitCost, 0) / q;
 }
 
+// Além dos períodos móveis, o filtro aceita um mês ("2026-03") ou um ano
+// ("2026") escolhido a dedo. A comparação é feita em TEXTO, no formato do
+// próprio campo, e não montando Date: "2026-03-10".startsWith("2026-03") não
+// tem fuso, não tem virada de mês e não tem 29 de fevereiro para errar.
+const MES_ESCOLHIDO = /^\d{4}-\d{2}$/;
+const ANO_ESCOLHIDO = /^\d{4}$/;
 function inPeriod(iso, sel) {
   if (sel === 'all') return true;
+  if (!iso) return false;
+  if (MES_ESCOLHIDO.test(sel)) return String(iso).slice(0, 7) === sel;
+  if (ANO_ESCOLHIDO.test(sel)) return String(iso).slice(0, 4) === sel;
   const now = new Date(); const d = new Date(iso + 'T12:00');
   if (sel === 'this-month') return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   if (sel === 'last-month') { const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1); return d.getFullYear() === lm.getFullYear() && d.getMonth() === lm.getMonth(); }
   if (sel === 'this-year') return d.getFullYear() === now.getFullYear();
   return true;
+}
+// Só oferece mês e ano que TÊM lançamento: um mês vazio na lista é um beco.
+// Entram as duas datas de cada lançamento — a da compra e a do pagamento —
+// porque no regime de caixa é a segunda que decide onde ele aparece.
+const NOME_MES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const rotuloMes = m => {
+  const [a, mm] = m.split('-');
+  const nome = NOME_MES[Number(mm) - 1] || mm;
+  return nome.charAt(0).toUpperCase() + nome.slice(1) + ' de ' + a;
+};
+function periodosComLancamento(lista) {
+  const datas = [];
+  lista.forEach(t => {
+    if (t.date) datas.push(t.date);
+    const pago = dataDoRegime(t, 'caixa');
+    if (pago) datas.push(pago);
+  });
+  const meses = [...new Set(datas.map(d => String(d).slice(0, 7)))].sort().reverse();
+  const anos = [...new Set(datas.map(d => String(d).slice(0, 4)))].sort().reverse();
+  return { meses, anos };
+}
+// Reconstrói as opções só quando o conjunto muda: refazer o seletor a cada
+// desenho fecharia a lista na mão de quem está escolhendo.
+const FIXOS = ['this-month', 'last-month', 'this-year', 'all'];
+const assinaturaPeriodo = {};
+function atualizarOpcoesPeriodo(id, lista) {
+  const el = $(id);
+  if (!el) return;
+  const { meses, anos } = periodosComLancamento(lista);
+  const assinatura = meses.join(',') + '|' + anos.join(',');
+  if (assinaturaPeriodo[id] === assinatura) return;
+  assinaturaPeriodo[id] = assinatura;
+  const escolhido = el.value;
+  const fixos = [...el.options].filter(o => FIXOS.includes(o.value))
+    .map(o => `<option value="${o.value}">${esc(o.textContent)}</option>`).join('');
+  const opMes = meses.map(m => `<option value="${m}">${esc(rotuloMes(m))}</option>`).join('');
+  const opAno = anos.length > 1
+    ? anos.map(a => `<option value="${a}">Ano de ${esc(a)}</option>`).join('') : '';
+  el.innerHTML = fixos
+    + (opMes ? `<optgroup label="Mês">${opMes}</optgroup>` : '')
+    + (opAno ? `<optgroup label="Ano">${opAno}</optgroup>` : '');
+  // O valor guardado pode ser um mês que só existe depois que os dados chegam:
+  // é aqui, e não no arranque, que ele volta a ser aplicável.
+  //
+  // Quem ganha depende de quem escolheu. Antes de o usuário mexer nesta sessão,
+  // o guardado tem de vencer — senão o mês escolhido ontem NUNCA volta, porque
+  // na abertura o seletor está no padrão do HTML e esse padrão sempre existe.
+  // Depois que ele mexeu, a escolha da sessão vence: um mês reaparecendo por
+  // causa de um lançamento novo não pode sequestrar a tela que ele está vendo.
+  const guardado = LS.g(PERIODO_GUARDADO[id], null);
+  const ordem = escolhaDaSessao[id] ? [escolhido, guardado] : [guardado, escolhido];
+  const alvo = ordem.find(v => v && [...el.options].some(o => o.value === v));
+  el.value = alvo || 'this-month';
 }
 
 // Lançamento com data fora do período escolhido sumia da tela sem deixar
@@ -567,7 +630,9 @@ const PERIODO_GUARDADO = {
   'av-period': 'fjs-periodo-av',
   'fz-period': 'fjs-periodo-fz'
 };
-function guardarPeriodo(id) { LS.s(PERIODO_GUARDADO[id], $(id).value); }
+// Marca que a escolha veio do dedo do usuário nesta sessão, não do arquivo.
+const escolhaDaSessao = {};
+function guardarPeriodo(id) { escolhaDaSessao[id] = true; LS.s(PERIODO_GUARDADO[id], $(id).value); }
 function restaurarPeriodos() {
   Object.entries(PERIODO_GUARDADO).forEach(([id, chave]) => {
     const v = LS.g(chave, null);
@@ -1300,6 +1365,7 @@ function resumoFazenda(period, regime) {
   };
 }
 function renderFazenda() {
+  atualizarOpcoesPeriodo('fz-period', LIVROS.flatMap(b => arrLivro(b)));
   const period = $('fz-period').value;
   const regime = regimeAtual();
   const R = resumoFazenda(period, regime);
@@ -1710,8 +1776,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=50';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=50';
+const PDFJS_JS = 'vendor/pdf.min.js?v=51';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=51';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1841,6 +1907,9 @@ const apagarAnexosDe = t => (t.anexos || []).forEach(a => { remove('anexos', a.i
 function renderFin(book) {
   const isAv = book === 'av';
   const list = isAv ? avT : bovT;
+  // As opções de mês vêm dos lançamentos DESTE livro: oferecer "Março" numa aba
+  // que não teve nada em março é um beco.
+  atualizarOpcoesPeriodo(isAv ? 'av-period' : 'bfin-period', list);
   const period = isAv ? $('av-period').value : $('bfin-period').value;
   const regime = regimeAtual();
   // Aviários virou uma atividade só: o galpão não separa mais nada. Lançamento

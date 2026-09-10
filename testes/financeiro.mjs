@@ -19,7 +19,17 @@ export default async function () {
   const t = placar(`Lançamento financeiro (${N.toLocaleString('pt-BR')} rodadas · semente ${SEMENTE})`);
 
   // ---------- as rodadas sorteadas ----------
-  const bruto = await pagina.evaluate(async ({ N, SEMENTE }) => {
+  // Em blocos, e não tudo num evaluate só: cada rodada abre o formulário de
+  // verdade e redesenha a tela, então 20 mil de uma vez enchem a memória do
+  // navegador e a aba MORRE no meio ("Target crashed") — a bateria não chega ao
+  // fim e não se sabe se falhou por bug ou por falta de memória. Entre blocos o
+  // coletor de lixo trabalha. A semente atravessa os blocos, então a sequência
+  // sorteada é a mesma de uma corrida única: o resultado é reproduzível.
+  const BLOCO = 500;
+  const bruto = { conta: {} };
+  let sementeAtual = SEMENTE;
+  for (let feitas = 0; feitas < N; feitas += BLOCO) {
+    const parte = await pagina.evaluate(async ({ N, SEMENTE }) => {
     let semente = SEMENTE;
     const sorte = () => (semente = (semente * 48271) % 2147483647) / 2147483647;
     const entre = (a, b) => a + sorte() * (b - a);
@@ -218,8 +228,16 @@ export default async function () {
           somaCsv === centavos(valor), `${ctx}: CSV ${somaCsv} vs ${centavos(valor)}`);
       }
     }
-    return { conta, falhas };
-  }, { N, SEMENTE });
+    return { conta, semente };
+    }, { N: Math.min(BLOCO, N - feitas), SEMENTE: sementeAtual });
+    sementeAtual = parte.semente;
+    // junta os contadores do bloco aos que já vieram
+    for (const [nome, v] of Object.entries(parte.conta)) {
+      const acc = bruto.conta[nome] || (bruto.conta[nome] = { ok: 0, falhou: 0, exemplo: '' });
+      acc.ok += v.ok; acc.falhou += v.falhou;
+      if (!acc.exemplo && v.exemplo) acc.exemplo = v.exemplo;
+    }
+  }
 
   const nomes = Object.keys(bruto.conta);
   t.secao(`${nomes.length} regras conferidas em ${N.toLocaleString('pt-BR')} rodadas`);
