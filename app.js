@@ -1225,6 +1225,32 @@ document.addEventListener('click', e => {
 // Conta a prazo ainda não paga não aparece em caixa nenhum: o dinheiro não
 // saiu. Ela continua inteira no "A pagar", que não depende de regime nenhum —
 // dívida é dívida.
+const REGIMES = ['bfin-regime', 'av-regime', 'fz-regime'];
+// O regime é UM SÓ para o app inteiro, de propósito. Ele não é um filtro de
+// tela — é a resposta a "o que eu chamo de custo do mês". Se Bovinos estivesse
+// por caixa e a Fazenda por competência, somar um com o outro deixaria de
+// fazer sentido e ninguém veria por quê.
+function regimeAtual() {
+  const v = LS.g('fjs-regime', 'competencia');
+  return v === 'caixa' ? 'caixa' : 'competencia';
+}
+function definirRegime(v) {
+  LS.s('fjs-regime', v);
+  REGIMES.forEach(id => { const el = $(id); if (el) el.value = v; });
+}
+// A mesma explicação nas três abas: o que o regime conta e, no caixa, QUANTO
+// ficou de fora por não estar pago. Sem isso a pessoa lê um custo menor e
+// conclui que gastou menos do que gastou.
+function notaDoRegime(idNota, regime, lista) {
+  const el = $(idNota);
+  if (!el) return;
+  const aberto = lista.filter(emAberto);
+  const soma = aberto.reduce((s, t) => s + t.amount, 0);
+  el.innerHTML = regime === 'caixa'
+    ? 'Contando pela data em que o dinheiro saiu.'
+      + (aberto.length ? ` <b>${aberto.length} conta(s) a pagar (${fmtRS(soma)}) ficam de fora até serem pagas.</b>` : '')
+    : 'Contando pela data da compra — a compra parcelada conta inteira no mês em que foi feita.';
+}
 function dataDoRegime(t, regime) {
   if (regime !== 'caixa') return t.date;
   // emAberto e não uma cópia da condição dele. Escrever "venc && !pago" aqui de
@@ -1275,7 +1301,7 @@ function resumoFazenda(period, regime) {
 }
 function renderFazenda() {
   const period = $('fz-period').value;
-  const regime = $('fz-regime').value;
+  const regime = regimeAtual();
   const R = resumoFazenda(period, regime);
   // A lista embaixo tem de mostrar exatamente o que o saldo somou, e no regime
   // de caixa a data que vale é outra. Mostrando pela data da compra, o saldo
@@ -1299,12 +1325,7 @@ function renderFazenda() {
 
   // O que o regime escolhido deixa DE FORA precisa estar escrito, senão a
   // pessoa lê um custo menor e conclui que gastou menos do que gastou.
-  const aberto = LIVROS.flatMap(b => arrLivro(b)).filter(emAberto);
-  const somaAberto = aberto.reduce((s, t) => s + t.amount, 0);
-  $('fz-regime-nota').innerHTML = regime === 'caixa'
-    ? `Contando pela data em que o dinheiro saiu.`
-      + (aberto.length ? ` <b>${aberto.length} conta(s) a pagar (${fmtRS(somaAberto)}) ficam de fora até serem pagas.</b>` : '')
-    : 'Contando pela data da compra — a compra parcelada conta inteira no mês em que foi feita.';
+  notaDoRegime('fz-regime-nota', regime, LIVROS.flatMap(b => arrLivro(b)));
 
   $('fz-balance').innerHTML = `
     <div class="bc-label">Fazenda inteira · saldo do período${regime === 'caixa' ? ' · caixa' : ''}</div>
@@ -1411,7 +1432,10 @@ function renderFazenda() {
 $('fz-period').addEventListener('change', () => { guardarPeriodo('fz-period'); render(); });
 // A escolha do regime fica guardada: quem trabalha por caixa não quer voltar
 // para competência toda vez que abre o aplicativo.
-$('fz-regime').addEventListener('change', () => { LS.s('fjs-regime', $('fz-regime').value); render(); });
+REGIMES.forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('change', () => { definirRegime(el.value); render(); });
+});
 
 // ===== Nota fiscal anexada =====
 // A nuvem guarda no máximo 1 MB por registro, e foto de celular tem 3 a 5 MB.
@@ -1686,8 +1710,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=49';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=49';
+const PDFJS_JS = 'vendor/pdf.min.js?v=50';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=50';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1818,16 +1842,22 @@ function renderFin(book) {
   const isAv = book === 'av';
   const list = isAv ? avT : bovT;
   const period = isAv ? $('av-period').value : $('bfin-period').value;
+  const regime = regimeAtual();
   // Aviários virou uma atividade só: o galpão não separa mais nada. Lançamento
   // antigo mantém o campo gravado, mas ninguém filtra nem exibe por ele — o
   // dado fica lá, caso um dia a separação volte a fazer falta.
-  const filtered = list.filter(t => inPeriod(t.date, period));
+  // A data que vale depende do regime: por competência é a da compra, por
+  // caixa é a do pagamento — e conta a prazo em aberto não entra em caixa
+  // nenhum, porque o dinheiro não saiu.
+  const comQuando = list.map(t => ({ t, quando: dataDoRegime(t, regime) }));
+  const filtered = comQuando.filter(x => x.quando && inPeriod(x.quando, period)).map(x => x.t);
+  notaDoRegime(isAv ? 'av-regime-nota' : 'bfin-regime-nota', regime, list);
   const inn = filtered.filter(t => t.type === 'entrada').reduce((s, t) => s + t.amount, 0);
   const out = filtered.filter(t => t.type === 'saida').reduce((s, t) => s + t.amount, 0);
   const bal = inn - out;
   const balEl = isAv ? $('av-balance') : $('bfin-balance');
   balEl.innerHTML = `
-    <div class="bc-label">Saldo do período</div>
+    <div class="bc-label">Saldo do período${regime === 'caixa' ? ' · caixa' : ''}</div>
     <div class="bc-value ${bal < 0 ? 'negative' : 'positive'}">${fmtRS(bal)}</div>
     <div class="bc-split">
       <div><div class="lbl">Entradas</div><div class="val in">${fmtRS(inn)}</div></div>
@@ -1855,17 +1885,23 @@ function renderFin(book) {
   catEl.style.display = entries.length ? '' : 'none';
   renderAPagar(book);
   const listEl = isAv ? $('av-list') : $('bfin-list');
-  const sorted = [...filtered].sort((a, b) => a.date < b.date ? 1 : -1);
-  listEl.innerHTML = sorted.map(t => `<div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
+  // Ordena e data pela MESMA data que o saldo somou: mostrando a da compra num
+  // saldo de caixa, a lista contaria uma história diferente do total acima.
+  const sorted = comQuando.filter(x => x.quando && inPeriod(x.quando, period))
+    .sort((a, b) => a.quando < b.quando ? 1 : -1);
+  listEl.innerHTML = sorted.map(({ t, quando }) => `<div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
-        <div class="item-subtitle">${fmtBR(t.date)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
+        <div class="item-subtitle">${fmtBR(quando)}${regime === 'caixa' && quando !== t.date ? ' (pago)' : ''}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
         ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
     </div>`).join('')
+    // Só entra aqui o que o PERÍODO escondeu. O que o regime deixa de fora é
+    // outra coisa — conta a pagar — e já tem aviso próprio logo acima.
     + avisoForaDoPeriodo(
-        list.filter(t => !inPeriod(t.date, period)).map(t => ({ amount: t.amount, quando: t.date })),
+        comQuando.filter(x => x.quando && !inPeriod(x.quando, period))
+          .map(x => ({ amount: x.t.amount, quando: x.quando })),
         isAv ? 'av-period' : 'bfin-period');
   if (isAv) $('av-empty').hidden = avT.length > 0;
 }
@@ -3369,9 +3405,7 @@ $('bov-gmd-sim').addEventListener('input', () => {
 });
 // Mesmo cuidado com o regime: valor guardado por uma versão antiga não pode
 // deixar o seletor num estado que não existe mais.
-const regimeGuardado = LS.g('fjs-regime', 'competencia');
-$('fz-regime').value = [...$('fz-regime').options].some(o => o.value === regimeGuardado)
-  ? regimeGuardado : 'competencia';
+definirRegime(regimeAtual());
 
 document.addEventListener('click', e => {
   const vt = e.target.closest('[data-ver-tudo]');

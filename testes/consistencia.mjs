@@ -492,7 +492,7 @@ export default async function () {
       const conta = { id: 'fz-' + livro, date: '2026-08-01', type: 'saida', amount: 1500,
         category: 'Seguro', venc: '2026-09-30', pago: false };
       setLivro(livro, [conta]);
-      tab = 'fazenda'; $('fz-period').value = 'all'; $('fz-regime').value = 'competencia'; render();
+      tab = 'fazenda'; $('fz-period').value = 'all'; definirRegime('competencia'); render();
       const botao = $('fz-apagar').querySelector(`[data-pagar="${conta.id}"]`);
       r[livro] = { temBotao: !!botao, livroNoBotao: botao && botao.dataset.livro };
       if (!botao) continue;

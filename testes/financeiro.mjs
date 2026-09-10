@@ -518,8 +518,7 @@ export default async function () {
   t.secao('a aba Fazenda no regime de caixa');
   const tela = await pagina.evaluate(() => {
     const ver = valor => {
-      $('fz-regime').value = valor;
-      $('fz-regime').dispatchEvent(new Event('change', { bubbles: true }));
+      definirRegime(valor);
       tab = 'fazenda'; $('fz-period').value = 'all'; render();
       return {
         linhas: $('fz-lista').querySelectorAll('[data-trans]').length,
@@ -532,8 +531,7 @@ export default async function () {
     const comp = ver('competencia');
     const caixa = ver('caixa');
     const guardado = JSON.parse(localStorage.getItem('fjs-regime'));
-    $('fz-regime').value = 'competencia';
-    $('fz-regime').dispatchEvent(new Event('change', { bubbles: true }));
+    definirRegime('competencia');
     return { comp, caixa, guardado };
   });
   t.conferir('competência lista os 5 lançamentos', tela.comp.linhas === 5, String(tela.comp.linhas));
@@ -630,11 +628,11 @@ export default async function () {
       custosIguais: cent(R.custos) === cent(soma(bovT, 'saida') + soma(avT, 'saida') + soma(gerT, 'saida')),
       nIgual: R.n === bovT.length + avT.length + gerT.length,
       // e a tela desenha o mesmo número de linhas que somou, nos dois regimes
-      linhasComp: (() => { $('fz-regime').value = 'competencia';
+      linhasComp: (() => { definirRegime('competencia');
         tab = 'fazenda'; $('fz-period').value = 'all'; render();
         return $('fz-lista').querySelectorAll('[data-trans]').length; })(),
       nComp: R.n,
-      linhasCaixa: (() => { $('fz-regime').value = 'caixa'; render();
+      linhasCaixa: (() => { definirRegime('caixa'); render();
         return $('fz-lista').querySelectorAll('[data-trans]').length; })(),
       nCaixa: resumoFazenda('all', 'caixa').n
     };
@@ -654,14 +652,14 @@ export default async function () {
     bovT = [{ id: 'z1', date: '2026-03-10', type: 'saida', amount: 500, category: 'Ração/insumos',
       venc: '2026-04-10', pago: false }];
     avT = []; gerT = [];
-    const ver = r => { $('fz-regime').value = r; tab = 'fazenda'; $('fz-period').value = 'all'; render();
+    const ver = r => { definirRegime(r); tab = 'fazenda'; $('fz-period').value = 'all'; render();
       return { escondido: $('fz-empty').hidden, titulo: $('fz-empty-titulo').textContent,
         texto: $('fz-empty-texto').textContent }; };
     const caixa = ver('caixa');
     // e sem NENHUM lançamento, a mensagem volta a ser a normal
     bovT = [];
     const nada = ver('caixa');
-    $('fz-regime').value = 'competencia'; render();
+    definirRegime('competencia'); render();
     return { caixa, nada };
   });
   t.conferir('com lançamento não pago, o caixa não diz "nenhum lançamento"',
@@ -674,6 +672,86 @@ export default async function () {
     /Nenhum lançamento/i.test(vazio.nada.titulo), vazio.nada.titulo);
   t.conferir('e ela cita os três livros, não dois',
     /Geral/.test(vazio.nada.texto), vazio.nada.texto);
+
+  // ---------- caixa também em Bovinos e Aviários ----------
+  // O regime existia só na aba Fazenda. Quem administra o gado olha o
+  // Financeiro de Bovinos, e ali continuava vendo a compra parcelada inteira
+  // no mês da compra, sem como perguntar "quanto saiu do bolso".
+  t.secao('regime nas abas de Bovinos e Aviários');
+  const abas = await pagina.evaluate(async () => {
+    // compra de 1.200 em 10/03 em 3x; só a 1a paga, em 12/04. Mais uma saída
+    // à vista em março e uma receita.
+    const carne = pref => ([
+      { id: pref + '1', date: '2026-03-10', type: 'saida', amount: 400, category: 'Ração/insumos',
+        grupo: pref + 'g', parcela: 1, parcelas: 3, venc: '2026-04-10', pago: true, pagoEm: '2026-04-12' },
+      { id: pref + '2', date: '2026-03-10', type: 'saida', amount: 400, category: 'Ração/insumos',
+        grupo: pref + 'g', parcela: 2, parcelas: 3, venc: '2026-05-10', pago: false },
+      { id: pref + '3', date: '2026-03-10', type: 'saida', amount: 400, category: 'Ração/insumos',
+        grupo: pref + 'g', parcela: 3, parcelas: 3, venc: '2026-06-10', pago: false },
+      { id: pref + 'v', date: '2026-03-05', type: 'saida', amount: 100, category: 'Combustível' },
+      { id: pref + 'r', date: '2026-03-20', type: 'entrada', amount: 5000, category: 'Venda de gado' }
+    ]);
+    bovT = carne('b'); avT = carne('a'); gerT = [];
+    animals = []; weighings = []; items = []; moves = [];
+
+    const ver = (aba, regime) => {
+      definirRegime(regime);
+      if (aba === 'bov') { tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; }
+      else { tab = 'aviarios'; $('av-period').value = 'all'; }
+      render();
+      const p = aba === 'bov' ? 'bfin' : 'av';
+      return {
+        saldo: $(p + '-balance').innerText,
+        linhas: $(p + '-list').querySelectorAll('[data-trans]').length,
+        lista: $(p + '-list').innerText,
+        nota: $(p + '-regime-nota').innerText,
+        apagar: $(p + '-apagar').innerText
+      };
+    };
+    const r = { bovComp: ver('bov', 'competencia'), bovCaixa: ver('bov', 'caixa'),
+                avComp: ver('av', 'competencia'), avCaixa: ver('av', 'caixa') };
+    // trocar numa aba tem de valer nas outras — é uma postura contábil, não um
+    // filtro de tela
+    definirRegime('caixa');
+    r.sincronizado = ['bfin-regime', 'av-regime', 'fz-regime'].map(id => $(id).value);
+    // e a Fazenda tem de bater com a soma dos dois livros no MESMO regime
+    tab = 'fazenda'; $('fz-period').value = 'all'; render();
+    r.fazendaCaixa = resumoFazenda('all', 'caixa').custos;
+    definirRegime('competencia');
+    r.fazendaComp = resumoFazenda('all', 'competencia').custos;
+    return r;
+  });
+  const num = txt => (txt.match(/R\$ ([\d.]+,\d{2})/g) || []).join(' ');
+  t.conferir('Bovinos por competência conta a compra inteira no mês dela',
+    /1\.300,00/.test(abas.bovComp.saldo), num(abas.bovComp.saldo));
+  t.conferir('Bovinos por caixa conta só o que saiu do bolso',
+    /500,00/.test(abas.bovCaixa.saldo), num(abas.bovCaixa.saldo));
+  t.conferir('e o cabeçalho do saldo avisa que é caixa',
+    /caixa/i.test(abas.bovCaixa.saldo), abas.bovCaixa.saldo.split('\n')[0]);
+  t.conferir('Bovinos por competência lista os 5 lançamentos',
+    abas.bovComp.linhas === 5, String(abas.bovComp.linhas));
+  t.conferir('e por caixa só os 3 que moveram dinheiro',
+    abas.bovCaixa.linhas === 3, String(abas.bovCaixa.linhas));
+  t.conferir('a lista do caixa mostra a data do pagamento, marcada',
+    /12\/04\/26/.test(abas.bovCaixa.lista) && /pago/.test(abas.bovCaixa.lista),
+    abas.bovCaixa.lista.split('\n').join(' | ').slice(0, 120));
+  t.conferir('e a nota diz quanto ficou de fora por não estar pago',
+    /800,00/.test(abas.bovCaixa.nota), abas.bovCaixa.nota);
+  t.conferir('a nota da competência explica a parcelada',
+    /inteira/i.test(abas.bovComp.nota), abas.bovComp.nota);
+  t.conferir('A pagar não muda com o regime — dívida é dívida',
+    abas.bovComp.apagar === abas.bovCaixa.apagar,
+    abas.bovComp.apagar.slice(0, 60) + ' || ' + abas.bovCaixa.apagar.slice(0, 60));
+  t.conferir('Aviários se comporta igual por competência',
+    /1\.300,00/.test(abas.avComp.saldo), num(abas.avComp.saldo));
+  t.conferir('e igual por caixa', /500,00/.test(abas.avCaixa.saldo) && abas.avCaixa.linhas === 3,
+    num(abas.avCaixa.saldo) + ' · ' + abas.avCaixa.linhas + ' linhas');
+  t.conferir('o regime é um só: trocar numa aba vale nas três',
+    abas.sincronizado.every(v => v === 'caixa'), abas.sincronizado.join(', '));
+  t.conferir('a Fazenda por caixa soma os dois livros no mesmo regime',
+    Math.abs(abas.fazendaCaixa - 1000) < 1e-9, String(abas.fazendaCaixa));
+  t.conferir('e por competência também',
+    Math.abs(abas.fazendaComp - 2600) < 1e-9, String(abas.fazendaComp));
 
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
