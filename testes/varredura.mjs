@@ -419,6 +419,55 @@ export default async function () {
       regra('caixa: regime desconhecido cai na competência, não em branco',
         Math.abs(resumoFazenda('all', 'qualquer-coisa').custos - Ccp.custos) < 1e-9, '');
 
+      // --- agenda de pagamentos: o regime que enxerga o futuro ---
+      // A propriedade que o define, e que nenhum dos outros dois tem: NADA
+      // desaparece. Por caixa a parcela em aberto some; aqui ela só muda de
+      // mês. Se esta regra cair, o regime que existe justamente para mostrar o
+      // que vem pela frente estaria escondendo alguma coisa.
+      const Cvc = resumoFazenda('all', 'vencimento');
+      regra('agenda: nenhum lançamento fica sem data — nada some',
+        todosT.every(t => !!dataDoRegime(t, 'vencimento')), 'um lançamento ficou sem data na agenda');
+      regra('agenda: em todo o período conta exatamente o mesmo que a competência',
+        Math.abs(Cvc.custos - Ccp.custos) < 1e-6 && Math.abs(Cvc.receitas - Ccp.receitas) < 1e-6
+          && Cvc.n === Ccp.n,
+        `${Cvc.custos}/${Cvc.receitas}/${Cvc.n} vs ${Ccp.custos}/${Ccp.receitas}/${Ccp.n}`);
+      regra('agenda: quem tem vencimento cai no vencimento, pago ou não',
+        todosT.filter(t => t.venc).every(t => dataDoRegime(t, 'vencimento') === t.venc),
+        'uma parcela caiu fora do mês em que vence');
+      regra('agenda: quem não tem vencimento cai na data do lançamento',
+        todosT.filter(t => !t.venc).every(t => dataDoRegime(t, 'vencimento') === t.date), '');
+      // A data do PAGAMENTO não pode mandar aqui: a conta de outubro paga com
+      // atraso continua sendo a conta de outubro. Quem quer o extrato usa o caixa.
+      regra('agenda: pagar com atraso não muda o mês da conta',
+        todosT.filter(t => t.venc && t.pago && t.pagoEm && t.pagoEm !== t.venc)
+          .every(t => dataDoRegime(t, 'vencimento') === t.venc), '');
+      regra('agenda: a dívida em aberto continua a mesma',
+        Math.abs(Cvc.aPagarTotal - Ccp.aPagarTotal) < 1e-9,
+        `${Cvc.aPagarTotal} vs ${Ccp.aPagarTotal}`);
+      regra('agenda: os saldos por atividade somam o saldo da fazenda',
+        Math.abs(Cvc.atividades.reduce((s, a) => s + a.saldo, 0) - Cvc.saldo) < 1e-6, '');
+      regra('agenda: as categorias somam o movimento',
+        Math.abs(Cvc.categorias.reduce((s, [, v]) => s + v, 0) - Cvc.movimento) < 1e-6, '');
+      regra('agenda: nada de NaN em nenhum número',
+        [Cvc.receitas, Cvc.custos, Cvc.saldo, Cvc.movimento, Cvc.aPagarTotal].every(Number.isFinite), '');
+      regra('agenda: receitas e custos nunca negativos',
+        Cvc.receitas >= 0 && Cvc.custos >= 0, `${Cvc.receitas} / ${Cvc.custos}`);
+      regra('agenda: um filtro estreito nunca soma mais que todo o período',
+        resumoFazenda(periodo, 'vencimento').custos <= Cvc.custos + 1e-6, '');
+      // Todo mês oferecido pelo seletor tem de ter lançamento NO REGIME EM USO,
+      // senão escolhê-lo abre uma tela vazia sem explicação — foi o beco que
+      // as opções fixas produziam.
+      regra('as opções de mês nunca levam a uma tela vazia',
+        ['competencia', 'caixa', 'vencimento'].every(rg =>
+          periodosComLancamento(todosT, rg).meses.every(m =>
+            todosT.some(t => { const d = dataDoRegime(t, rg); return d && d.slice(0, 7) === m; }))),
+        'um mês oferecido não tem lançamento no regime');
+      regra('e todo mês com lançamento é oferecido — nenhum fica escondido',
+        ['competencia', 'caixa', 'vencimento'].every(rg => {
+          const ofer = new Set(periodosComLancamento(todosT, rg).meses);
+          return todosT.every(t => { const d = dataDoRegime(t, rg); return !d || ofer.has(d.slice(0, 7)); });
+        }), 'um mês com lançamento ficou fora do seletor');
+
       regra('Fazenda: todo período nunca movimenta menos que um filtro estreito',
         largo.movimento >= R.movimento - 1e-6, `${largo.movimento} vs ${R.movimento}`);
 

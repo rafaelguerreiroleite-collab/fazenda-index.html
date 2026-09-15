@@ -684,8 +684,11 @@ export default async function () {
     !/Nenhum lançamento/i.test(vazio.caixa.titulo), vazio.caixa.titulo);
   t.conferir('ele explica que existem lançamentos, só nenhum pago',
     /nenhum pago/i.test(vazio.caixa.texto), vazio.caixa.texto);
-  t.conferir('e ensina como ver o custo do período',
-    /compet/i.test(vazio.caixa.texto), vazio.caixa.texto);
+  // A saída oferecida mudou de propósito: quem está no caixa e não vê nada
+  // quer saber QUANDO aquilo vai sair, não repetir a competência — que
+  // amontoaria as parcelas todas no mês da compra e responderia outra coisa.
+  t.conferir('e ensina onde ver quando aquilo vence',
+    /vencimento/i.test(vazio.caixa.texto), vazio.caixa.texto);
   t.conferir('sem lançamento nenhum, a mensagem volta a ser a normal',
     /Nenhum lançamento/i.test(vazio.nada.titulo), vazio.nada.titulo);
   t.conferir('e ela cita os três livros, não dois',

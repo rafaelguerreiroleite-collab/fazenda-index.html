@@ -558,12 +558,17 @@ const rotuloMes = m => {
   const nome = NOME_MES[Number(mm) - 1] || mm;
   return nome.charAt(0).toUpperCase() + nome.slice(1) + ' de ' + a;
 };
-function periodosComLancamento(lista) {
+function periodosComLancamento(lista, regime) {
   const datas = [];
+  // As opções seguem o REGIMEescolhido, e não um apanhado de todas as datas
+  // possíveis. Misturar as três produzia becos: por competência a lista
+  // oferecia "Novembro de 2026" porque existe uma parcela vencendo lá, e
+  // escolher esse mês abria uma tela vazia — por competência a parcela está no
+  // mês da compra. Cada mês oferecido aqui tem lançamento no regime em uso.
+  const r = REGIMES_VALIDOS.includes(regime) ? regime : regimeAtual();
   lista.forEach(t => {
-    if (t.date) datas.push(t.date);
-    const pago = dataDoRegime(t, 'caixa');
-    if (pago) datas.push(pago);
+    const d = dataDoRegime(t, r);
+    if (d) datas.push(d);
   });
   const meses = [...new Set(datas.map(d => String(d).slice(0, 7)))].sort().reverse();
   const anos = [...new Set(datas.map(d => String(d).slice(0, 4)))].sort().reverse();
@@ -573,11 +578,14 @@ function periodosComLancamento(lista) {
 // desenho fecharia a lista na mão de quem está escolhendo.
 const FIXOS = ['this-month', 'last-month', 'this-year', 'all'];
 const assinaturaPeriodo = {};
-function atualizarOpcoesPeriodo(id, lista) {
+function atualizarOpcoesPeriodo(id, lista, regime) {
   const el = $(id);
   if (!el) return;
-  const { meses, anos } = periodosComLancamento(lista);
-  const assinatura = meses.join(',') + '|' + anos.join(',');
+  const r = REGIMES_VALIDOS.includes(regime) ? regime : regimeAtual();
+  const { meses, anos } = periodosComLancamento(lista, r);
+  // O regime entra na assinatura: trocar de regime muda o conjunto de meses, e
+  // sem ele a lista continuaria a do regime anterior até algum lançamento mudar.
+  const assinatura = r + '|' + meses.join(',') + '|' + anos.join(',');
   if (assinaturaPeriodo[id] === assinatura) return;
   assinaturaPeriodo[id] = assinatura;
   const escolhido = el.value;
@@ -1295,11 +1303,13 @@ const REGIMES = ['bfin-regime', 'av-regime', 'fz-regime'];
 // tela — é a resposta a "o que eu chamo de custo do mês". Se Bovinos estivesse
 // por caixa e a Fazenda por competência, somar um com o outro deixaria de
 // fazer sentido e ninguém veria por quê.
+const REGIMES_VALIDOS = ['competencia', 'caixa', 'vencimento'];
 function regimeAtual() {
   const v = LS.g('fjs-regime', 'competencia');
-  return v === 'caixa' ? 'caixa' : 'competencia';
+  return REGIMES_VALIDOS.includes(v) ? v : 'competencia';
 }
 function definirRegime(v) {
+  if (!REGIMES_VALIDOS.includes(v)) v = 'competencia';
   LS.s('fjs-regime', v);
   REGIMES.forEach(id => { const el = $(id); if (el) el.value = v; });
 }
@@ -1311,12 +1321,53 @@ function notaDoRegime(idNota, regime, lista) {
   if (!el) return;
   const aberto = lista.filter(emAberto);
   const soma = aberto.reduce((s, t) => s + t.amount, 0);
+  if (regime === 'vencimento') {
+    // Aqui nada fica de fora — o que interessa é o CONTRÁRIO do caixa: quanto
+    // ainda está agendado para os meses que vêm. Sem esse número, quem abre
+    // outubro vê o mês e não sabe se ele é o único que tem conta marcada.
+    const hoje = todayISO();
+    const futuras = aberto.filter(t => t.venc > hoje);
+    const somaFut = futuras.reduce((s, t) => s + t.amount, 0);
+    el.innerHTML = 'Contando pela data de vencimento — cada parcela cai no mês em que vence.'
+      + (futuras.length ? ` <b>${futuras.length} conta(s) já agendada(s) para depois de hoje (${fmtRS(somaFut)}).</b>` : '');
+    return;
+  }
+  // Nos dois regimes antigos o que fica escondido é sempre a mesma coisa — a
+  // parcela que ainda vai vencer — e agora existe onde vê-la. Dizer isso aqui
+  // é o que torna o regime novo encontrável: ele aparece justamente na frase
+  // que explica por que a conta não está na tela.
+  const ondeVer = aberto.length
+    ? ` Escolha <b>“Por vencimento”</b> para ver em que mês cada uma cai.` : '';
   el.innerHTML = regime === 'caixa'
     ? 'Contando pela data em que o dinheiro saiu.'
       + (aberto.length ? ` <b>${aberto.length} conta(s) a pagar (${fmtRS(soma)}) ficam de fora até serem pagas.</b>` : '')
-    : 'Contando pela data da compra — a compra parcelada conta inteira no mês em que foi feita.';
+      + ondeVer
+    : 'Contando pela data da compra — a compra parcelada conta inteira no mês em que foi feita.' + ondeVer;
+}
+// O rótulo do saldo precisa dizer por qual régua ele foi somado. "Saldo do
+// período" sozinho, com três réguas possíveis, é um número sem unidade.
+const SUFIXO_REGIME = { caixa: ' · caixa', vencimento: ' · agenda' };
+const sufixoRegime = regime => SUFIXO_REGIME[regime] || '';
+// E cada linha da lista precisa dizer que data está mostrando, senão a pessoa
+// lê a data da compra em uma linha e a do pagamento na outra sem perceber.
+function marcaDaData(t, regime, quando) {
+  if (!quando || quando === t.date) return '';
+  if (regime === 'caixa') return ' (pago)';
+  if (regime === 'vencimento') return t.pago ? ' (venceu · pago)' : ' (vence)';
+  return '';
 }
 function dataDoRegime(t, regime) {
+  // Agenda de pagamentos: cada parcela aparece no mês em que VENCE, paga ou
+  // não. É o único regime que enxerga o futuro — por competência as doze
+  // parcelas se amontoam no mês da compra, e por caixa as que ainda não foram
+  // pagas não existem em lugar nenhum. Quem precisa saber "o que tenho para
+  // pagar em novembro" não era atendido por nenhum dos dois.
+  //
+  // Vale a data do vencimento mesmo depois de paga, e não a do pagamento: a
+  // pergunta que este regime responde é sobre o compromisso, não sobre o
+  // extrato. Uma conta de outubro paga com três dias de atraso continua sendo
+  // a conta de outubro. Quem quer o extrato tem o regime de caixa ao lado.
+  if (regime === 'vencimento') return t.venc || t.date;
   if (regime !== 'caixa') return t.date;
   // emAberto e não uma cópia da condição dele. Escrever "venc && !pago" aqui de
   // novo já custou caro: faltou o teste de tipo, e uma ENTRADA que carregasse
@@ -1365,9 +1416,9 @@ function resumoFazenda(period, regime) {
   };
 }
 function renderFazenda() {
-  atualizarOpcoesPeriodo('fz-period', LIVROS.flatMap(b => arrLivro(b)));
-  const period = $('fz-period').value;
   const regime = regimeAtual();
+  atualizarOpcoesPeriodo('fz-period', LIVROS.flatMap(b => arrLivro(b)), regime);
+  const period = $('fz-period').value;
   const R = resumoFazenda(period, regime);
   // A lista embaixo tem de mostrar exatamente o que o saldo somou, e no regime
   // de caixa a data que vale é outra. Mostrando pela data da compra, o saldo
@@ -1382,7 +1433,11 @@ function renderFazenda() {
   if (R.n === 0 && regime === 'caixa' && existemNoPeriodo) {
     $('fz-empty-titulo').textContent = 'Nada saiu nem entrou no caixa neste período';
     $('fz-empty-texto').textContent = 'Há lançamentos no período, mas nenhum pago ainda. '
-      + 'Troque para "Por competência" para ver o custo do período.';
+      + 'Troque para "Por vencimento" para ver quando eles vencem.';
+  } else if (R.n === 0 && regime === 'vencimento' && existemNoPeriodo) {
+    $('fz-empty-titulo').textContent = 'Nada vence neste período';
+    $('fz-empty-texto').textContent = 'Há lançamentos com data de compra neste mês, mas nenhum vence aqui — '
+      + 'as parcelas venceram antes ou vencem depois.';
   } else {
     $('fz-empty-titulo').textContent = 'Nenhum lançamento no período';
     $('fz-empty-texto').textContent = 'Os lançamentos de Bovinos, Aviários e Geral aparecem somados aqui.';
@@ -1394,7 +1449,7 @@ function renderFazenda() {
   notaDoRegime('fz-regime-nota', regime, LIVROS.flatMap(b => arrLivro(b)));
 
   $('fz-balance').innerHTML = `
-    <div class="bc-label">Fazenda inteira · saldo do período${regime === 'caixa' ? ' · caixa' : ''}</div>
+    <div class="bc-label">Fazenda inteira · saldo do período${sufixoRegime(regime)}</div>
     <div class="bc-value ${bal < 0 ? 'negative' : 'positive'}">${fmtRS(bal)}</div>
     <div class="bc-split">
       <div><div class="lbl">Receitas</div><div class="val in">${fmtRS(inn)}</div></div>
@@ -1475,14 +1530,15 @@ function renderFazenda() {
   // haveria como vê-lo, corrigi-lo nem apagá-lo, porque Geral não tem aba
   // própria. Aqui aparecem os três livros, cada linha dizendo de qual é.
   const ordenados = [...tudo].sort((a, b) => a.quando < b.quando ? 1 : -1);
-  $('fz-lista-titulo').textContent = regime === 'caixa'
-    ? 'Pagamentos e recebimentos do período' : 'Lançamentos do período';
+  $('fz-lista-titulo').textContent = regime === 'caixa' ? 'Pagamentos e recebimentos do período'
+    : regime === 'vencimento' ? 'O que vence no período'
+    : 'Lançamentos do período';
   $('fz-lista-titulo').hidden = !ordenados.length;
   $('fz-lista').innerHTML = ordenados.map(({ t, livro, book, quando }) => `
     <div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
-        <div class="item-subtitle">${fmtBR(quando)}${regime === 'caixa' && quando !== t.date ? ' (pago)' : ''} · ${esc(livro)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
+        <div class="item-subtitle">${fmtBR(quando)}${marcaDaData(t, regime, quando)} · ${esc(livro)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
         ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
@@ -1776,8 +1832,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=51';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=51';
+const PDFJS_JS = 'vendor/pdf.min.js?v=52';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=52';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1909,9 +1965,9 @@ function renderFin(book) {
   const list = isAv ? avT : bovT;
   // As opções de mês vêm dos lançamentos DESTE livro: oferecer "Março" numa aba
   // que não teve nada em março é um beco.
-  atualizarOpcoesPeriodo(isAv ? 'av-period' : 'bfin-period', list);
-  const period = isAv ? $('av-period').value : $('bfin-period').value;
   const regime = regimeAtual();
+  atualizarOpcoesPeriodo(isAv ? 'av-period' : 'bfin-period', list, regime);
+  const period = isAv ? $('av-period').value : $('bfin-period').value;
   // Aviários virou uma atividade só: o galpão não separa mais nada. Lançamento
   // antigo mantém o campo gravado, mas ninguém filtra nem exibe por ele — o
   // dado fica lá, caso um dia a separação volte a fazer falta.
@@ -1926,7 +1982,7 @@ function renderFin(book) {
   const bal = inn - out;
   const balEl = isAv ? $('av-balance') : $('bfin-balance');
   balEl.innerHTML = `
-    <div class="bc-label">Saldo do período${regime === 'caixa' ? ' · caixa' : ''}</div>
+    <div class="bc-label">Saldo do período${sufixoRegime(regime)}</div>
     <div class="bc-value ${bal < 0 ? 'negative' : 'positive'}">${fmtRS(bal)}</div>
     <div class="bc-split">
       <div><div class="lbl">Entradas</div><div class="val in">${fmtRS(inn)}</div></div>
@@ -1961,7 +2017,7 @@ function renderFin(book) {
   listEl.innerHTML = sorted.map(({ t, quando }) => `<div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
-        <div class="item-subtitle">${fmtBR(quando)}${regime === 'caixa' && quando !== t.date ? ' (pago)' : ''}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
+        <div class="item-subtitle">${fmtBR(quando)}${marcaDaData(t, regime, quando)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
         ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>

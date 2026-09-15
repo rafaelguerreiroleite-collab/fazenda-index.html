@@ -168,17 +168,113 @@ export default async function () {
     $('bfin-period').value = '2026-04';
     $('bfin-period').dispatchEvent(new Event('change', { bubbles: true }));
     const abril = $('bfin-list').querySelectorAll('[data-trans]').length;
-    $('bfin-period').value = '2026-03';
-    $('bfin-period').dispatchEvent(new Event('change', { bubbles: true }));
-    const marco = $('bfin-list').querySelectorAll('[data-trans]').length;
+    // no caixa o mês da COMPRA não tem nada — e por isso nem é oferecido:
+    // escolhê-lo abriria uma tela vazia sem dizer por quê
+    const ofereceMarco = valores.includes('2026-03');
     definirRegime('competencia');
-    return { valores, abril, marco };
+    render();
+    const noComp = [...$('bfin-period').options].map(o => o.value);
+    definirRegime('caixa');
+    return { valores, abril, ofereceMarco, noComp };
   });
   t.conferir('o mês do pagamento é oferecido, não só o da compra',
     noCaixa.valores.includes('2026-04'), noCaixa.valores.join(','));
   t.conferir('e por caixa o lançamento aparece no mês em que foi pago',
     noCaixa.abril === 1, String(noCaixa.abril));
-  t.conferir('não no mês da compra', noCaixa.marco === 0, String(noCaixa.marco));
+  t.conferir('o mês da compra não é oferecido no caixa: lá ele está vazio',
+    noCaixa.ofereceMarco === false, noCaixa.valores.join(','));
+  t.conferir('e por competência é o contrário: oferece a compra, não o pagamento',
+    noCaixa.noComp.includes('2026-03') && !noCaixa.noComp.includes('2026-04'),
+    noCaixa.noComp.join(','));
+
+  // ---------- meses posteriores: a agenda de pagamentos ----------
+  // Uma compra em três parcelas deixava de existir no futuro. Por competência
+  // as três somam no mês da compra; por caixa, nenhuma existe até ser paga.
+  // Quem precisa saber o que tem para pagar em novembro não era atendido.
+  t.secao('ver os meses posteriores (por vencimento)');
+  const agenda = await pagina.evaluate(() => {
+    // Datas relativas a HOJE, e não fixas: com datas fixas o teste passaria
+    // hoje e mentiria no ano que vem, quando "mês posterior" já seria passado.
+    // Carnê em andamento: comprado há dois meses, a primeira parcela venceu e
+    // foi paga, as duas seguintes estão agendadas para meses que ainda vêm.
+    const h = new Date();
+    const mes = n => { const d = new Date(h.getFullYear(), h.getMonth() + n, 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+    const M = { compra: mes(-2), p1: mes(-1), p2: mes(1), p3: mes(2) };
+    bovT = [
+      { id: 'p1', date: M.compra + '-05', type: 'saida', amount: 400, category: 'Ração/insumos',
+        grupo: 'g', parcela: 1, parcelas: 3, venc: M.p1 + '-10', pago: true, pagoEm: M.p1 + '-12' },
+      { id: 'p2', date: M.compra + '-05', type: 'saida', amount: 400, category: 'Ração/insumos',
+        grupo: 'g', parcela: 2, parcelas: 3, venc: M.p2 + '-10', pago: false },
+      { id: 'p3', date: M.compra + '-05', type: 'saida', amount: 400, category: 'Ração/insumos',
+        grupo: 'g', parcela: 3, parcelas: 3, venc: M.p3 + '-10', pago: false },
+      { id: 'pv', date: M.compra + '-05', type: 'entrada', amount: 900, category: 'Venda de gado' }
+    ];
+    avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+    const mesesDe = regime => {
+      definirRegime(regime);
+      tab = 'bovinos'; seg = 'financeiro'; render();
+      return [...$('bfin-period').options].map(o => o.value);
+    };
+    const r = { M, comp: mesesDe('competencia'), caixa: mesesDe('caixa'), venc: mesesDe('vencimento') };
+    // escolher um mês que o seletor não oferece não muda nada: por isso o
+    // resultado carrega o valor que ficou, e não só a contagem de linhas
+    const ver = v => {
+      const el = $('bfin-period');
+      el.value = v; el.dispatchEvent(new Event('change', { bubbles: true }));
+      return { escolhido: el.value,
+        linhas: el.value === v ? $('bfin-list').querySelectorAll('[data-trans]').length : -1,
+        saldo: $('bfin-balance').innerText, lista: $('bfin-list').innerText };
+    };
+    definirRegime('vencimento'); render();
+    r.paga = ver(M.p1); r.prox = ver(M.p2); r.depois = ver(M.p3);
+    r.naCompra = ver(M.compra);
+    r.nota = $('bfin-regime-nota').innerText;
+    r.rotulo = $('bfin-balance').innerText;
+
+    // a nota dos outros dois regimes tem de apontar para cá, senão ninguém acha
+    definirRegime('competencia'); render();
+    r.notaComp = $('bfin-regime-nota').innerText;
+    definirRegime('caixa'); render();
+    r.notaCaixa = $('bfin-regime-nota').innerText;
+
+    // valor gravado por uma versão antiga (ou lixo) não pode quebrar o app
+    localStorage.setItem('fjs-regime', JSON.stringify('agenda-maluca'));
+    r.regimeInvalido = regimeAtual();
+    definirRegime('competencia');
+    return r;
+  });
+  const M = agenda.M;
+  t.conferir('por competência as três parcelas ficam no mês da compra',
+    agenda.comp.includes(M.compra) && !agenda.comp.includes(M.p2), agenda.comp.join(','));
+  t.conferir('por caixa só existe o mês em que se pagou',
+    agenda.caixa.includes(M.p1) && !agenda.caixa.includes(M.p2), agenda.caixa.join(','));
+  t.conferir('por vencimento os meses posteriores passam a ser oferecidos',
+    [M.p1, M.p2, M.p3].every(m => agenda.venc.includes(m)), agenda.venc.join(','));
+  t.conferir('cada parcela cai sozinha no mês em que vence',
+    agenda.paga.linhas === 1 && agenda.prox.linhas === 1 && agenda.depois.linhas === 1,
+    `${agenda.paga.linhas}/${agenda.prox.linhas}/${agenda.depois.linhas}`);
+  t.conferir('e cada mês soma só a parcela dele, não o carnê inteiro',
+    /400,00/.test(agenda.prox.saldo) && !/1\.200,00/.test(agenda.prox.saldo),
+    agenda.prox.saldo.split('\n').join(' '));
+  t.conferir('a parcela já paga continua no mês em que venceu, não some',
+    agenda.paga.linhas === 1 && /pago|venceu/i.test(agenda.paga.lista),
+    agenda.paga.lista.split('\n').join(' | ').slice(0, 160));
+  t.conferir('a linha diz que a data mostrada é a do vencimento',
+    /vence/i.test(agenda.prox.lista), agenda.prox.lista.split('\n').join(' | ').slice(0, 160));
+  t.conferir('o mês da compra traz só o que não tem vencimento (a venda à vista)',
+    agenda.naCompra.linhas === 1 && /900,00/.test(agenda.naCompra.saldo),
+    `${agenda.naCompra.linhas} · ${agenda.naCompra.saldo.split('\n').join(' ')}`);
+  t.conferir('o rótulo do saldo avisa que é a agenda', /agenda/i.test(agenda.rotulo),
+    agenda.rotulo.split('\n')[0]);
+  t.conferir('a nota conta quantas contas já estão agendadas',
+    /agendada/i.test(agenda.nota), agenda.nota);
+  t.conferir('a nota da competência aponta o caminho para a agenda',
+    /vencimento/i.test(agenda.notaComp), agenda.notaComp);
+  t.conferir('a nota do caixa também aponta',
+    /vencimento/i.test(agenda.notaCaixa), agenda.notaCaixa);
+  t.conferir('regime gravado inválido cai na competência, sem quebrar',
+    agenda.regimeInvalido === 'competencia', agenda.regimeInvalido);
 
   // ---------- o mês escolhido tem de sobreviver a fechar o app ----------
   // Na abertura o seletor está no padrão do HTML, e esse padrão SEMPRE existe.
