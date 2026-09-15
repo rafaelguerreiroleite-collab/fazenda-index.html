@@ -48,7 +48,7 @@ jobs:
           SITE: meus-gastos-fernanda
           REGIAO: southamerica-east1
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [ -z "$SA" ]; then
             echo "::error::O secret FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 esta vazio ou nao existe."
             exit 1
@@ -56,24 +56,49 @@ jobs:
           printf '%s' "$SA" > /tmp/sa.json
           FB="npx firebase -P $PROJETO"
 
+          # Roda um comando do firebase-tools. O JSON de resposta vai para um
+          # arquivo (limpo, sem se misturar com o log); stdout+stderr do
+          # processo tambem aparecem no log, inclusive quando falha, para
+          # nunca perder a mensagem real de erro dentro de um pipe.
+          rodar(){
+            local desc="$1" arquivo="$2"; shift 2
+            echo "-- $desc --"
+            if $FB "$@" --json >"$arquivo" 2>/tmp/rodar.err; then
+              cat /tmp/rodar.err >&2
+              cat "$arquivo"
+            else
+              echo "::error::Falhou: $desc (comando: firebase $*)"
+              echo "saida:"; cat "$arquivo"
+              echo "erro:"; cat /tmp/rodar.err
+              exit 1
+            fi
+          }
+
           echo "== Banco Firestore =="
-          QTD_BANCOS=$($FB firestore:databases:list --json | jq -r '.result | length')
+          rodar "Listar bancos Firestore" /tmp/dbs.json firestore:databases:list
+          QTD_BANCOS=$(jq -r '.result | length' /tmp/dbs.json)
           if [ "$QTD_BANCOS" = "0" ]; then
-            $FB firestore:databases:create '(default)' --location "$REGIAO"
+            rodar "Criar banco Firestore" /tmp/db-criado.json \
+              firestore:databases:create '(default)' --location "$REGIAO"
           else
             echo "Banco Firestore ja existe, seguindo em frente."
           fi
 
           echo "== Regras de seguranca do Firestore =="
-          $FB deploy --only firestore:rules
+          out=$($FB deploy --only firestore:rules 2>&1); status=$?
+          echo "$out"
+          [ $status -eq 0 ] || { echo "::error::Falha ao publicar as regras do Firestore."; exit 1; }
 
           echo "== App Web (chaves de conexao) =="
-          APP_ID=$($FB apps:list WEB --json | jq -r '.result[0].appId // empty')
+          rodar "Listar apps Web" /tmp/apps.json apps:list WEB
+          APP_ID=$(jq -r '.result[0].appId // empty' /tmp/apps.json)
           if [ -z "$APP_ID" ]; then
-            APP_ID=$($FB apps:create WEB "Meus Gastos" --json | jq -r '.result.appId')
+            rodar "Criar app Web" /tmp/app-criado.json apps:create WEB "Meus Gastos"
+            APP_ID=$(jq -r '.result.appId' /tmp/app-criado.json)
           fi
-          $FB apps:sdkconfig WEB "$APP_ID" --json \
-            | jq '.result.sdkConfig' > /tmp/sdkconfig.json
+          echo "APP_ID=$APP_ID"
+          rodar "Buscar chaves do app Web" /tmp/sdkconfig-completo.json apps:sdkconfig WEB "$APP_ID"
+          jq '.result.sdkConfig' /tmp/sdkconfig-completo.json > /tmp/sdkconfig.json
           node -e "
             const cfg = require('/tmp/sdkconfig.json');
             const fs = require('fs');
