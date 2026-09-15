@@ -1832,8 +1832,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=52';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=52';
+const PDFJS_JS = 'vendor/pdf.min.js?v=53';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=53';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2940,8 +2940,12 @@ function csv(v) {
   if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
   return /[;"]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
 }
-function download(name, content, mime) {
-  const blob = new Blob(['\ufeff' + content], { type: (mime || 'text/plain') + ';charset=utf-8' });
+// O BOM \u00e9 para o Excel: sem ele, planilha em portugu\u00eas abre "Ra\u00e7\u00e3o" torto. Mas
+// arquivo de calend\u00e1rio n\u00e3o \u00e9 planilha \u2014 leitor rigoroso engasga com o BOM
+// antes do BEGIN:VCALENDAR, ent\u00e3o ele \u00e9 opcional.
+function download(name, content, mime, comBom) {
+  const texto = comBom === false ? content : '\ufeff' + content;
+  const blob = new Blob([texto], { type: (mime || 'text/plain') + ';charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name;
@@ -3146,6 +3150,227 @@ function exportRelatorio() {
     'secao;item;valor;detalhe\n' + linhas.join('\n'), 'text/csv');
   closeAllM(); toast('Relatório de custos e receitas exportado');
 }
+// ===== Agenda de pagamentos no calendário do celular =====
+// O "A pagar" só avisa com o aplicativo aberto. A conta que vence no dia 10 não
+// lembra ninguém no dia 7, e é aí que o boleto atrasa. Este arquivo (.ics, o
+// formato que iPhone, Android, Google e Outlook entendem) leva cada conta em
+// aberto para o calendário do aparelho, com alarme.
+//
+// Por que arquivo e não uma assinatura de calendário (webcal) que se atualiza
+// sozinha: assinatura exige um endereço na internet servindo as contas da
+// fazenda o tempo todo. Quem tivesse o endereço leria quanto a fazenda deve, a
+// quem e quando, sem senha nenhuma. O arquivo sai do aparelho para o
+// calendário e não fica publicado em lugar nenhum — em troca, é preciso
+// exportar de novo quando as contas mudarem.
+const ICS_CAL = 'Fazenda J.S — contas a pagar';
+const ICS_ARQ = 'fazenda-js-contas-a-pagar.ics';
+// Texto em iCalendar escapa barra, ponto e vírgula, vírgula e quebra de linha.
+// A quebra é a que importa de verdade: uma observação com ENTER dentro viraria
+// linha solta no meio do arquivo, e uma observação escrita de má-fé poderia
+// fechar o evento e abrir outro. Virando "\n" literal, não fecha nada.
+const escICS = v => String(v == null ? '' : v)
+  .replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,')
+  .replace(/\r\n|\r|\n/g, '\\n');
+// O formato manda dobrar linha com mais de 75 OCTETOS — octeto, não letra: "ç"
+// e "ã" ocupam dois. Cortando por letra, uma linha de acentos passaria do
+// limite; cortando por byte sem cuidado, partiria um caractere ao meio e o
+// iPhone mostraria "Ra��o". Por isso o corte anda para trás enquanto estiver
+// em cima de um byte de continuação (10xxxxxx).
+function dobrarICS(linha) {
+  const bytes = new TextEncoder().encode(linha);
+  if (bytes.length <= 75) return linha;
+  const dec = new TextDecoder();
+  const partes = [];
+  let ini = 0, limite = 75;
+  while (ini < bytes.length) {
+    let fim = Math.min(ini + limite, bytes.length);
+    while (fim > ini && fim < bytes.length && (bytes[fim] & 0xC0) === 0x80) fim--;
+    partes.push(dec.decode(bytes.slice(ini, fim)));
+    ini = fim;
+    limite = 74;   // a linha de continuação gasta um octeto com o espaço da frente
+  }
+  return partes.join('\r\n ');
+}
+const icsData = iso => String(iso).slice(0, 10).replace(/-/g, '');
+// Evento de dia inteiro termina no dia SEGUINTE: o fim é exclusivo. Sem isso o
+// iPhone desenha a conta em dois dias, ou em nenhum.
+const diaSeguinte = iso => {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  const dt = new Date(y, m - 1, d + 1);
+  const p = x => String(x).padStart(2, '0');
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+};
+const icsCarimbo = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+// Exportar duas vezes não pode criar dois lembretes da mesma conta. O UID é o
+// id do lançamento, então o calendário reconhece o evento que já tem; e como
+// ele só ACEITA a atualização se vier com número de versão maior, cada
+// exportação sobe esse número. Sem isso, corrigir o valor de uma conta e
+// exportar de novo não mudaria nada no iPhone.
+function proximaSequenciaICS() {
+  const n = Number(LS.g('fjs-ics-seq', 0)) || 0;
+  const prox = n + 1;
+  LS.s('fjs-ics-seq', prox);
+  return prox;
+}
+// O sufixo "@fazendajs" existe para separar de qualquer outro aplicativo que
+// mande evento para o mesmo iPhone: dois eventos só se sobrescrevem quando têm
+// o MESMO UID, e nenhum outro aplicativo usa este sufixo. Mesmo que os eventos
+// caiam no mesmo calendário, um nunca apaga o outro.
+const uidICS = t => escICS(t.id) + '@fazendajs';
+const alarmeICS = (gatilho, texto) =>
+  ['BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + escICS(texto),
+   'TRIGGER:' + gatilho, 'END:VALARM'];
+function eventoICS(c, livro, seq, carimbo, hoje) {
+  const atrasada = c.venc < hoje;
+  const titulo = (atrasada ? '⚠ VENCIDA · ' : '') + 'Fazenda J.S · ' + fmtRS(c.amount)
+    + ' · ' + (c.category || 'Conta a pagar') + rotuloParcela(c);
+  const descricao = [
+    'Conta a pagar da Fazenda J.S.',
+    'Atividade: ' + livro,
+    'Valor: ' + fmtRS(c.amount),
+    'Vence em: ' + fmtBRfull(c.venc),
+    c.parcelas > 1 ? `Parcela ${c.parcela} de ${c.parcelas}` : 'Parcela única',
+    'Lançada em: ' + fmtBRfull(c.date),
+    c.notes ? 'Observação: ' + c.notes : '',
+    '',
+    'Marque como paga no aplicativo Fazenda J.S.'
+  ].filter(Boolean).join('\n');
+  return [
+    'BEGIN:VEVENT',
+    'UID:' + uidICS(c),
+    'DTSTAMP:' + carimbo,
+    'DTSTART;VALUE=DATE:' + icsData(c.venc),
+    'DTEND;VALUE=DATE:' + icsData(diaSeguinte(c.venc)),
+    'SUMMARY:' + escICS(titulo),
+    'DESCRIPTION:' + escICS(descricao),
+    'CATEGORIES:' + escICS('Fazenda J.S'),
+    'SEQUENCE:' + seq,
+    'STATUS:CONFIRMED',
+    // TRANSPARENT: a conta não ocupa o dia. Marcada como OPAQUE, o iPhone
+    // trataria o dia inteiro como comprometido e passaria a recusar convite.
+    'TRANSP:TRANSPARENT',
+    // Dois avisos, contados a partir da meia-noite do dia do vencimento:
+    // três dias antes às 9h (dá tempo de ir ao banco) e no próprio dia às 8h.
+    ...alarmeICS('-PT63H', 'Vence em 3 dias: ' + titulo),
+    ...alarmeICS('PT8H', 'Vence hoje: ' + titulo),
+    'END:VEVENT'
+  ];
+}
+// Todas as contas em aberto dos TRÊS livros, na ordem em que vencem. A vencida
+// entra também: ela é a mais urgente que existe, e deixá-la de fora esconderia
+// justamente o que não pode ser esquecido.
+function contasParaAgenda() {
+  return LIVROS.flatMap(b => contasAPagar(arrLivro(b)).map(c => ({ c, livro: NOME_LIVRO[b] })))
+    .sort((a, b) => a.c.venc.localeCompare(b.c.venc));
+}
+// Conta paga tem de PARAR de tocar no iPhone. Sem isto, o lembrete exportado
+// em setembro acorda ele no vencimento de uma conta que ele já quitou — e duas
+// ou três dessas bastam para ninguém mais confiar no alarme. Como o arquivo
+// novo simplesmente não traz a conta paga, o calendário não fica sabendo de
+// nada: é preciso mandar o evento de volta, dizendo que está cancelado.
+//
+// Por isso o aplicativo guarda o que já mandou. Guarda o vencimento junto
+// porque o cancelamento precisa do dia, e o lançamento pode ter sido apagado.
+const ICS_ENVIADOS = 'fjs-ics-enviados';
+const enviadosICS = () => { const v = LS.g(ICS_ENVIADOS, null); return v && typeof v === 'object' ? v : {}; };
+function eventoCancelado(id, dados, seq, carimbo) {
+  return [
+    'BEGIN:VEVENT',
+    'UID:' + escICS(id) + '@fazendajs',
+    'DTSTAMP:' + carimbo,
+    'DTSTART;VALUE=DATE:' + icsData(dados.venc),
+    'DTEND;VALUE=DATE:' + icsData(diaSeguinte(dados.venc)),
+    'SUMMARY:' + escICS('✔ PAGA · ' + (dados.nome || 'Conta da Fazenda J.S')),
+    'DESCRIPTION:' + escICS('Esta conta foi paga (ou apagada) no aplicativo Fazenda J.S.'),
+    'CATEGORIES:' + escICS('Fazenda J.S'),
+    'SEQUENCE:' + seq,
+    'STATUS:CANCELLED',
+    'TRANSP:TRANSPARENT',
+    // Sem nenhum alarme, de propósito. Se o calendário do aparelho apagar o
+    // evento, ótimo; se apenas atualizar, ele fica lá riscado e MUDO — que é o
+    // que importa. O alarme é que não pode sobreviver ao pagamento.
+    'END:VEVENT'
+  ];
+}
+function agendaICS(contas) {
+  const seq = proximaSequenciaICS();
+  const carimbo = icsCarimbo();
+  const hoje = todayISO();
+  // O que foi mandado antes e não está mais em aberto: pago, ou apagado.
+  const antes = enviadosICS();
+  const agora = {};
+  contas.forEach(x => {
+    agora[x.c.id] = { venc: x.c.venc, nome: fmtRS(x.c.amount) + ' · ' + (x.c.category || 'Conta a pagar') };
+  });
+  const cancelar = Object.keys(antes).filter(id => !agora[id] && antes[id] && antes[id].venc);
+  LS.s(ICS_ENVIADOS, agora);
+  const linhas = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Fazenda J.S//Agenda de pagamentos//PT-BR',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    // O nome que o celular oferece para o calendário na hora de importar.
+    'X-WR-CALNAME:' + escICS(ICS_CAL),
+    'X-WR-CALDESC:' + escICS('Contas a pagar lançadas no aplicativo Fazenda J.S'),
+    ...contas.flatMap(x => eventoICS(x.c, x.livro, seq, carimbo, hoje)),
+    ...cancelar.flatMap(id => eventoCancelado(id, antes[id], seq, carimbo)),
+    'END:VCALENDAR'
+  ];
+  // CRLF não é preciosismo: o formato exige, e leitor rigoroso recusa o arquivo
+  // inteiro com só "\n".
+  return linhas.map(dobrarICS).join('\r\n') + '\r\n';
+}
+async function exportAgenda() {
+  const contas = contasParaAgenda();
+  // Mesmo sem nenhuma conta em aberto pode haver o que exportar: as que foram
+  // pagas desde a última vez precisam do aviso de cancelamento, senão o alarme
+  // delas continua tocando. Só não há nada a fazer quando as duas listas estão
+  // vazias.
+  const aCancelar = Object.keys(enviadosICS()).filter(id => !contas.some(x => x.c.id === id));
+  if (!contas.length && !aCancelar.length) {
+    closeAllM();
+    toast('Nenhuma conta a pagar em aberto — não há o que agendar');
+    return;
+  }
+  const texto = agendaICS(contas);
+  const atrasadas = contas.filter(x => x.c.dias < 0).length;
+  const resumo = `${contas.length} conta(s) no calendário`
+    + (atrasadas ? ` · ${atrasadas} já vencida(s)` : '')
+    + (aCancelar.length ? ` · ${aCancelar.length} paga(s) saem da agenda` : '');
+  closeAllM();
+  // No iPhone o caminho que funciona é o compartilhar: ele abre a folha do
+  // sistema e o Calendário aparece lá. Baixar, dentro de um aplicativo
+  // instalado na tela de início, costuma parar num arquivo que ninguém acha.
+  const arquivo = new File([texto], ICS_ARQ, { type: 'text/calendar' });
+  if (navigator.canShare && navigator.canShare({ files: [arquivo] })) {
+    try {
+      await navigator.share({ files: [arquivo], title: ICS_CAL });
+      toast(resumo + ' · escolha o calendário "Fazenda J.S"');
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;   // desistiu: não é erro
+    }
+  }
+  download(ICS_ARQ, texto, 'text/calendar', false);
+  toast(resumo + ' · abra o arquivo para importar');
+}
+// A separação que ele pediu depende de um passo que só o dono do iPhone pode
+// dar: o aplicativo não cria nem escolhe calendário no aparelho. Por isso a
+// instrução aparece UMA vez, antes da primeira exportação — dita só na
+// conversa, ela se perde; repetida toda vez, vira estorvo.
+function abrirAgendaICS() {
+  if (LS.g('fjs-ics-explicado', false)) { exportAgenda(); return; }
+  closeAllM();
+  $('modal-agenda').hidden = false;
+}
+$('menu-exp-agenda').addEventListener('click', abrirAgendaICS);
+$('ag-exportar').addEventListener('click', () => {
+  LS.s('fjs-ics-explicado', true);
+  closeAllM();
+  exportAgenda();
+});
+
 $('menu-exp-relatorio').addEventListener('click', exportRelatorio);
 $('menu-exp-tudo').addEventListener('click', exportFinTudo);
 $('menu-exp-bfin').addEventListener('click', () => exportFin('bov'));

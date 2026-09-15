@@ -602,3 +602,11 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .at-btn { background: #fafaf9; color: #225437; border: none; border-radius: 3px;
   padding: 0.4rem 0.85rem; font-family: 'DM Mono', monospace; font-size: 0.72rem; font-weight: 500; flex-shrink: 0; }
 .at-depois { background: transparent; border: none; color: #9dbcaa; font-size: 1.3rem; padding: 0 0.25rem; line-height: 1; flex-shrink: 0; }
+
+/* Instrução da agenda no calendário: é passo a passo, e passo a passo se lê
+   melhor numerado e com respiro do que num parágrafo corrido. */
+.ag-texto { padding: 0 1rem; font-size: 0.86rem; line-height: 1.5; color: #292524; }
+.ag-texto p { margin: 0.7rem 0; }
+.ag-destaque { color: #92400e; }
+.ag-passos { margin: 0.6rem 0 0.9rem; padding-left: 1.2rem; }
+.ag-passos li { margin-bottom: 0.45rem; }

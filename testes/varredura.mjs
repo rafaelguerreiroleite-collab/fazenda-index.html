@@ -26,6 +26,23 @@ export default async function () {
       const p = x => String(x).padStart(2, '0');
       return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
     };
+    // Texto que o usuário pode digitar e que, mal tratado, quebra um arquivo
+    // exportado — ou pior, inventa estrutura dentro dele. Cada um destes já
+    // derrubou algum gerador na vida real.
+    const HOSTIS = [
+      'Lote 3',
+      'com ; ponto e vírgula',
+      'com , vírgula',
+      'com "aspas" no meio',
+      'barra \\ invertida',
+      'duas\nlinhas',
+      'linha\r\ncom retorno',
+      'END:VEVENT\r\nBEGIN:VEVENT\r\nSUMMARY:falso',
+      '=HYPERLINK("http://x")',
+      'acentuação çãõé para forçar a dobra em octetos e não em letras, com texto bem comprido para passar de setenta e cinco',
+      '',
+      '\t tabulação'
+    ];
     const falhas = {};
     const regra = (nome, ok, caso) => {
       if (!ok && !falhas[nome]) falhas[nome] = caso;
@@ -306,6 +323,10 @@ export default async function () {
           // aparelhos. Se o regime tropeça nisso, o valor some da tela sem
           // deixar rastro — e some justamente de quem confia no total.
           if (t.type === 'entrada' && rnd() < 0.15) { t.venc = dataAleatoria(); t.pago = rnd() < 0.5; }
+          // Observação com o que quebra arquivo de verdade. Sem isto o sorteio
+          // só produzia texto limpo, e as regras de escape — do CSV e do
+          // calendário — passavam sem nunca terem sido postas à prova.
+          if (rnd() < 0.45) t.notes = HOSTIS[ent(0, HOSTIS.length - 1)];
           arr.push(t);
         }
         return arr;
@@ -462,6 +483,70 @@ export default async function () {
           periodosComLancamento(todosT, rg).meses.every(m =>
             todosT.some(t => { const d = dataDoRegime(t, rg); return d && d.slice(0, 7) === m; }))),
         'um mês oferecido não tem lançamento no regime');
+      // --- agenda no calendário: o arquivo tem de sair válido SEMPRE ---
+      // Um .ics torto não avisa: o Calendário recusa o arquivo inteiro e a
+      // pessoa fica achando que exportou. Como o texto vem das observações e
+      // categorias que o usuário digita, é sorteio que descobre o caractere
+      // que quebra. Redesenhar não é preciso, mas montar o arquivo a cada
+      // sorteio é caro — por isso vai numa fatia, como a ordenação do rebanho.
+      if (i < Math.min(n, 3000)) {
+        // Cada sorteio começa sem memória do anterior: senão as contas da volta
+        // passada entrariam aqui como cancelamento e a contagem não fecharia.
+        localStorage.removeItem('fjs-ics-enviados');
+        const abertas = contasParaAgenda();
+        const ics = agendaICS(abertas);
+        const semDobra = ics.replace(/\r\n /g, '');
+        const ls = semDobra.split('\r\n');
+        regra('calendário: o arquivo abre e fecha como calendário',
+          ics.startsWith('BEGIN:VCALENDAR\r\n') && ics.trimEnd().endsWith('END:VCALENDAR'), '');
+        regra('calendário: um evento para cada conta em aberto, nem mais nem menos',
+          ls.filter(l => l === 'BEGIN:VEVENT').length === abertas.length
+            && ls.filter(l => l === 'END:VEVENT').length === abertas.length,
+          `${ls.filter(l => l === 'BEGIN:VEVENT').length} eventos vs ${abertas.length} contas`);
+        regra('calendário: nenhuma linha passa de 75 octetos',
+          ics.split('\r\n').every(l => new TextEncoder().encode(l).length <= 75), '');
+        regra('calendário: nenhum acento sai partido pela dobra',
+          !/�/.test(ics), '');
+        regra('calendário: nenhuma quebra de linha solta no meio do arquivo',
+          !/[^\r]\n/.test(ics), '');
+        // Cada evento precisa do seu identificador, e dois eventos não podem
+        // dividir o mesmo: no calendário, um apagaria o outro.
+        const uids = ls.filter(l => l.startsWith('UID:'));
+        regra('calendário: cada evento tem identificador próprio, sem repetir',
+          uids.length === abertas.length && new Set(uids).size === uids.length,
+          `${uids.length} uids, ${new Set(uids).size} distintos`);
+        regra('calendário: todo identificador é do domínio da fazenda',
+          uids.every(l => l.endsWith('@fazendajs')), '');
+        // O que o usuário digita não pode virar estrutura do arquivo.
+        regra('calendário: texto digitado nunca vira linha de estrutura',
+          ls.filter(l => l === 'BEGIN:VEVENT' || l === 'BEGIN:VALARM'
+            || l === 'END:VEVENT' || l === 'END:VALARM').length
+            === abertas.length * 6, '');
+        regra('calendário: o dia do evento é o dia do vencimento',
+          abertas.every(x => ls.includes('DTSTART;VALUE=DATE:' + x.c.venc.replace(/-/g, ''))), '');
+        regra('calendário: conta paga e compra à vista nunca entram',
+          abertas.every(x => x.c.type === 'saida' && !!x.c.venc && !x.c.pago), '');
+
+        // Pagar tem de CALAR o alarme. O arquivo novo não traz a conta paga, e
+        // só isso o calendário do aparelho não tem como adivinhar: é preciso
+        // devolver o evento marcado como cancelado — e sem alarme nenhum.
+        abertas.forEach(x => {
+          const orig = [...bovT, ...avT, ...gerT].find(t => t.id === x.c.id);
+          if (orig) { orig.pago = true; orig.pagoEm = orig.venc; }
+        });
+        const ics2 = agendaICS(contasParaAgenda());
+        const ls2 = ics2.replace(/\r\n /g, '').split('\r\n');
+        regra('calendário: toda conta paga volta como cancelamento',
+          ls2.filter(l => l === 'STATUS:CANCELLED').length === abertas.length,
+          `${ls2.filter(l => l === 'STATUS:CANCELLED').length} vs ${abertas.length}`);
+        regra('calendário: cancelamento não leva alarme junto',
+          ls2.filter(l => l === 'BEGIN:VALARM').length === 0, '');
+        regra('calendário: o cancelamento usa o mesmo identificador do lembrete',
+          uids.every(u => ls2.includes(u)), '');
+        regra('calendário: cancelar não deixa nada pendente na segunda vez',
+          !agendaICS(contasParaAgenda()).includes('STATUS:CANCELLED'), '');
+      }
+
       regra('e todo mês com lançamento é oferecido — nenhum fica escondido',
         ['competencia', 'caixa', 'vencimento'].every(rg => {
           const ofer = new Set(periodosComLancamento(todosT, rg).meses);
