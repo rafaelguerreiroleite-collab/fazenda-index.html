@@ -30,6 +30,37 @@ jobs:
       - name: Instalar Firebase CLI
         run: npm install --no-save firebase-tools
 
+      # So diagnostico: nao aborta o job. Serve para descobrir com que papel
+      # a conta de servico do secret foi criada e se ela mesma consegue
+      # habilitar a API do Firestore, antes de decidir se e preciso pedir
+      # uma mudanca de permissao no IAM do projeto.
+      - name: Diagnostico de permissoes (Firestore)
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 }}
+          PROJETO: fazenda-e3652
+        run: |
+          set +e
+          printf '%s' "$SA" > /tmp/sa.json
+          EMAIL=$(node -e "console.log(require('/tmp/sa.json').client_email)")
+          echo "Conta de servico: $EMAIL"
+
+          gcloud auth activate-service-account --key-file=/tmp/sa.json --project="$PROJETO"
+
+          echo "-- Papeis da conta no projeto --"
+          gcloud projects get-iam-policy "$PROJETO" \
+            --flatten="bindings[].members" \
+            --format="table(bindings.role)" \
+            --filter="bindings.members:$EMAIL"
+
+          echo "-- API do Firestore ja habilitada? --"
+          gcloud services list --enabled --project="$PROJETO" --filter="config.name:firestore.googleapis.com"
+
+          echo "-- Tentando habilitar a API do Firestore --"
+          gcloud services enable firestore.googleapis.com --project="$PROJETO"
+          echo "codigo de saida do enable: $?"
+        continue-on-error: true
+
       # O site do Meus Gastos e separado do site da Fazenda J.S: outro
       # site de Hosting, outro endereco. Nada aqui toca em fazenda-e3652.web.app.
       #
