@@ -1,4 +1,4 @@
-name: Publicar Meus Gastos
+name: Publicar Gastos Giovanna
 
 on:
   push:
@@ -30,25 +30,21 @@ jobs:
       - name: Instalar Firebase CLI
         run: npm install --no-save firebase-tools
 
-      # O site do Meus Gastos e separado do site da Fazenda J.S: outro
+      # O site do Gastos Giovanna e separado do site da Fazenda J.S: outro
       # site de Hosting, outro endereco. Nada aqui toca em fazenda-e3652.web.app.
       #
-      # Alem de publicar os arquivos estaticos, este passo tambem garante
-      # que a carteira sincronize entre aparelhos: cria o banco Firestore
-      # (se ainda nao existir), publica as regras de seguranca e gera um
-      # app Web para obter as chaves de conexao. Essas chaves (apiKey,
-      # projectId etc.) nao sao segredo — quem protege os dados e a regra
-      # do Firestore, nao o sigilo dessas chaves — por isso podem ir para
-      # o config.js publicado sem risco.
+      # Este passo publica so os arquivos estaticos. A ligacao com o
+      # Firestore ja vai pronta dentro do config.js, e as regras de
+      # seguranca sao publicadas a mao no console do Firebase: a conta de
+      # servico deste deploy tem permissao de Hosting e mais nada.
       - name: Publicar no site proprio
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
           SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 }}
           PROJETO: fazenda-e3652
           SITE: gastos-giovanna
-          REGIAO: southamerica-east1
         run: |
-          set -uo pipefail
+          set -euo pipefail
           if [ -z "$SA" ]; then
             echo "::error::O secret FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 esta vazio ou nao existe."
             exit 1
@@ -56,83 +52,6 @@ jobs:
           printf '%s' "$SA" > /tmp/sa.json
           FB="npx firebase -P $PROJETO"
 
-          # Roda um comando do firebase-tools. O JSON de resposta vai para um
-          # arquivo (limpo, sem se misturar com o log); stdout+stderr do
-          # processo tambem aparecem no log, inclusive quando falha, para
-          # nunca perder a mensagem real de erro dentro de um pipe. Devolve
-          # o status do comando em vez de abortar o script: a configuracao
-          # do Firestore e importante, mas nao pode impedir o Hosting de
-          # publicar (o app continua funcionando local mesmo sem nuvem).
-          rodar(){
-            local desc="$1" arquivo="$2"; shift 2
-            echo "-- $desc --"
-            if $FB "$@" --json >"$arquivo" 2>/tmp/rodar.err; then
-              cat /tmp/rodar.err >&2
-              cat "$arquivo"
-              return 0
-            else
-              echo "::warning::Falhou: $desc (comando: firebase $*)"
-              echo "saida:"; cat "$arquivo"
-              echo "erro:"; cat /tmp/rodar.err
-              return 1
-            fi
-          }
-
-          FIRESTORE_OK=1
-
-          echo "== Banco Firestore =="
-          if rodar "Listar bancos Firestore" /tmp/dbs.json firestore:databases:list; then
-            QTD_BANCOS=$(jq -r '.result | length' /tmp/dbs.json)
-            if [ "$QTD_BANCOS" = "0" ]; then
-              rodar "Criar banco Firestore" /tmp/db-criado.json \
-                firestore:databases:create '(default)' --location "$REGIAO" || FIRESTORE_OK=0
-            else
-              echo "Banco Firestore ja existe, seguindo em frente."
-            fi
-          else
-            FIRESTORE_OK=0
-          fi
-
-          if [ "$FIRESTORE_OK" = "1" ]; then
-            echo "== Regras de seguranca do Firestore =="
-            out=$($FB deploy --only firestore:rules 2>&1); status=$?
-            echo "$out"
-            [ $status -eq 0 ] || FIRESTORE_OK=0
-          fi
-
-          if [ "$FIRESTORE_OK" = "1" ]; then
-            echo "== App Web (chaves de conexao) =="
-            if rodar "Listar apps Web" /tmp/apps.json apps:list WEB; then
-              APP_ID=$(jq -r '.result[0].appId // empty' /tmp/apps.json)
-              if [ -z "$APP_ID" ]; then
-                rodar "Criar app Web" /tmp/app-criado.json apps:create WEB "Gastos Giovanna" \
-                  && APP_ID=$(jq -r '.result.appId' /tmp/app-criado.json) || FIRESTORE_OK=0
-              fi
-            else
-              FIRESTORE_OK=0
-            fi
-          fi
-
-          if [ "$FIRESTORE_OK" = "1" ]; then
-            echo "APP_ID=$APP_ID"
-            if rodar "Buscar chaves do app Web" /tmp/sdkconfig-completo.json apps:sdkconfig WEB "$APP_ID"; then
-              jq '.result.sdkConfig' /tmp/sdkconfig-completo.json > /tmp/sdkconfig.json
-              node -e "
-                const cfg = require('/tmp/sdkconfig.json');
-                const fs = require('fs');
-                fs.writeFileSync('_site/config.js',
-                  'window.CONFIG_FIREBASE = ' + JSON.stringify(cfg, null, 2) + ';\n');
-              "
-            else
-              FIRESTORE_OK=0
-            fi
-          fi
-
-          if [ "$FIRESTORE_OK" = "0" ]; then
-            echo "::warning::Firestore nao configurado nesta rodada (veja os avisos acima). O app vai ao ar mesmo assim, mas sem sincronizar entre aparelhos ate isso ser resolvido."
-          fi
-
-          echo "== Hosting =="
           # Cria o site na primeira vez. Se ja existir, segue em frente.
           $FB hosting:sites:create "$SITE" \
             || echo "Site '$SITE' ja existe, seguindo para o deploy."

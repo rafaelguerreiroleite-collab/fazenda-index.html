@@ -1,23 +1,22 @@
 /* =========================================================
-   ÚNICO ARQUIVO QUE VOCÊ PRECISA EDITAR
+   Ligacao com a nuvem (Firestore do projeto fazenda-e3652).
 
-   1. Crie um projeto gratuito em console.firebase.google.com
-   2. Adicione um app Web (ícone </>)
-   3. Copie os valores do "firebaseConfig" e cole abaixo
-   4. No menu Firestore Database, crie o banco em modo produção
-   5. Na aba Regras, apague o que estiver lá e cole as regras
-      do arquivo LEIA-ME.txt (item 4). Sem elas o banco fica
-      aberto para qualquer pessoa da internet.
+   So o projectId: o app nao usa Authentication, Storage nem
+   Analytics, e o Firestore dispensa as outras chaves quando
+   o acesso e anonimo. Testado em navegador, com dois perfis
+   separados lendo a mesma carteira.
 
-   Preencha ANTES de publicar. Enquanto estiver em branco, o app
-   funciona só no aparelho, sem sincronizar celular e computador.
+   Estas chaves nao sao segredo: em qualquer app web do Firebase
+   elas ficam visiveis no codigo da pagina. Quem protege os dados
+   sao as regras do Firestore (firestore.rules) mais o codigo da
+   carteira, que tem 12 caracteres sorteados.
+
+   O banco e compartilhado com o sistema da fazenda. As regras
+   cobrem os dois: /farms para a fazenda, /carteiras para este
+   app. Elas sao publicadas a mao no console do Firebase, porque
+   a conta de servico do deploy so tem permissao de Hosting.
    ========================================================= */
 
 window.CONFIG_FIREBASE = {
-  apiKey:            "",
-  authDomain:        "",
-  projectId:         "",
-  storageBucket:     "",
-  messagingSenderId: "",
-  appId:             ""
+  projectId: "fazenda-e3652"
 };
