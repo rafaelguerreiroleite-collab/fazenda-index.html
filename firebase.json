@@ -3,5 +3,8 @@
     "target": "gastos",
     "public": "_site",
     "ignore": []
+  },
+  "firestore": {
+    "rules": "firestore.rules"
   }
 }
