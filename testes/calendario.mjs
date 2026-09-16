@@ -568,6 +568,199 @@ export default async function () {
   t.conferir('e aí lançar a prazo não abre mais nada', auto.desligadoNaoAbre === true);
   t.conferir('mas o menu continua tendo a agenda', auto.menuAindaFunciona === true);
 
+  // ---------- apagar a conta também tem de calar o alarme ----------
+  // Pagar já calava. Apagar, não: a conta sumia da tela e o aviso continuava
+  // no aparelho, cobrando uma dívida que não existe mais. É o mesmo defeito,
+  // pela outra porta — e a conta apagada não dá para reconhecer olhando a
+  // lista, porque ela não está mais lá.
+  t.secao('apagar a conta cala o alarme');
+  const apagar = await pagina.evaluate(async () => {
+    const out = {};
+    closeAllM();
+    bovT = []; avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+    localStorage.removeItem('fjs-ics-enviados');
+    localStorage.removeItem('fjs-ics-auto');
+    localStorage.setItem('fjs-ics-explicado', 'true');
+    tab = 'bovinos'; seg = 'financeiro';
+
+    bovT = [
+      { id: 'd1', date: '2026-09-01', type: 'saida', amount: 300, category: 'Ração/insumos',
+        venc: '2026-11-10', pago: false, grupo: 'gd', parcela: 1, parcelas: 2 },
+      { id: 'd2', date: '2026-09-01', type: 'saida', amount: 300, category: 'Ração/insumos',
+        venc: '2026-12-10', pago: false, grupo: 'gd', parcela: 2, parcelas: 2 }
+    ];
+    render();
+    // finge que as duas já foram para o calendário
+    $('menu-exp-agenda').click();
+    await new Promise(ok => setTimeout(ok, 40));
+    out.mandouAsDuas = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+    closeAllM();
+
+    // apagar o carnê inteiro
+    $('modal-agenda-saida').hidden = true;
+    openTrans('bov', bovT[0]);
+    $('btn-delete-transaction').click();
+    await new Promise(ok => setTimeout(ok, 60));
+    out.apagarAbre = !$('modal-agenda-saida').hidden;
+    out.cancelou = ($('ag-cru').value.match(/STATUS:CANCELLED/g) || []).length;
+    out.semAlarme = !$('ag-cru').value.includes('BEGIN:VALARM');
+    out.memoriaVazia = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+    out.sumiuMesmo = bovT.length;
+    localStorage.removeItem('fjs-ics-auto');
+    closeAllM();
+    return out;
+  });
+  t.conferir('as duas parcelas constavam como mandadas', apagar.mandouAsDuas === 2,
+    String(apagar.mandouAsDuas));
+  t.conferir('apagar o carnê abre a tela do calendário', apagar.apagarAbre === true);
+  t.conferir('com o cancelamento das duas', apagar.cancelou === 2, String(apagar.cancelou));
+  t.conferir('sem alarme nenhum — é o que cala o aviso', apagar.semAlarme === true);
+  t.conferir('e a memória do que foi mandado fica limpa',
+    apagar.memoriaVazia === 0, String(apagar.memoriaVazia));
+  t.conferir('as parcelas foram mesmo apagadas', apagar.sumiuMesmo === 0,
+    String(apagar.sumiuMesmo));
+
+  // ---------- arquivo grande não pode travar o aparelho ----------
+  // O backup completo passa de dezenas de MB com as notas fiscais dentro.
+  // Jogar isso num campo de texto trava o celular, e ninguém ia colar tanta
+  // coisa nas Notas de qualquer jeito.
+  t.secao('arquivo grande não vai para o campo de reserva');
+  const grande = await pagina.evaluate(async () => {
+    const out = {};
+    closeAllM();
+    window.precisaDaTela = () => true;
+    download('pequeno.csv', 'a;b\n1;2\n', 'text/csv');
+    out.pequenoTemReserva = !$('ag-reserva').hidden && $('ag-cru').value.includes('a;b');
+    // o marcador que o Excel pede não pode ir junto no texto copiado
+    out.semMarcadorInvisivel = !$('ag-cru').value.startsWith('\ufeff');
+    closeAllM();
+    download('enorme.json', 'x'.repeat(400000), 'application/json');
+    out.grandeEscondeReserva = $('ag-reserva').hidden;
+    out.grandeNaoEnche = $('ag-cru').value.length === 0;
+    // mas o arquivo em si continua inteiro para baixar
+    out.grandeTemLink = /^blob:/.test($('ag-baixar').href)
+      && $('ag-baixar').getAttribute('download') === 'enorme.json';
+    window.precisaDaTela = () => false;
+    closeAllM();
+    return out;
+  });
+  t.conferir('arquivo pequeno mantém a reserva de copiar',
+    grande.pequenoTemReserva === true);
+  t.conferir('e o texto copiado não leva o marcador invisível do Excel',
+    grande.semMarcadorInvisivel === true);
+  t.conferir('arquivo grande esconde a reserva', grande.grandeEscondeReserva === true);
+  t.conferir('e não enche o campo de texto', grande.grandeNaoEnche === true);
+  t.conferir('mas continua inteiro para baixar', grande.grandeTemLink === true);
+
+  // ---------- data impossível não pode derrubar o arquivo inteiro ----------
+  // 29/02/2026 não existe: 2026 não é bissexto. Escrito cru, vira
+  // DTSTART:20260229, e leitor rigoroso recusa o ARQUIVO TODO por causa dela —
+  // todas as outras contas sumiriam junto, sem explicação nenhuma na tela do
+  // celular. O formulário não deixa digitar isso, mas backup restaurado e
+  // importação deixam.
+  t.secao('data impossível não derruba o arquivo');
+  const datas = await pagina.evaluate(async () => {
+    closeAllM();
+    bovT = [
+      { id: 'n1', date: '2026-01-01', type: 'saida', amount: 100, category: 'A',
+        venc: '2026-02-29', pago: false },
+      { id: 'n2', date: '2026-01-01', type: 'saida', amount: 200, category: 'B',
+        venc: '2027-12-31', pago: false },
+      { id: 'n3', date: '2026-01-01', type: 'saida', amount: 300, category: 'C',
+        venc: 'nao-e-data', pago: false }
+    ];
+    avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+    localStorage.removeItem('fjs-ics-enviados');
+    localStorage.setItem('fjs-ics-explicado', 'true');
+    $('menu-exp-agenda').click();
+    await new Promise(ok => setTimeout(ok, 40));
+    const ics = $('ag-cru').value;
+    const out = {
+      inicios: ics.match(/DTSTART;VALUE=DATE:\d+/g) || [],
+      fins: ics.match(/DTEND;VALUE=DATE:\d+/g) || [],
+      eventos: (ics.match(/BEGIN:VEVENT/g) || []).length,
+      resumo: $('ag-resumo').textContent,
+      memoria: Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados')))
+    };
+    closeAllM();
+    return out;
+  });
+  t.conferir('o dia que não existe rola para o dia real seguinte',
+    datas.inicios.includes('DTSTART;VALUE=DATE:20260301')
+      && !datas.inicios.some(x => x.includes('20260229')), datas.inicios.join(' '));
+  t.conferir('e o fim continua sendo exatamente um dia depois',
+    datas.fins.includes('DTEND;VALUE=DATE:20260302'), datas.fins.join(' '));
+  t.conferir('a virada de ano também fecha certo',
+    datas.fins.includes('DTEND;VALUE=DATE:20280101'), datas.fins.join(' '));
+  t.conferir('texto que não é data nenhuma não vira evento torto',
+    datas.eventos === 2, String(datas.eventos));
+  // Sumir em silêncio é o que não pode: quem lançou três e vê duas precisa
+  // saber que uma ficou de fora, e por quê.
+  t.conferir('e a conta que ficou de fora é anunciada',
+    /sem vencimento legível/.test(datas.resumo || ''), datas.resumo);
+  t.conferir('conta que não virou evento não entra na memória do que foi mandado',
+    datas.memoria.length === 2 && !datas.memoria.includes('n3'),
+    datas.memoria.join(','));
+
+  // ---------- a compra de estoque a prazo pelo mesmo caminho ----------
+  // Conta a pagar nasce em DOIS lugares. Se o calendário valesse só para o
+  // formulário financeiro, metade das contas ficaria de fora — e ninguém
+  // adivinharia qual metade.
+  t.secao('compra de estoque a prazo');
+  const estoque = await pagina.evaluate(async () => {
+    const out = {};
+    closeAllM();
+    localStorage.removeItem('fjs-ics-enviados');
+    localStorage.removeItem('fjs-ics-auto');
+    localStorage.setItem('fjs-ics-explicado', 'true');
+    bovT = []; avT = []; gerT = []; animals = []; weighings = []; moves = [];
+    items = [{ id: 'it1', name: 'Proteinado', unit: 'saco' }];
+    render();
+
+    openMove('it1', 'entrada');
+    $('m-date').value = '2026-09-16';
+    $('m-qty').value = '10';
+    $('m-cost').value = '100';
+    $('m-postfin').checked = true;
+    $('m-prazo').checked = true;
+    $('m-venc').value = '2026-12-05';
+    $('m-parcelas').value = '2';
+    syncMoveCostUI(); syncPrazoUI();
+    $('form-move').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    await new Promise(k => setTimeout(k, 60));
+    out.abriu = !$('modal-agenda-saida').hidden;
+    out.eventos = ($('ag-cru').value.match(/BEGIN:VEVENT/g) || []).length;
+    out.contas = bovT.filter(emAberto).length;
+    out.memoria = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+
+    // apagar a compra apaga o carnê: os avisos têm de ir embora junto
+    closeAllM();
+    $('modal-agenda-saida').hidden = true;
+    openMove('it1', 'entrada', moves[0]);
+    $('btn-delete-move').click();
+    await new Promise(k => setTimeout(k, 80));
+    out.apagouAbriu = !$('modal-agenda-saida').hidden;
+    out.cancelou = ($('ag-cru').value.match(/STATUS:CANCELLED/g) || []).length;
+    out.semAlarme = !$('ag-cru').value.includes('BEGIN:VALARM');
+    out.sobrou = bovT.filter(emAberto).length;
+    out.memoriaFim = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+    localStorage.removeItem('fjs-ics-auto');
+    closeAllM();
+    return out;
+  });
+  t.conferir('comprar ração a prazo também abre o calendário', estoque.abriu === true);
+  t.conferir('com as duas parcelas da compra',
+    estoque.eventos === 2 && estoque.contas === 2,
+    `${estoque.eventos} eventos / ${estoque.contas} contas`);
+  t.conferir('e as duas ficam na memória do que foi mandado',
+    estoque.memoria === 2, String(estoque.memoria));
+  t.conferir('apagar a compra abre o calendário de novo', estoque.apagouAbriu === true);
+  t.conferir('cancelando as duas parcelas que sumiram',
+    estoque.cancelou === 2, String(estoque.cancelou));
+  t.conferir('sem alarme, para o aviso calar', estoque.semAlarme === true);
+  t.conferir('e não sobra conta a pagar nenhuma', estoque.sobrou === 0, String(estoque.sobrou));
+  t.conferir('nem memória de conta mandada', estoque.memoriaFim === 0, String(estoque.memoriaFim));
+
   const falhas = t.fim(errosJS);
   await navegador.close();
   await s.fechar();

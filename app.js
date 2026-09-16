@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 56;
+const VERSAO = 57;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -609,9 +609,19 @@ function atualizarOpcoesPeriodo(id, lista, regime) {
   // na abertura o seletor está no padrão do HTML e esse padrão sempre existe.
   // Depois que ele mexeu, a escolha da sessão vence: um mês reaparecendo por
   // causa de um lançamento novo não pode sequestrar a tela que ele está vendo.
+  // O GUARDADO vem primeiro, sempre. Ele é a última escolha que o dedo do
+  // usuário fez — guardarPeriodo só é chamado quando ele mexe no seletor —,
+  // enquanto o valor atual pode ser uma QUEDA: quando o mês escolhido deixa de
+  // existir, o código põe "Este mês" ali.
+  //
+  // Antes o valor atual vencia depois da primeira escolha da sessão, e isso
+  // tinha uma consequência que não se via: bastava uma queda para a escolha
+  // guardada ficar sombreada até o app fechar. Escolher "Novembro de 2026" por
+  // vencimento, trocar para competência (onde novembro não existe, e o seletor
+  // cai em "Este mês") e voltar devolvia "Este mês", com novembro de volta na
+  // lista e o usuário sem entender por que a tela dele sumiu.
   const guardado = LS.g(PERIODO_GUARDADO[id], null);
-  const ordem = escolhaDaSessao[id] ? [escolhido, guardado] : [guardado, escolhido];
-  const alvo = ordem.find(v => v && [...el.options].some(o => o.value === v));
+  const alvo = [guardado, escolhido].find(v => v && [...el.options].some(o => o.value === v));
   el.value = alvo || 'this-month';
 }
 
@@ -642,9 +652,9 @@ const PERIODO_GUARDADO = {
   'av-period': 'fjs-periodo-av',
   'fz-period': 'fjs-periodo-fz'
 };
-// Marca que a escolha veio do dedo do usuário nesta sessão, não do arquivo.
-const escolhaDaSessao = {};
-function guardarPeriodo(id) { escolhaDaSessao[id] = true; LS.s(PERIODO_GUARDADO[id], $(id).value); }
+// Só é chamado quando o usuário mexe no seletor: o que está aqui é escolha
+// dele, nunca um valor que o código pôs.
+function guardarPeriodo(id) { LS.s(PERIODO_GUARDADO[id], $(id).value); }
 function restaurarPeriodos() {
   Object.entries(PERIODO_GUARDADO).forEach(([id, chave]) => {
     const v = LS.g(chave, null);
@@ -1836,8 +1846,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=56';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=56';
+const PDFJS_JS = 'vendor/pdf.min.js?v=57';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=57';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2407,6 +2417,7 @@ $('btn-delete-transaction').addEventListener('click', () => {
   alvos.forEach(apagarAnexosDe);
   ids.forEach(x => remove(col, x));
   closeAllM(); render(); toast('Lançamento excluído');
+  agendarMudanca([], book, ids);
 });
 
 function openItem(it) {
@@ -2521,15 +2532,19 @@ function lancamentosDaCompra(mv) {
   if (mv.linkGrupo) bovT.filter(x => x.grupo === mv.linkGrupo).forEach(x => ids.push(x.id));
   return ids;
 }
+// Devolve os ids que apagou: quem chama precisa deles para cancelar o alarme
+// que essas contas já tenham posto no calendário. Apagar a conta e deixar o
+// aviso tocando é o mesmo erro de deixar a conta paga tocando.
 function limparVinculoCompra(mv) {
   const ids = lancamentosDaCompra(mv);
-  if (!ids.length) return;
+  if (!ids.length) return [];
   // A nota fiscal anexada some junto com o lançamento que a carregava, senão o
   // arquivo fica na nuvem sem dono — ocupando espaço e sem tela que o abra.
   bovT.filter(x => ids.includes(x.id)).forEach(apagarAnexosDe);
   bovT = bovT.filter(x => !ids.includes(x.id));
   ids.forEach(id => remove('bovtrans', id));
   mv.linkTrans = null; mv.linkGrupo = null;
+  return ids;
 }
 function openMove(itemId, presetType, m) {
   const it = items.find(x => x.id === itemId);
@@ -2575,7 +2590,7 @@ $('form-move').addEventListener('submit', e => {
   // A compra de estoque a prazo também vira conta a pagar: ela tem de ir para
   // o calendário pelo mesmo caminho, senão o automático valeria só para metade
   // das contas — e ninguém adivinharia qual metade.
-  let tocadasMv = [];
+  let tocadasMv = [], removidosMv = [];
   if (id) {
     mv = moves.find(x => x.id === id);
     if (!mv) return sumiu('Esta movimentação foi removida');
@@ -2588,7 +2603,10 @@ $('form-move').addEventListener('submit', e => {
     // Refaz o vínculo do zero: com parcelamento o número de lançamentos pode
     // mudar entre uma edição e outra, e sobrar parcela velha seria dívida
     // fantasma no "A pagar".
-    limparVinculoCompra(mv);
+    // Editar uma compra refaz o carnê do zero, com ids novos: as parcelas
+    // antigas somem e precisam ser canceladas no calendário, senão sobrariam
+    // dois avisos para a mesma dívida.
+    removidosMv = limparVinculoCompra(mv);
     if (postFin && total) {
       const base = { date, type: 'saida', amount: total, category: 'Ração/insumos',
         notes: it.name + (mv.notes ? ' — ' + mv.notes : ''), lock: 'stock' };
@@ -2608,21 +2626,24 @@ $('form-move').addEventListener('submit', e => {
     }
   } else {
     delete mv.unitCost;
-    limparVinculoCompra(mv);
+    // Entrada que virou saída: a compra deixou de existir, e o carnê dela
+    // também. Os avisos têm de ir embora junto.
+    removidosMv = limparVinculoCompra(mv);
   }
   upsert('moves', mv);
   closeAllM(); render(); toast('Movimentação salva');
-  agendarMudanca(tocadasMv, 'bov');
+  agendarMudanca(tocadasMv, 'bov', removidosMv);
 });
 $('btn-delete-move').addEventListener('click', () => {
   const id = $('m-id').value; if (!id || !confirm('Excluir esta movimentação?')) return;
   const mv = moves.find(x => x.id === id);
   // Apagar a compra apaga o carnê inteiro: parcela órfã cobraria uma dívida
   // que não existe mais.
-  if (mv) limparVinculoCompra(mv);
+  const sairam = mv ? limparVinculoCompra(mv) : [];
   moves = moves.filter(x => x.id !== id);
   remove('moves', id);
   closeAllM(); render(); toast('Movimentação excluída');
+  agendarMudanca([], 'bov', sairam);
 });
 
 // ===== Modo pesagem =====
@@ -2991,7 +3012,9 @@ function download(name, content, mime, comBom) {
   const texto = comBom === false ? content : '\ufeff' + content;
   const blob = new Blob([texto], { type: (mime || 'text/plain') + ';charset=utf-8' });
   if (precisaDaTela()) {
-    mostrarSaida({ nome: name, blob, resumo: name, cru: texto });
+    // O texto de reserva vai SEM o marcador do Excel — copiado com ele, o
+    // primeiro caractere seria um invisível que estraga o arquivo colado.
+    mostrarSaida({ nome: name, blob, resumo: name, cru: content });
     return;
   }
   const url = URL.createObjectURL(blob);
@@ -3210,6 +3233,10 @@ function exportRelatorio() {
 // quem e quando, sem senha nenhuma. O arquivo sai do aparelho para o
 // calendário e não fica publicado em lugar nenhum — em troca, é preciso
 // exportar de novo quando as contas mudarem.
+// Acima disto o arquivo não vai para o campo de texto de reserva: 200 mil
+// caracteres já são umas 4 mil linhas de planilha, muito além do que alguém
+// copia à mão, e o backup com notas passa disso em centenas de vezes.
+const COPIA_MAX = 200000;
 const ICS_CAL = 'Fazenda J.S — contas a pagar';
 const ICS_ARQ = 'fazenda-js-contas-a-pagar.ics';
 // Texto em iCalendar escapa barra, ponto e vírgula, vírgula e quebra de linha.
@@ -3239,9 +3266,29 @@ function dobrarICS(linha) {
   }
   return partes.join('\r\n ');
 }
+// Passa a data por um calendário de verdade antes de escrever. Não é
+// paranoia: uma conta com vencimento em 29/02/2026 — dia que não existe, 2026
+// não é bissexto — saía como DTSTART:20260229, e leitor rigoroso recusa o
+// ARQUIVO INTEIRO por causa de uma data assim. Todas as outras contas sumiriam
+// junto, sem nenhuma explicação na tela do celular. O formulário de hoje não
+// deixa digitar isso, mas backup restaurado e importação deixam.
+//
+// Data impossível rola para o dia seguinte real (29/02 vira 01/03), que é o
+// que qualquer calendário faz. Texto que não é data nenhuma devolve null, e
+// quem chama decide o que fazer.
+function dataICS(iso) {
+  const partes = String(iso == null ? '' : iso).slice(0, 10).split('-').map(Number);
+  if (partes.length !== 3 || !partes.every(Number.isFinite)) return null;
+  const [y, m, d] = partes;
+  if (y < 1900 || y > 2999 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(y, m - 1, d);
+  const p = x => String(x).padStart(2, '0');
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+}
 const icsData = iso => String(iso).slice(0, 10).replace(/-/g, '');
 // Evento de dia inteiro termina no dia SEGUINTE: o fim é exclusivo. Sem isso o
-// iPhone desenha a conta em dois dias, ou em nenhum.
+// iPhone desenha a conta em dois dias, ou em nenhum. Conta a partir da data já
+// normalizada, senão o começo e o fim discordariam em quantos dias distam.
 const diaSeguinte = iso => {
   const [y, m, d] = String(iso).split('-').map(Number);
   const dt = new Date(y, m - 1, d + 1);
@@ -3269,6 +3316,8 @@ const alarmeICS = (gatilho, texto) =>
   ['BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + escICS(texto),
    'TRIGGER:' + gatilho, 'END:VALARM'];
 function eventoICS(c, livro, seq, carimbo, hoje) {
+  const dia = dataICS(c.venc);
+  if (!dia) return [];            // sem data legível não há evento possível
   const atrasada = c.venc < hoje;
   const titulo = (atrasada ? '⚠ VENCIDA · ' : '') + 'Fazenda J.S · ' + fmtRS(c.amount)
     + ' · ' + (c.category || 'Conta a pagar') + rotuloParcela(c);
@@ -3287,8 +3336,8 @@ function eventoICS(c, livro, seq, carimbo, hoje) {
     'BEGIN:VEVENT',
     'UID:' + uidICS(c),
     'DTSTAMP:' + carimbo,
-    'DTSTART;VALUE=DATE:' + icsData(c.venc),
-    'DTEND;VALUE=DATE:' + icsData(diaSeguinte(c.venc)),
+    'DTSTART;VALUE=DATE:' + icsData(dia),
+    'DTEND;VALUE=DATE:' + icsData(diaSeguinte(dia)),
     'SUMMARY:' + escICS(titulo),
     'DESCRIPTION:' + escICS(descricao),
     'CATEGORIES:' + escICS('Fazenda J.S'),
@@ -3322,12 +3371,14 @@ function contasParaAgenda() {
 const ICS_ENVIADOS = 'fjs-ics-enviados';
 const enviadosICS = () => { const v = LS.g(ICS_ENVIADOS, null); return v && typeof v === 'object' ? v : {}; };
 function eventoCancelado(id, dados, seq, carimbo) {
+  const dia = dataICS(dados.venc);
+  if (!dia) return [];
   return [
     'BEGIN:VEVENT',
     'UID:' + escICS(id) + '@fazendajs',
     'DTSTAMP:' + carimbo,
-    'DTSTART;VALUE=DATE:' + icsData(dados.venc),
-    'DTEND;VALUE=DATE:' + icsData(diaSeguinte(dados.venc)),
+    'DTSTART;VALUE=DATE:' + icsData(dia),
+    'DTEND;VALUE=DATE:' + icsData(diaSeguinte(dia)),
     'SUMMARY:' + escICS('✔ PAGA · ' + (dados.nome || 'Conta da Fazenda J.S')),
     'DESCRIPTION:' + escICS('Esta conta foi paga (ou apagada) no aplicativo Fazenda J.S.'),
     'CATEGORIES:' + escICS('Fazenda J.S'),
@@ -3355,7 +3406,10 @@ function agendaICS(contas, opc) {
   const hoje = todayISO();
   const antes = enviadosICS();
   const agora = parcial ? Object.assign({}, antes) : {};
-  contas.forEach(x => {
+  // Só entra na memória o que virou evento de verdade. Guardando a conta de
+  // data ilegível, o aplicativo acharia que ela está no calendário e um dia
+  // mandaria o cancelamento de um evento que nunca existiu.
+  contas.filter(x => dataICS(x.c.venc)).forEach(x => {
     agora[x.c.id] = { venc: x.c.venc, nome: fmtRS(x.c.amount) + ' · ' + (x.c.category || 'Conta a pagar') };
   });
   // Inteiro: cancela tudo o que saiu da agenda. Parcial: só o que foi apontado
@@ -3416,8 +3470,14 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico }) {
   if (saidaURL) URL.revokeObjectURL(saidaURL);
   saidaURL = URL.createObjectURL(blob);
   $('ag-resumo').textContent = resumo;
-  $('ag-cru').value = cru || '';
+  // Copiar à mão só faz sentido em arquivo pequeno. O backup completo passa
+  // de dezenas de MB com as notas fiscais dentro: jogar isso num campo de
+  // texto trava o aparelho, e ninguém ia colar tanta coisa nas Notas de
+  // qualquer forma. Acima do limite, a reserva simplesmente sai da tela.
+  const cabeCopiar = typeof cru === 'string' && cru.length <= COPIA_MAX;
+  $('ag-cru').value = cabeCopiar ? cru : '';
   $('ag-cru').hidden = true;
+  $('ag-reserva').hidden = !cabeCopiar;
 
   // ABRIR: na MESMA aba, de propósito. Aplicativo instalado na tela de início
   // do iPhone não abre aba nova — target="_blank" ali não faz absolutamente
@@ -3492,12 +3552,17 @@ $('ag-copiar').addEventListener('click', async () => {
 // cancelamento dela. Sem isso, quem passa a usar só este caminho nunca mais
 // faz a exportação inteira — e o alarme de uma conta já quitada continuaria
 // tocando, que é o jeito mais rápido de a pessoa parar de confiar no aviso.
-function agendarMudanca(tocadas, book) {
+function agendarMudanca(tocadas, book, removidos) {
   if (!LS.g('fjs-ics-auto', true)) return false;
   const lista = (tocadas || []).filter(Boolean);
   const abertas = lista.filter(emAberto);
   const enviadas = enviadosICS();
-  const cancelar = lista.filter(t => !emAberto(t) && enviadas[t.id]).map(t => t.id);
+  // Duas maneiras de uma conta sair da agenda, e as duas precisam cancelar:
+  // ela foi PAGA (continua existindo, só não se deve mais) ou foi APAGADA.
+  // A apagada não dá para reconhecer pela própria conta — ela some da lista —,
+  // por isso vem pelo id, de quem a apagou.
+  const cancelar = lista.filter(t => !emAberto(t) && enviadas[t.id]).map(t => t.id)
+    .concat((removidos || []).filter(id => enviadas[id]));
   if (!abertas.length && !cancelar.length) return false;
   const hoje = todayISO();
   const contas = abertas
@@ -3535,9 +3600,14 @@ function exportAgenda() {
   }
   const texto = agendaICS(contas);
   const atrasadas = contas.filter(x => x.c.dias < 0).length;
-  const resumo = `${contas.length} conta(s) no calendário`
+  // Conta com data que não dá para ler não vira evento. Ela não pode sair da
+  // contagem em silêncio: quem lançou 12 e vê "11 no calendário" precisa saber
+  // que uma ficou, e por quê.
+  const ilegiveis = contas.filter(x => !dataICS(x.c.venc)).length;
+  const resumo = `${contas.length - ilegiveis} conta(s) no calendário`
     + (atrasadas ? ` · ${atrasadas} já vencida(s)` : '')
-    + (aCancelar.length ? ` · ${aCancelar.length} paga(s) saem da agenda` : '');
+    + (aCancelar.length ? ` · ${aCancelar.length} paga(s) saem da agenda` : '')
+    + (ilegiveis ? ` · ${ilegiveis} sem vencimento legível ficaram de fora` : '');
   closeAllM();
   // A agenda mostra a tela SEMPRE, em qualquer aparelho: mandar o arquivo para
   // o Calendário é o objetivo, e para isso o compartilhar é o caminho — não é
@@ -3736,6 +3806,10 @@ $('menu-clear').addEventListener('click', async () => {
   salvarEspelho(true); render();
   toast('Apagando…');
   try { await batchWrite(ops); toast('Dados apagados'); } catch (e) { toast('Falha ao apagar — verifique a conexão'); }
+  // Apagar tudo no aplicativo não apaga o que já está no calendário do
+  // aparelho: sem isto, os avisos continuariam tocando por contas de uma
+  // fazenda que não existe mais aqui dentro.
+  agendarMudanca([], 'bov', Object.keys(enviadosICS()));
 });
 // Toda nota fiscal presa a qualquer lançamento, dos três livros. Anexo é um
 // registro à parte na nuvem: se ninguém o apagar junto, ele fica lá para

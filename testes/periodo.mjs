@@ -287,8 +287,7 @@ export default async function () {
     bovT = [{ id: 's1', date: '2026-03-10', type: 'saida', amount: 100, category: 'Ração/insumos' },
             { id: 's2', date: '2026-09-01', type: 'saida', amount: 50, category: 'Frete' }];
     avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
-    // reabrir: ninguém mexeu no seletor nesta sessão
-    delete escolhaDaSessao['bfin-period'];
+    // reabrir: o seletor está no padrão do HTML, como na abertura do app
     assinaturaPeriodo['bfin-period'] = null;
     tab = 'bovinos'; seg = 'financeiro'; render();
     out.aoReabrir = $('bfin-period').value;
@@ -305,7 +304,6 @@ export default async function () {
     // mês guardado que não existe mais é ignorado, e o que está na tela fica:
     // pular para "Este mês" mudaria o que a pessoa está olhando sem motivo
     localStorage.setItem('fjs-periodo-bov', JSON.stringify('2024-01'));
-    delete escolhaDaSessao['bfin-period'];
     assinaturaPeriodo['bfin-period'] = null; render();
     out.guardadoInvalido = $('bfin-period').value;
 
@@ -330,6 +328,49 @@ export default async function () {
   t.conferir('mês escolhido cujo lançamento foi apagado cai em "Este mês", sem beco',
     sobrevive.escolhidoSumiu === 'this-month', sobrevive.escolhidoSumiu);
   t.conferir('e a tela continua desenhando, sem quebrar', sobrevive.temLinhas === true);
+
+  // ---------- trocar de regime e voltar não pode perder o mês ----------
+  // Novembro existe por vencimento e não existe por competência. Ao trocar, o
+  // seletor cai em "Este mês" — e isso é certo, não há novembro lá. Errado era
+  // não devolver novembro na volta: bastava UMA queda dessas para a escolha
+  // guardada ficar sombreada até o aplicativo fechar.
+  t.secao('ida e volta entre regimes devolve o mês escolhido');
+  const volta = await pagina.evaluate(() => {
+    const out = {};
+    bovT = [{ id: 'rv', date: '2026-03-10', type: 'saida', amount: 400,
+      category: 'Ração/insumos', venc: '2026-11-10', pago: false }];
+    avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+    tab = 'bovinos'; seg = 'financeiro';
+    const el = $('bfin-period');
+    definirRegime('vencimento'); render();
+    el.value = '2026-11'; el.dispatchEvent(new Event('change', { bubbles: true }));
+    out.escolheu = el.value;
+    out.viuAConta = $('bfin-list').querySelectorAll('[data-trans]').length;
+
+    definirRegime('competencia'); render();
+    out.noOutroRegime = el.value;
+    out.novembroSumiu = ![...el.options].some(o => o.value === '2026-11');
+    // e a tela vazia não pode ser um mistério: o aviso conta o que ficou fora
+    out.avisou = !!$('bfin-list').querySelector('.fora-periodo');
+
+    definirRegime('vencimento'); render();
+    out.naVolta = el.value;
+    out.viuDeNovo = $('bfin-list').querySelectorAll('[data-trans]').length;
+    definirRegime('competencia');
+    return out;
+  });
+  t.conferir('escolher novembro por vencimento mostra a conta',
+    volta.escolheu === '2026-11' && volta.viuAConta === 1, String(volta.viuAConta));
+  t.conferir('por competência novembro deixa de ser oferecido, e com razão',
+    volta.novembroSumiu === true);
+  t.conferir('o seletor cai num período que existe, sem beco',
+    volta.noOutroRegime === 'this-month', volta.noOutroRegime);
+  t.conferir('e a tela avisa que há lançamento fora do período',
+    volta.avisou === true);
+  t.conferir('voltando ao regime, o mês escolhido volta junto',
+    volta.naVolta === '2026-11', volta.naVolta);
+  t.conferir('com a conta de novembro de novo à vista',
+    volta.viuDeNovo === 1, String(volta.viuDeNovo));
 
   const falhas = t.fim(errosJS);
   await navegador.close();

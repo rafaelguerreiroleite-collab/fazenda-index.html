@@ -524,6 +524,22 @@ export default async function () {
             === abertas.length * 6, '');
         regra('calendário: o dia do evento é o dia do vencimento',
           abertas.every(x => ls.includes('DTSTART;VALUE=DATE:' + x.c.venc.replace(/-/g, ''))), '');
+        // Data que não existe no calendário derruba o arquivo inteiro num
+        // leitor rigoroso — e leva junto todas as outras contas.
+        regra('calendário: toda data escrita é um dia que existe',
+          ls.filter(l => /^DT(START|END);VALUE=DATE:/.test(l)).every(l => {
+            const v = l.split(':')[1];
+            const y = +v.slice(0, 4), m = +v.slice(4, 6), d = +v.slice(6, 8);
+            const dt = new Date(y, m - 1, d);
+            return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+          }), 'uma data escrita não existe no calendário');
+        regra('calendário: o fim é sempre um dia depois do começo',
+          ls.filter(l => l.startsWith('DTSTART;VALUE=DATE:')).every((l, k) => {
+            const ini = l.split(':')[1];
+            const fim = ls.filter(x => x.startsWith('DTEND;VALUE=DATE:'))[k].split(':')[1];
+            const dia = v => new Date(+v.slice(0, 4), +v.slice(4, 6) - 1, +v.slice(6, 8));
+            return Math.round((dia(fim) - dia(ini)) / 86400000) === 1;
+          }), 'começo e fim não distam exatamente um dia');
         regra('calendário: conta paga e compra à vista nunca entram',
           abertas.every(x => x.c.type === 'saida' && !!x.c.venc && !x.c.pago), '');
 
