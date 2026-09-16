@@ -1,4 +1,8 @@
 // ===== Fazenda JS — versão multi-aparelho (Firebase/Firestore) =====
+// Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
+// visível no menu: quando um recurso novo "não aparece", é este número que
+// diz se o aparelho está atrasado ou se o defeito é do aplicativo.
+const VERSAO = 54;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1832,8 +1836,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=53';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=53';
+const PDFJS_JS = 'vendor/pdf.min.js?v=54';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=54';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2033,6 +2037,10 @@ function renderFin(book) {
 
 // ===== Modais =====
 function openM(id) { $(id).hidden = false; }
+// Fecha o MENU, e só ele. "Fechar tudo" depois de exportar fechava também a
+// tela de saída que a própria exportação tinha acabado de abrir — o arquivo
+// ficava pronto e a tela piscava e sumia, que é o mesmo que não fazer nada.
+function fecharMenu() { const m = $('modal-menu'); if (m) m.hidden = true; }
 function closeAllM() {
   document.querySelectorAll('.modal').forEach(m => m.hidden = true);
   anexoURLs.forEach(u => URL.revokeObjectURL(u));
@@ -2943,9 +2951,34 @@ function csv(v) {
 // O BOM \u00e9 para o Excel: sem ele, planilha em portugu\u00eas abre "Ra\u00e7\u00e3o" torto. Mas
 // arquivo de calend\u00e1rio n\u00e3o \u00e9 planilha \u2014 leitor rigoroso engasga com o BOM
 // antes do BEGIN:VCALENDAR, ent\u00e3o ele \u00e9 opcional.
+// Aplicativo instalado na tela de in\u00edcio do iPhone. A\u00ed dentro, o clique que o
+// PROGRAMA d\u00e1 num link de download n\u00e3o produz nada: sem arquivo, sem erro, sem
+// aviso. Quem toca em exportar v\u00ea a tela n\u00e3o mudar e conclui que o aplicativo
+// est\u00e1 com defeito \u2014 e n\u00e3o h\u00e1 como saber se falhou ou se o arquivo foi parar
+// em algum canto. Foi o que aconteceu com a agenda do calend\u00e1rio, e o mesmo
+// valia, calado, para TODOS os CSVs.
+//
+// O teste \u00e9 estreito de prop\u00f3sito: s\u00f3 iPhone/iPad E instalado. No Safari
+// comum, e no computador, o download direto funciona e continua sendo o
+// caminho \u2014 troc\u00e1-lo por uma tela seria estorvo onde n\u00e3o h\u00e1 problema.
+function noIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+function instalado() {
+  try {
+    return window.navigator.standalone === true
+      || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  } catch (e) { return false; }
+}
+function precisaDaTela() { return noIOS() && instalado(); }
 function download(name, content, mime, comBom) {
   const texto = comBom === false ? content : '\ufeff' + content;
   const blob = new Blob([texto], { type: (mime || 'text/plain') + ';charset=utf-8' });
+  if (precisaDaTela()) {
+    mostrarSaida({ nome: name, blob, resumo: name, cru: texto });
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name;
@@ -3012,7 +3045,7 @@ $('menu-exp-pes').addEventListener('click', () => {
   linhas.forEach(l => rows.push(l.texto));
 
   download('pesagens-fazendajs.csv', rows.join('\n'), 'text/csv');
-  closeAllM();
+  fecharMenu();
   toast(`CSV exportado · ${weighings.length} pesagens · ${animals.length} animais`);
 });
 // Nome do arquivo por livro. Sem o Geral aqui, o CSV dele saía com o nome de
@@ -3042,7 +3075,7 @@ function exportFin(book) {
   const rows = [COLS_FIN];
   arrLivro(book).slice().sort(porData).forEach(t => rows.push(linhaFin(t)));
   download(`financeiro-${ARQ_LIVRO[book] || 'bovinos'}-fazendajs.csv`, rows.join('\n'), 'text/csv');
-  closeAllM();
+  fecharMenu();
   toast(`CSV de ${NOME_LIVRO[book] || 'Bovinos'} exportado · ${rows.length - 1} lançamentos`);
 }
 // "Geral" é o nome do TERCEIRO livro — os custos da sede que não são de
@@ -3056,7 +3089,7 @@ function exportFinTudo() {
     .sort((a, b) => porData(a.t, b.t))
     .forEach(({ t, nome }) => rows.push(nome + ';' + linhaFin(t)));
   download('financeiro-fazenda-inteira-fazendajs.csv', rows.join('\n'), 'text/csv');
-  closeAllM();
+  fecharMenu();
   toast(`CSV da fazenda inteira · ${rows.length - 1} lançamentos dos 3 livros`);
 }
 // Os CSVs de dados trazem linha por linha, e é o que o contador quer. Quem
@@ -3148,7 +3181,7 @@ function exportRelatorio() {
 
   download('relatorio-fazendajs-' + todayISO() + '.csv',
     'secao;item;valor;detalhe\n' + linhas.join('\n'), 'text/csv');
-  closeAllM(); toast('Relatório de custos e receitas exportado');
+  fecharMenu(); toast('Relatório de custos e receitas exportado');
 }
 // ===== Agenda de pagamentos no calendário do celular =====
 // O "A pagar" só avisa com o aplicativo aberto. A conta que vence no dia 10 não
@@ -3321,7 +3354,60 @@ function agendaICS(contas) {
   // inteiro com só "\n".
   return linhas.map(dobrarICS).join('\r\n') + '\r\n';
 }
-async function exportAgenda() {
+// Nada de baixar sozinho. Dentro de um aplicativo instalado na tela de início
+// do iPhone, o clique que o programa dá num link de download costuma não
+// produzir NADA — sem arquivo, sem erro, sem aviso. Foi o que aconteceu: a
+// pessoa toca em exportar e a tela não muda, e não há como saber se falhou ou
+// se o arquivo foi para algum lugar que ela não achou.
+//
+// Agora o arquivo é montado e a tela mostra três caminhos, cada um um botão ou
+// link DE VERDADE, que o dedo toca. Toque do usuário tem permissão que clique
+// de programa não tem, e se um caminho não existir no aparelho ele nem
+// aparece, em vez de falhar calado.
+let saidaURL = null;
+function mostrarSaida({ nome, blob, resumo, cru, ehAgenda }) {
+  if (saidaURL) URL.revokeObjectURL(saidaURL);
+  saidaURL = URL.createObjectURL(blob);
+  $('ag-resumo').textContent = resumo;
+  $('ag-cru').value = cru || '';
+  $('ag-cru').hidden = true;
+  // Um link para ABRIR (o aparelho reconhece o tipo e oferece o aplicativo
+  // certo) e outro para BAIXAR (vai para o app Arquivos). São atributos que
+  // brigam no mesmo link: com "download", o aparelho GUARDA em vez de abrir.
+  $('ag-abrir').href = saidaURL;
+  $('ag-baixar').href = saidaURL;
+  $('ag-baixar').setAttribute('download', nome);
+  const arquivo = new File([blob], nome, { type: blob.type });
+  const podeCompartilhar = !!(navigator.canShare && navigator.canShare({ files: [arquivo] }));
+  $('ag-share').hidden = !podeCompartilhar;
+  $('ag-share-nao').hidden = podeCompartilhar;
+  $('ag-share').textContent = ehAgenda
+    ? '1 · Compartilhar → Calendário' : '1 · Compartilhar / Salvar';
+  $('ag-abrir').textContent = ehAgenda ? '2 · Abrir no Calendário' : '2 · Abrir o arquivo';
+  $('ag-share').onclick = async () => {
+    try { await navigator.share({ files: [arquivo], title: nome }); }
+    catch (e) {
+      if (e && e.name === 'AbortError') return;
+      // Erro do compartilhar tem de APARECER: calado, ele vira "não fez nada".
+      toast('O compartilhar recusou — use "Abrir" ou "Baixar" abaixo');
+    }
+  };
+  // As linhas que só fazem sentido para a agenda saem quando o arquivo é outro.
+  $('ag-so-agenda').hidden = !ehAgenda;
+  $('modal-saida-titulo').textContent = ehAgenda ? 'Agenda pronta' : 'Arquivo pronto';
+  $('modal-agenda-saida').hidden = false;
+}
+$('ag-copiar').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('ag-cru').value);
+    toast('Texto copiado — cole num arquivo terminado em .ics');
+  } catch (e) {
+    // Sem permissão de área de transferência, seleciona para o dedo copiar.
+    $('ag-cru').hidden = false; $('ag-cru').select();
+    toast('Não deu para copiar sozinho — o texto está aí, selecionado');
+  }
+});
+function exportAgenda() {
   const contas = contasParaAgenda();
   // Mesmo sem nenhuma conta em aberto pode haver o que exportar: as que foram
   // pagas desde a última vez precisam do aviso de cancelamento, senão o alarme
@@ -3339,21 +3425,14 @@ async function exportAgenda() {
     + (atrasadas ? ` · ${atrasadas} já vencida(s)` : '')
     + (aCancelar.length ? ` · ${aCancelar.length} paga(s) saem da agenda` : '');
   closeAllM();
-  // No iPhone o caminho que funciona é o compartilhar: ele abre a folha do
-  // sistema e o Calendário aparece lá. Baixar, dentro de um aplicativo
-  // instalado na tela de início, costuma parar num arquivo que ninguém acha.
-  const arquivo = new File([texto], ICS_ARQ, { type: 'text/calendar' });
-  if (navigator.canShare && navigator.canShare({ files: [arquivo] })) {
-    try {
-      await navigator.share({ files: [arquivo], title: ICS_CAL });
-      toast(resumo + ' · escolha o calendário "Fazenda J.S"');
-      return;
-    } catch (e) {
-      if (e && e.name === 'AbortError') return;   // desistiu: não é erro
-    }
-  }
-  download(ICS_ARQ, texto, 'text/calendar', false);
-  toast(resumo + ' · abra o arquivo para importar');
+  // A agenda mostra a tela SEMPRE, em qualquer aparelho: mandar o arquivo para
+  // o Calendário é o objetivo, e para isso o compartilhar é o caminho — não é
+  // um download que deu errado.
+  mostrarSaida({
+    nome: ICS_ARQ,
+    blob: new Blob([texto], { type: 'text/calendar;charset=utf-8' }),
+    resumo, cru: texto, ehAgenda: true
+  });
 }
 // A separação que ele pediu depende de um passo que só o dono do iPhone pode
 // dar: o aplicativo não cria nem escolhe calendário no aparelho. Por isso a
@@ -3367,8 +3446,12 @@ function abrirAgendaICS() {
 $('menu-exp-agenda').addEventListener('click', abrirAgendaICS);
 $('ag-exportar').addEventListener('click', () => {
   LS.s('fjs-ics-explicado', true);
-  closeAllM();
   exportAgenda();
+});
+// Atalho para rever a instrução do calendário separado depois da primeira vez.
+$('ag-rever').addEventListener('click', () => {
+  closeAllM();
+  $('modal-agenda').hidden = false;
 });
 
 $('menu-exp-relatorio').addEventListener('click', exportRelatorio);
@@ -3410,7 +3493,7 @@ $('menu-exp-estoque').addEventListener('click', () => {
     }
   });
   download('estoque-fazendajs.csv', rows.join('\n'), 'text/csv');
-  closeAllM(); toast(`CSV de estoque exportado · ${items.length} itens · ${moves.length} movimentações`);
+  fecharMenu(); toast(`CSV de estoque exportado · ${items.length} itens · ${moves.length} movimentações`);
 });
 
 // ===== Backup / restauração =====
@@ -3719,6 +3802,10 @@ $('btn-menu').addEventListener('click', () => {
        <button type="button" class="mf-codigo mono" id="mf-copiar" title="Toque para copiar">${esc(farm)}</button>
        <span class="mf-estado mono">${navigator.onLine ? 'on-line' : 'off-line — sincroniza quando a internet voltar'}</span>`
     : '<span class="mf-estado mono">Não conectado</span>';
+  // A versão em que ESTE aparelho está. Sem isto, quando um recurso novo não
+  // aparece não há como distinguir "o aplicativo está com defeito" de "este
+  // celular ainda está na versão antiga, guardada pelo navegador".
+  $('menu-farm-info').innerHTML += `<span class="mf-versao mono">versão ${VERSAO}</span>`;
   updateMigrateBtn();
   openM('modal-menu');
 });

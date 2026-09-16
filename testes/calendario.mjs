@@ -245,80 +245,183 @@ export default async function () {
     !linhas(paga.terceiro).includes('STATUS:CANCELLED'), '');
 
   t.secao('o caminho pela tela');
+  // O download que o PROGRAMA dispara não produz nada dentro do aplicativo
+  // instalado na tela de início do iPhone: nem arquivo, nem erro. Por isso a
+  // tela passou a oferecer caminhos que o DEDO toca — e é isso que se confere
+  // aqui: que eles existam, apontem para o arquivo certo, e que nenhum some
+  // sem explicação.
   const tela = await pagina.evaluate(async () => {
     const out = {};
     localStorage.removeItem('fjs-ics-explicado');
-    // No iPhone o arquivo sai pela folha de compartilhar; aqui esse caminho é
-    // desligado de propósito para exercitar o outro, que é o que o navegador
-    // do teste tem. O de compartilhar entrega o MESMO texto.
-    navigator.canShare = () => false;
+    localStorage.removeItem('fjs-ics-enviados');
+    bovT = [{ id: 'tb1', date: '2026-09-01', type: 'saida', amount: 400, category: 'Ração/insumos',
+      venc: '2026-12-10', pago: false }];
+    avT = []; gerT = [];
+    navigator.canShare = () => false;   // aparelho sem compartilhar de arquivo
+
     // primeira vez: explica antes, porque escolher o calendário certo é um
     // passo que só o dono do aparelho pode dar
     $('menu-exp-agenda').click();
     out.explicouAntes = !$('modal-agenda').hidden;
 
-    let baixado = null;
-    const original = window.download;
-    window.download = (nome, conteudo, mime, bom) => { baixado = { nome, conteudo, mime, bom }; };
     $('ag-exportar').click();
     await new Promise(ok => setTimeout(ok, 60));
-    out.baixou = baixado && baixado.nome;
-    out.tipo = baixado && baixado.mime;
-    out.semBom = baixado && baixado.bom === false;
-    out.fechouModal = $('modal-agenda').hidden;
+    out.abriuSaida = !$('modal-agenda-saida').hidden;
+    out.fechouInstrucao = $('modal-agenda').hidden;
+    out.resumo = $('ag-resumo').textContent;
     out.guardouQueExplicou = JSON.parse(localStorage.getItem('fjs-ics-explicado'));
 
-    // segunda vez: vai direto, sem repetir a lição
-    baixado = null;
+    const abrir = $('ag-abrir'), baixar = $('ag-baixar');
+    out.abrirTemLink = /^blob:/.test(abrir.href);
+    out.abrirNaoBaixa = !abrir.hasAttribute('download');
+    out.baixarTemLink = /^blob:/.test(baixar.href);
+    out.baixarTemNome = baixar.getAttribute('download');
+    out.mesmoArquivo = abrir.href === baixar.href;
+    // sem compartilhar no aparelho, o botão some E a tela diz por quê
+    out.shareEscondido = $('ag-share').hidden;
+    out.explicaSemShare = !$('ag-share-nao').hidden;
+    // o texto de reserva tem de ser o arquivo de verdade
+    out.cruEhOArquivo = $('ag-cru').value.startsWith('BEGIN:VCALENDAR')
+      && $('ag-cru').value.includes('UID:tb1@fazendajs');
+
+    // com compartilhar, é o contrário
+    navigator.canShare = () => true;
+    $('modal-agenda-saida').hidden = true;
     $('menu-exp-agenda').click();
     await new Promise(ok => setTimeout(ok, 60));
-    out.segundaVezDireto = $('modal-agenda').hidden && !!baixado;
+    out.segundaVezDireto = $('modal-agenda').hidden && !$('modal-agenda-saida').hidden;
+    out.shareAparece = !$('ag-share').hidden && $('ag-share-nao').hidden;
 
-    // quitou tudo: ainda HÁ o que exportar — os cancelamentos, que são o que
-    // cala os alarmes das contas já pagas
+    // rever a instrução depois da primeira vez
+    $('ag-rever').click();
+    out.reveInstrucao = !$('modal-agenda').hidden;
+    closeAllM();
+
+    // sem nada a agendar nem a cancelar: não abre tela, avisa
     bovT = []; avT = []; gerT = [];
-    baixado = null;
     $('menu-exp-agenda').click();
     await new Promise(ok => setTimeout(ok, 60));
-    out.quitouExporta = !!baixado;
-    out.quitouSoCancela = baixado
-      && !baixado.conteudo.includes('BEGIN:VALARM')
-      && baixado.conteudo.includes('STATUS:CANCELLED');
-    out.quitouAvisa = !$('toast').hidden && $('toast').textContent;
-
-    // agora sim não há nada: nem conta em aberto, nem cancelamento pendente
-    baixado = null;
+    out.quitouAbre = !$('modal-agenda-saida').hidden;   // ainda há cancelamento
+    out.quitouSoCancela = $('ag-cru').value.includes('STATUS:CANCELLED')
+      && !$('ag-cru').value.includes('BEGIN:VALARM');
+    closeAllM();
     $('menu-exp-agenda').click();
     await new Promise(ok => setTimeout(ok, 60));
-    out.vazioNaoBaixa = baixado === null;
+    out.vazioNaoAbre = $('modal-agenda-saida').hidden;
     out.vazioAvisa = !$('toast').hidden && $('toast').textContent;
-    window.download = original;
     return out;
   });
   t.conferir('na primeira vez o app ensina a separar do calendário pessoal',
     tela.explicouAntes === true);
-  t.conferir('o arquivo sai com nome e tipo de calendário',
-    tela.baixou === 'fazenda-js-contas-a-pagar.ics' && tela.tipo === 'text/calendar',
-    `${tela.baixou} · ${tela.tipo}`);
-  // O BOM ajuda o Excel a ler acento no CSV, mas aqui atrapalha: leitor
-  // rigoroso espera BEGIN:VCALENDAR como primeiro byte do arquivo.
-  t.conferir('e sem o marcador que o Excel pede, que aqui só atrapalha',
-    tela.semBom === true);
-  t.conferir('a tela de instrução fecha ao exportar', tela.fechouModal === true);
+  t.conferir('exportar abre a tela de saída, em vez de não mostrar nada',
+    tela.abriuSaida === true);
+  t.conferir('e fecha a tela de instrução', tela.fechouInstrucao === true);
+  t.conferir('a tela diz quantas contas foram', /1 conta/.test(tela.resumo || ''), tela.resumo);
   t.conferir('o app lembra que já explicou', tela.guardouQueExplicou === true);
-  t.conferir('da segunda vez em diante vai direto', tela.segundaVezDireto === true);
-  // Quitar tudo NÃO é "nada a fazer": é o momento em que mais importa exportar,
-  // porque é o que desliga os alarmes que já estão no aparelho.
-  t.conferir('quitando tudo, ainda exporta — para calar os alarmes',
-    tela.quitouExporta === true);
+  t.conferir('da segunda vez em diante vai direto para a saída',
+    tela.segundaVezDireto === true);
+
+  t.secao('os três caminhos são links de verdade');
+  t.conferir('"Abrir" aponta para o arquivo', tela.abrirTemLink === true);
+  // Com o atributo "download" o aparelho GUARDA em vez de abrir: os dois
+  // atributos brigam, e é por isso que são dois links e não um.
+  t.conferir('e abre mesmo, sem o atributo que manda guardar',
+    tela.abrirNaoBaixa === true);
+  t.conferir('"Baixar" aponta para o mesmo arquivo', tela.baixarTemLink && tela.mesmoArquivo,
+    String(tela.mesmoArquivo));
+  t.conferir('e salva com nome de calendário',
+    tela.baixarTemNome === 'fazenda-js-contas-a-pagar.ics', String(tela.baixarTemNome));
+  t.conferir('sem compartilhar no aparelho, o botão some',
+    tela.shareEscondido === true);
+  t.conferir('e a tela diz por que sumiu, em vez de calar',
+    tela.explicaSemShare === true);
+  t.conferir('com compartilhar, ele aparece e o aviso some',
+    tela.shareAparece === true);
+  t.conferir('o texto de reserva é o arquivo de verdade',
+    tela.cruEhOArquivo === true);
+  t.conferir('dá para rever a instrução do calendário separado',
+    tela.reveInstrucao === true);
+
+  t.secao('quando não há o que agendar');
+  t.conferir('quitando tudo, ainda abre — para calar os alarmes',
+    tela.quitouAbre === true);
   t.conferir('e esse arquivo só cancela, sem criar alarme novo',
     tela.quitouSoCancela === true);
-  t.conferir('avisando quantas saíram da agenda',
-    /saem da agenda/.test(tela.quitouAvisa || ''), String(tela.quitouAvisa));
-  t.conferir('aí sim, sem nada a agendar nem a cancelar, não baixa arquivo vazio',
-    tela.vazioNaoBaixa === true);
-  t.conferir('e diz por que não baixou', /Nenhuma conta/i.test(tela.vazioAvisa || ''),
+  t.conferir('sem nada a agendar nem a cancelar, não abre tela nenhuma',
+    tela.vazioNaoAbre === true);
+  t.conferir('e diz por que não abriu', /Nenhuma conta/i.test(tela.vazioAvisa || ''),
     String(tela.vazioAvisa));
+
+  // ---------- o mesmo defeito atingia TODOS os CSVs ----------
+  // A agenda só tornou o problema visível. Dentro do aplicativo instalado no
+  // iPhone, o mesmo clique programático entregava os CSVs em lugar nenhum —
+  // calado, desde sempre. A tela de saída passou a valer para todo arquivo.
+  t.secao('no iPhone instalado, todo arquivo passa pela tela');
+  const csvs = await pagina.evaluate(async () => {
+    const out = {};
+    closeAllM();
+    bovT = [{ id: 'x1', date: '2026-09-01', type: 'saida', amount: 10, category: 'Frete' }];
+    avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+
+    // no computador e no Safari comum, o download direto funciona e continua
+    // sendo o caminho: trocá-lo por uma tela seria estorvo onde não há problema
+    window.precisaDaTela = () => false;
+    let bateuNoDireto = false;
+    const origCriar = document.createElement.bind(document);
+    document.createElement = tag => {
+      const el = origCriar(tag);
+      if (tag === 'a') { const c = el.click.bind(el); el.click = () => { bateuNoDireto = true; c(); }; }
+      return el;
+    };
+    $('menu-exp-bfin').click();
+    await new Promise(ok => setTimeout(ok, 40));
+    out.foraDoIphoneBaixaDireto = bateuNoDireto && $('modal-agenda-saida').hidden;
+
+    // no iPhone instalado, a tela aparece com o MESMO arquivo
+    window.precisaDaTela = () => true;
+    bateuNoDireto = false;
+    $('menu-exp-bfin').click();
+    await new Promise(ok => setTimeout(ok, 40));
+    out.noIphoneAbreTela = !$('modal-agenda-saida').hidden;
+    out.naoTentaODireto = bateuNoDireto === false;
+    out.nomeDoCsv = $('ag-baixar').getAttribute('download');
+    out.titulo = $('modal-saida-titulo').textContent;
+    out.conteudoEhOCsv = $('ag-cru').value.includes('Frete');
+    // as linhas do calendário não podem aparecer num CSV
+    out.semConversaDeCalendario = $('ag-so-agenda').hidden;
+
+    // e a agenda continua com as linhas dela
+    closeAllM();
+    bovT = [{ id: 'x2', date: '2026-09-01', type: 'saida', amount: 20, category: 'Frete',
+      venc: '2026-12-01', pago: false }];
+    localStorage.setItem('fjs-ics-explicado', 'true');
+    $('menu-exp-agenda').click();
+    await new Promise(ok => setTimeout(ok, 40));
+    out.agendaTemAsLinhas = !$('ag-so-agenda').hidden;
+    out.tituloAgenda = $('modal-saida-titulo').textContent;
+
+    document.createElement = origCriar;
+    window.precisaDaTela = () => false;
+    closeAllM();
+    return out;
+  });
+  t.conferir('fora do iPhone instalado, o download direto continua valendo',
+    csvs.foraDoIphoneBaixaDireto === true);
+  t.conferir('no iPhone instalado, o CSV abre a tela em vez de sumir',
+    csvs.noIphoneAbreTela === true);
+  t.conferir('e nem tenta o download que não funciona lá',
+    csvs.naoTentaODireto === true);
+  t.conferir('a tela oferece o CSV com o nome certo',
+    /financeiro-bovinos/.test(csvs.nomeDoCsv || ''), String(csvs.nomeDoCsv));
+  t.conferir('com o conteúdo do CSV, não de outro arquivo',
+    csvs.conteudoEhOCsv === true);
+  t.conferir('e o título fala de arquivo, não de agenda',
+    csvs.titulo === 'Arquivo pronto', csvs.titulo);
+  t.conferir('sem as instruções de calendário, que ali não fazem sentido',
+    csvs.semConversaDeCalendario === true);
+  t.conferir('já a agenda mantém as instruções dela',
+    csvs.agendaTemAsLinhas === true);
+  t.conferir('e o título de agenda', csvs.tituloAgenda === 'Agenda pronta', csvs.tituloAgenda);
 
   const falhas = t.fim(errosJS);
   await navegador.close();

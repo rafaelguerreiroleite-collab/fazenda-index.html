@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=53" />
+<link rel="stylesheet" href="style.css?v=54" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -544,6 +544,45 @@
   </div>
 </div>
 
+<!-- Três caminhos, cada um um botão ou link DE VERDADE. Dentro do aplicativo
+     instalado na tela de início do iPhone, o clique que o programa dá num link
+     de download não produz nada — nem arquivo, nem erro. Toque de dedo tem
+     permissão que clique de programa não tem. -->
+<div class="modal" id="modal-agenda-saida" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2 id="modal-saida-titulo">Arquivo pronto</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <div class="ag-texto">
+      <p class="ag-resumo mono" id="ag-resumo"></p>
+      <p>Toque no primeiro que funcionar. No iPhone, o <b>Compartilhar</b>
+         costuma ser o caminho.</p>
+      <div class="ag-acoes">
+        <button type="button" class="btn-primary" id="ag-share" hidden>1 · Compartilhar / Salvar</button>
+        <a class="btn-primary ag-link" id="ag-abrir" target="_blank" rel="noopener">2 · Abrir o arquivo</a>
+        <a class="btn-secondary ag-link" id="ag-baixar">3 · Baixar para o app Arquivos</a>
+      </div>
+      <p class="small" id="ag-share-nao" hidden>Este aparelho não oferece
+         compartilhar arquivo — use "Abrir" ou "Baixar".</p>
+      <p class="small">Baixando: abra o app <b>Arquivos</b> → <b>Transferências</b>
+         e toque no arquivo.</p>
+      <details>
+        <summary class="small">Nenhum dos três funcionou</summary>
+        <p class="small">Copie o texto e cole no app Notas, salvando com a mesma
+           terminação do nome do arquivo.</p>
+        <button type="button" class="btn-secondary" id="ag-copiar">Copiar o texto</button>
+        <textarea id="ag-cru" rows="6" readonly hidden></textarea>
+      </details>
+      <div id="ag-so-agenda" hidden>
+        <p class="small">Na folha de compartilhar, escolha <b>Calendário</b> — e
+           dentro dele o calendário <b>Fazenda J.S</b>, não o pessoal.</p>
+        <p class="small"><button type="button" class="link-btn" id="ag-rever">Rever como separar do calendário pessoal</button></p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="modal-item" hidden>
   <div class="modal-content">
     <header class="modal-header">
@@ -729,6 +768,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=53"></script>
+<script src="app.js?v=54"></script>
 </body>
 </html>

@@ -610,3 +610,13 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .ag-destaque { color: #92400e; }
 .ag-passos { margin: 0.6rem 0 0.9rem; padding-left: 1.2rem; }
 .ag-passos li { margin-bottom: 0.45rem; }
+
+/* Saída da agenda: três caminhos empilhados, cada um do tamanho de um dedo. */
+.ag-acoes { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.8rem 0; }
+.ag-link { display: block; text-decoration: none; text-align: center; }
+.ag-resumo { color: #92400e; font-size: 0.78rem; }
+.ag-texto details { margin-top: 0.6rem; }
+.ag-texto summary { cursor: pointer; color: #57534e; }
+.ag-texto textarea { width: 100%; font-size: 0.7rem; font-family: inherit; margin-top: 0.5rem; }
+.link-btn { background: none; border: 0; padding: 0; color: #225437; text-decoration: underline; font: inherit; cursor: pointer; }
+.mf-versao { display: block; margin-top: 0.35rem; font-size: 0.62rem; color: #a8a29e; }
