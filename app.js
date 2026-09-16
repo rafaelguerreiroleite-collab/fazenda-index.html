@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 57;
+const VERSAO = 58;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1288,6 +1288,10 @@ document.addEventListener('click', e => {
   // nascia um lançamento duplicado no livro errado.
   upsert(colLivro(livro), t);
   render(); toast('Marcado como pago');
+  // Este é o caminho MAIS usado para quitar uma conta — mais que abrir o
+  // formulário. Sem o cancelamento aqui, o alarme dela seguiria tocando no
+  // celular justamente para quem usa o aplicativo do jeito mais natural.
+  agendarMudanca([t], livro);
 });
 
 // ===== Fazenda: os dois livros somados =====
@@ -1846,8 +1850,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=57';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=57';
+const PDFJS_JS = 'vendor/pdf.min.js?v=58';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=58';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2460,6 +2464,10 @@ $('btn-delete-item').addEventListener('click', () => {
   bovT = bovT.filter(t => !linked.includes(t.id));
   moves = moves.filter(m => m.itemId !== id);
   items = items.filter(x => x.id !== id);
+  // Apagar o item leva junto as compras dele, e com elas as parcelas a pagar:
+  // os avisos no calendário têm de ir junto, senão cobram uma ração que nem
+  // existe mais no estoque.
+  const avisosDoItem = linked.slice();
   if (detailItem === id) detailItem = null;
   batchWrite([
     { col: 'items', del: id },
@@ -2467,6 +2475,7 @@ $('btn-delete-item').addEventListener('click', () => {
     ...linked.map(t => ({ col: 'bovtrans', del: t }))
   ]).catch(() => toast('Falha ao remover na nuvem — verifique a conexão'));
   closeAllM(); render(); toast('Item excluído');
+  agendarMudanca([], 'bov', avisosDoItem);
 });
 
 function syncMoveCostUI() {
@@ -2906,17 +2915,48 @@ $('csv-input').addEventListener('change', e => {
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (!lines.length) { toast('Arquivo vazio'); return; }
     const sep = (lines[0].split(';').length > lines[0].split(',').length) ? ';' : ',';
+    const limpa = l => l.split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
+    const cabecalho = limpa(lines[0]);
+    const temCabecalho = /ident|animal|brinco/i.test(cabecalho[0]);
+    // Achar as colunas pelo NOME, e não pela posição. O arquivo que o próprio
+    // aplicativo exporta tem dezenove colunas, com a data na TERCEIRA — lido
+    // por posição, ele acusava "data inválida: Novilha" em cada linha e não
+    // importava nada. Exportar e reimportar é o caminho natural de quem quer
+    // corrigir pesos na planilha e trazer de volta, e o aplicativo não lia o
+    // que ele mesmo tinha escrito.
+    //
+    // A ordem dos nomes importa: "data_entrada", "manejo_data", "peso_entrada"
+    // e "peso_venda" também existem no arquivo, e são outra coisa.
+    const acha = (...nomes) => {
+      for (const n of nomes) {
+        const k = cabecalho.findIndex(c => n.test(c));
+        if (k >= 0) return k;
+      }
+      return -1;
+    };
+    const iIdent = temCabecalho ? acha(/^identifica/i, /^ident/i, /brinco/i, /^animal/i) : 0;
+    const iData = temCabecalho ? acha(/^data$/i, /^data_pesagem$/i, /^date$/i) : 1;
+    const iPeso = temCabecalho ? acha(/^peso$/i, /^peso_kg$/i, /^weight$/i) : 2;
+    // Cabeçalho que não nomeia as três: volta para as três primeiras colunas,
+    // que é o formato do modelo e o que uma planilha simples produz.
+    const ci = iIdent >= 0 ? iIdent : 0;
+    const cd = iData >= 0 ? iData : 1;
+    const cp = iPeso >= 0 ? iPeso : 2;
+    const maior = Math.max(ci, cd, cp);
     const rows = []; const errors = [];
     lines.forEach((line, i) => {
-      const cols = line.split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
-      if (i === 0 && /ident|animal|brinco/i.test(cols[0])) return;
-      if (cols.length < 3) { errors.push(`Linha ${i + 1}: menos de 3 colunas`); return; }
-      const ident = cols[0];
-      const date = parseDateFlex(cols[1]);
-      const peso = parseNum(cols[2]);
+      const cols = limpa(line);
+      if (i === 0 && temCabecalho) return;
+      if (cols.length <= maior) { errors.push(`Linha ${i + 1}: menos de ${maior + 1} colunas`); return; }
+      const ident = cols[ci];
+      const date = parseDateFlex(cols[cd]);
+      const peso = parseNum(cols[cp]);
+      // Linha sem data E sem peso é um animal que ainda não foi pesado: ele sai
+      // no arquivo exportado e não é erro nenhum, é só uma linha sem pesagem.
+      if (!cols[cd] && !cols[cp]) return;
       if (!ident) { errors.push(`Linha ${i + 1}: identificação vazia`); return; }
-      if (!date) { errors.push(`Linha ${i + 1}: data inválida "${cols[1]}"`); return; }
-      if (!Number.isFinite(peso) || peso <= 0) { errors.push(`Linha ${i + 1}: peso inválido "${cols[2]}"`); return; }
+      if (!date) { errors.push(`Linha ${i + 1}: data inválida "${cols[cd]}"`); return; }
+      if (!Number.isFinite(peso) || peso <= 0) { errors.push(`Linha ${i + 1}: peso inválido "${cols[cp]}"`); return; }
       rows.push({ ident, date, peso });
     });
     const existingIdents = new Set(animals.filter(noRebanho).map(a => chaveBrinco(a.ident)));
@@ -3552,6 +3592,21 @@ $('ag-copiar').addEventListener('click', async () => {
 // cancelamento dela. Sem isso, quem passa a usar só este caminho nunca mais
 // faz a exportação inteira — e o alarme de uma conta já quitada continuaria
 // tocando, que é o jeito mais rápido de a pessoa parar de confiar no aviso.
+// As portas por onde uma conta sai da agenda, todas ligadas aqui. A lista está
+// escrita porque ela já foi descoberta aos pedaços: cada porta esquecida deixa
+// um alarme tocando por uma dívida que não existe, e quem descobre é o dono do
+// celular, no dia do vencimento.
+//   1. salvar o lançamento (pago, ou deixou de ser a prazo)
+//   2. excluir o lançamento
+//   3. pagar pela lista "A pagar"  — o caminho mais usado de todos
+//   4. salvar a compra de estoque (refaz o carnê com ids novos)
+//   5. excluir a compra de estoque
+//   6. excluir o item de estoque, que leva as compras dele junto
+//   7. apagar todos os dados
+//   8. restaurar um backup, que troca tudo por lançamentos de outros ids
+// Fica de fora, de propósito: mudança vinda da NUVEM, feita em outro aparelho.
+// Abrir uma tela sozinha por causa de um dado que chegou de fora seria pior que
+// o problema; para esse caso existe a agenda inteira, no menu.
 function agendarMudanca(tocadas, book, removidos) {
   if (!LS.g('fjs-ics-auto', true)) return false;
   const lista = (tocadas || []).filter(Boolean);
@@ -3772,6 +3827,12 @@ $('restore-input').addEventListener('change', e => {
       // fila em vez de derrubar a restauração inteira num "arquivo inválido".
       if (Object.keys(farmDoc).length) salvarFazenda(farmDoc);
       toast(db ? 'Backup restaurado' : 'Backup restaurado no aparelho — sobe quando a internet voltar');
+      // O backup troca TODOS os lançamentos, com ids próprios: as contas que
+      // estavam no calendário antes não existem mais. Cancelar o que não é
+      // mais conta em aberto evita o pior caso — avisos de uma fazenda que
+      // este aparelho não tem mais, sem nenhum jeito de descobrir de onde vêm.
+      const aindaAberto = new Set(LIVROS.flatMap(b2 => arrLivro(b2)).filter(emAberto).map(x => x.id));
+      agendarMudanca([], 'bov', Object.keys(enviadosICS()).filter(x => !aindaAberto.has(x)));
     } catch (err) {
       // Separar as duas causas: arquivo estragado é problema do arquivo, falha
       // de rede não é — e a segunda já ficou guardada na fila.

@@ -761,6 +761,135 @@ export default async function () {
   t.conferir('e não sobra conta a pagar nenhuma', estoque.sobrou === 0, String(estoque.sobrou));
   t.conferir('nem memória de conta mandada', estoque.memoriaFim === 0, String(estoque.memoriaFim));
 
+  // ---------- as outras duas portas por onde a conta sai ----------
+  // Pagar pela LISTA "A pagar" é o caminho mais usado de todos, mais que abrir
+  // o formulário. E apagar um item de estoque leva junto as compras dele, e
+  // com elas as parcelas. Nos dois, o aviso tinha de ir embora junto.
+  t.secao('pagar pela lista e apagar o item de estoque');
+  const portas = await pagina.evaluate(async () => {
+    const out = {};
+    closeAllM();
+    localStorage.removeItem('fjs-ics-enviados');
+    localStorage.removeItem('fjs-ics-auto');
+    localStorage.setItem('fjs-ics-explicado', 'true');
+    bovT = [{ id: 'q1', date: '2026-09-01', type: 'saida', amount: 400,
+      category: 'Ração/insumos', venc: '2026-11-10', pago: false }];
+    avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+    tab = 'bovinos'; seg = 'financeiro'; render();
+    $('menu-exp-agenda').click();
+    await new Promise(k => setTimeout(k, 40));
+    out.mandou = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+    closeAllM();
+    $('modal-agenda-saida').hidden = true;
+
+    document.querySelector('[data-pagar]').click();
+    await new Promise(k => setTimeout(k, 60));
+    out.pagouAbriu = !$('modal-agenda-saida').hidden;
+    out.pagouCancelou = ($('ag-cru').value.match(/STATUS:CANCELLED/g) || []).length;
+    out.pagouSemAlarme = !$('ag-cru').value.includes('BEGIN:VALARM');
+    out.ficouPago = bovT[0].pago === true && !!bovT[0].pagoEm;
+    out.pagouMemoria = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+
+    // apagar o item de estoque, que leva as compras e as parcelas dele
+    closeAllM();
+    localStorage.removeItem('fjs-ics-enviados');
+    bovT = []; moves = [];
+    items = [{ id: 'ix', name: 'Sal mineral', unit: 'saco' }];
+    render();
+    openMove('ix', 'entrada');
+    $('m-date').value = '2026-09-16';
+    $('m-qty').value = '4';
+    $('m-cost').value = '250';
+    $('m-postfin').checked = true;
+    $('m-prazo').checked = true;
+    $('m-venc').value = '2027-01-15';
+    $('m-parcelas').value = '3';
+    syncMoveCostUI(); syncPrazoUI();
+    $('form-move').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    await new Promise(k => setTimeout(k, 60));
+    out.itemTinha = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+    closeAllM();
+    $('modal-agenda-saida').hidden = true;
+
+    openItem(items[0]);
+    $('btn-delete-item').click();
+    await new Promise(k => setTimeout(k, 80));
+    out.itemApagouAbriu = !$('modal-agenda-saida').hidden;
+    out.itemCancelou = ($('ag-cru').value.match(/STATUS:CANCELLED/g) || []).length;
+    out.itemSemAlarme = !$('ag-cru').value.includes('BEGIN:VALARM');
+    out.itemSumiu = items.length === 0 && bovT.filter(emAberto).length === 0;
+    out.itemMemoria = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+    localStorage.removeItem('fjs-ics-auto');
+    closeAllM();
+    return out;
+  });
+  t.conferir('a conta constava como mandada', portas.mandou === 1, String(portas.mandou));
+  t.conferir('pagar pela lista abre o calendário', portas.pagouAbriu === true);
+  t.conferir('e manda o cancelamento dela', portas.pagouCancelou === 1,
+    String(portas.pagouCancelou));
+  t.conferir('sem alarme, para o aviso calar', portas.pagouSemAlarme === true);
+  t.conferir('a conta fica paga, com a data do pagamento', portas.ficouPago === true);
+  t.conferir('e sai da memória do que foi mandado', portas.pagouMemoria === 0,
+    String(portas.pagouMemoria));
+  t.conferir('as três parcelas da compra do item foram mandadas',
+    portas.itemTinha === 3, String(portas.itemTinha));
+  t.conferir('apagar o item de estoque abre o calendário',
+    portas.itemApagouAbriu === true);
+  t.conferir('cancelando as três parcelas que sumiram com ele',
+    portas.itemCancelou === 3, String(portas.itemCancelou));
+  t.conferir('sem alarme nenhum', portas.itemSemAlarme === true);
+  t.conferir('o item e as contas dele sumiram mesmo', portas.itemSumiu === true);
+  t.conferir('e a memória ficou limpa', portas.itemMemoria === 0, String(portas.itemMemoria));
+
+  // ---------- restaurar backup troca tudo por lançamentos de outros ids ----------
+  // É o pior caso da família: avisos de uma fazenda que este aparelho não tem
+  // mais, e nenhum jeito de o dono descobrir de onde eles vêm.
+  t.secao('restaurar backup cancela o que não existe mais');
+  const restaurar = await pagina.evaluate(async () => {
+    const out = {};
+    closeAllM();
+    localStorage.removeItem('fjs-ics-enviados');
+    localStorage.removeItem('fjs-ics-auto');
+    localStorage.setItem('fjs-ics-explicado', 'true');
+    bovT = [{ id: 'b1', date: '2026-09-01', type: 'saida', amount: 400,
+      category: 'Ração/insumos', venc: '2026-11-10', pago: false }];
+    avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+    tab = 'bovinos'; seg = 'financeiro'; render();
+    $('menu-exp-agenda').click();
+    await new Promise(k => setTimeout(k, 40));
+    out.mandou = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+    closeAllM();
+    $('modal-agenda-saida').hidden = true;
+
+    // um backup de OUTRO estado, que não tem essa conta
+    const outro = JSON.stringify({
+      app: 'fazendajs', animals: [], weighings: [],
+      bovT: [{ id: 'novo', date: '2026-01-01', type: 'saida', amount: 50, category: 'Frete' }],
+      avT: [], gerT: [], items: [], moves: []
+    });
+    const dt = new DataTransfer();
+    dt.items.add(new File([outro], 'b.json', { type: 'application/json' }));
+    $('restore-input').files = dt.files;
+    $('restore-input').dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(k => setTimeout(k, 400));
+    out.restaurou = bovT.length === 1 && bovT[0].id === 'novo';
+    out.abriu = !$('modal-agenda-saida').hidden;
+    out.cancelou = ($('ag-cru').value.match(/STATUS:CANCELLED/g) || []).length;
+    out.semAlarme = !$('ag-cru').value.includes('BEGIN:VALARM');
+    out.memoria = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+    localStorage.removeItem('fjs-ics-auto');
+    closeAllM();
+    return out;
+  });
+  t.conferir('a conta antiga constava como mandada', restaurar.mandou === 1,
+    String(restaurar.mandou));
+  t.conferir('o backup entrou no lugar', restaurar.restaurou === true);
+  t.conferir('e o calendário abre para limpar o que sobrou', restaurar.abriu === true);
+  t.conferir('cancelando a conta que não existe mais', restaurar.cancelou === 1,
+    String(restaurar.cancelou));
+  t.conferir('sem alarme novo', restaurar.semAlarme === true);
+  t.conferir('e a memória fica limpa', restaurar.memoria === 0, String(restaurar.memoria));
+
   const falhas = t.fim(errosJS);
   await navegador.close();
   await s.fechar();

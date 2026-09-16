@@ -400,6 +400,80 @@ export default async function () {
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
 
+  // ---------- o aplicativo tem de saber ler o que ele mesmo escreve ----------
+  // Exportar, corrigir os pesos na planilha e trazer de volta é o caminho
+  // natural de quem tem 200 animais. O arquivo exportado tem dezenove colunas,
+  // com a data na TERCEIRA — lido por posição, o aplicativo acusava "data
+  // inválida: Novilha" em cada linha e não importava nada do que ele mesmo
+  // tinha acabado de escrever.
+  t.secao('exportar e reimportar as pesagens');
+  const ida = await pagina.evaluate(async () => {
+    const out = {};
+    animals = [{ id: 'r1', ident: 'BR001', cat: 'Novilha' },
+               { id: 'r2', ident: 'BR002' },
+               { id: 'r3', ident: 'BR009' }];   // nunca pesado: sai sem data nem peso
+    weighings = [{ id: 'rw1', animalId: 'r1', date: '2026-02-10', weight: 300 },
+                 { id: 'rw2', animalId: 'r1', date: '2026-06-10', weight: 420.5 },
+                 { id: 'rw3', animalId: 'r2', date: '2026-06-10', weight: 388 }];
+    bovT = []; avT = []; gerT = []; items = []; moves = [];
+    let texto = null;
+    const orig = window.download;
+    window.download = (n, c) => { texto = c; };
+    $('menu-exp-pes').click();
+    window.download = orig;
+    out.separador = texto.split('\n')[0].includes(';');
+
+    animals = []; weighings = [];
+    const dt = new DataTransfer();
+    dt.items.add(new File([texto], 'p.csv', { type: 'text/csv' }));
+    $('csv-input').files = dt.files;
+    $('csv-input').dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(k => setTimeout(k, 250));
+    out.stats = $('preview-stats').innerText;
+    out.semErros = $('preview-errors').hidden;
+    $('btn-confirm-import').click();
+    await new Promise(k => setTimeout(k, 250));
+    out.pesagens = weighings.length;
+    out.pesos = weighings.map(w => w.weight).sort((a, b) => a - b).join(',');
+    out.animais = animals.map(a => a.ident).sort().join(',');
+
+    // o modelo simples, de três colunas separadas por vírgula, continua valendo
+    const dt2 = new DataTransfer();
+    dt2.items.add(new File(['identificacao,data,peso\nBR100,15/01/2025,320\n'],
+      'm.csv', { type: 'text/csv' }));
+    $('csv-input').files = dt2.files;
+    $('csv-input').dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(k => setTimeout(k, 200));
+    out.modelo = $('preview-stats').innerText;
+
+    // e um arquivo SEM cabeçalho, que é o que uma planilha crua produz
+    const dt3 = new DataTransfer();
+    dt3.items.add(new File(['BR200;10/03/2026;415\n'], 's.csv', { type: 'text/csv' }));
+    $('csv-input').files = dt3.files;
+    $('csv-input').dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(k => setTimeout(k, 200));
+    out.semCabecalho = $('preview-stats').innerText;
+    closeAllM();
+    return out;
+  });
+  t.conferir('o arquivo exportado usa ponto e vírgula, como planilha brasileira',
+    ida.separador === true);
+  t.conferir('e ele é lido de volta sem nenhuma linha com erro',
+    ida.semErros === true && /3<\/b> pesagens válidas|3 pesagens válidas/.test(ida.stats),
+    ida.stats);
+  t.conferir('as três pesagens voltam', ida.pesagens === 3, String(ida.pesagens));
+  t.conferir('com os pesos exatos, inclusive o quebrado',
+    ida.pesos === '300,388,420.5', ida.pesos);
+  t.conferir('e os dois animais pesados são recriados',
+    ida.animais === 'BR001,BR002', ida.animais);
+  // Animal que nunca foi pesado sai no arquivo sem data e sem peso. Isso não é
+  // erro — é uma linha sem pesagem — e não pode poluir a prévia com falso alarme.
+  t.conferir('animal nunca pesado não vira linha com erro', ida.semErros === true);
+  t.conferir('o modelo de três colunas continua funcionando',
+    /1 pesagens válidas|1<\/b> pesagens válidas/.test(ida.modelo), ida.modelo);
+  t.conferir('e um arquivo sem cabeçalho também',
+    /1 pesagens válidas|1<\/b> pesagens válidas/.test(ida.semCabecalho), ida.semCabecalho);
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;
