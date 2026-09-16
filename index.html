@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=54" />
+<link rel="stylesheet" href="style.css?v=55" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -559,12 +559,12 @@
       <p>Toque no primeiro que funcionar. No iPhone, o <b>Compartilhar</b>
          costuma ser o caminho.</p>
       <div class="ag-acoes">
-        <button type="button" class="btn-primary" id="ag-share" hidden>1 · Compartilhar / Salvar</button>
-        <a class="btn-primary ag-link" id="ag-abrir" target="_blank" rel="noopener">2 · Abrir o arquivo</a>
-        <a class="btn-secondary ag-link" id="ag-baixar">3 · Baixar para o app Arquivos</a>
+        <a class="btn-primary ag-link" id="ag-abrir">Abrir o arquivo</a>
+        <button type="button" class="btn-primary" id="ag-share" hidden>Compartilhar / Salvar</button>
+        <a class="btn-secondary ag-link" id="ag-baixar">Baixar para o app Arquivos</a>
       </div>
-      <p class="small" id="ag-share-nao" hidden>Este aparelho não oferece
-         compartilhar arquivo — use "Abrir" ou "Baixar".</p>
+      <p class="small" id="ag-share-nao" hidden>Este aparelho não oferece a folha
+         de compartilhar — use "Abrir".</p>
       <p class="small">Baixando: abra o app <b>Arquivos</b> → <b>Transferências</b>
          e toque no arquivo.</p>
       <details>
@@ -574,6 +574,13 @@
         <button type="button" class="btn-secondary" id="ag-copiar">Copiar o texto</button>
         <textarea id="ag-cru" rows="6" readonly hidden></textarea>
       </details>
+      <div class="ag-diag-caixa">
+        <p class="small">Se nenhum funcionar, toque abaixo e cole o resultado na
+           conversa com o Claude: essa linha diz o que este aparelho permite, e
+           com ela dá para resolver sem adivinhar.</p>
+        <p class="ag-diag mono" id="ag-diag"></p>
+        <button type="button" class="btn-secondary" id="ag-diag-copiar">Copiar o diagnóstico</button>
+      </div>
       <div id="ag-so-agenda" hidden>
         <p class="small">Na folha de compartilhar, escolha <b>Calendário</b> — e
            dentro dele o calendário <b>Fazenda J.S</b>, não o pessoal.</p>
@@ -768,6 +775,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=54"></script>
+<script src="app.js?v=55"></script>
 </body>
 </html>

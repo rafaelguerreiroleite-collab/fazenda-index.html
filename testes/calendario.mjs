@@ -257,7 +257,11 @@ export default async function () {
     bovT = [{ id: 'tb1', date: '2026-09-01', type: 'saida', amount: 400, category: 'Ração/insumos',
       venc: '2026-12-10', pago: false }];
     avT = []; gerT = [];
-    navigator.canShare = () => false;   // aparelho sem compartilhar de arquivo
+    // Modelo do iPhone: ele TEM a folha de compartilhar, e ela recusa .ics.
+    // Sem o navigator.share presente, o teste mediria outra coisa — a ausência
+    // da folha, que é o caso do navegador do próprio teste.
+    navigator.share = async () => {};
+    navigator.canShare = () => false;
 
     // primeira vez: explica antes, porque escolher o calendário certo é um
     // passo que só o dono do aparelho pode dar
@@ -274,15 +278,28 @@ export default async function () {
     const abrir = $('ag-abrir'), baixar = $('ag-baixar');
     out.abrirTemLink = /^blob:/.test(abrir.href);
     out.abrirNaoBaixa = !abrir.hasAttribute('download');
+    // Aplicativo instalado na tela de início do iPhone NÃO abre aba nova: com
+    // target="_blank" este botão não fazia absolutamente nada.
+    out.abrirNaMesmaAba = !abrir.hasAttribute('target');
     out.baixarTemLink = /^blob:/.test(baixar.href);
     out.baixarTemNome = baixar.getAttribute('download');
     out.mesmoArquivo = abrir.href === baixar.href;
-    // sem compartilhar no aparelho, o botão some E a tela diz por quê
-    out.shareEscondido = $('ag-share').hidden;
-    out.explicaSemShare = !$('ag-share-nao').hidden;
+    out.diag = $('ag-diag').textContent;
     // o texto de reserva tem de ser o arquivo de verdade
     out.cruEhOArquivo = $('ag-cru').value.startsWith('BEGIN:VCALENDAR')
       && $('ag-cru').value.includes('UID:tb1@fazendajs');
+
+    // o botão de compartilhar some só quando o aparelho NÃO TEM a folha de
+    // compartilhar — e não quando ele apenas recusa este tipo de arquivo
+    const shareOriginal = navigator.share;
+    out.shareApareceMesmoRecusandoIcs = !$('ag-share').hidden;
+    delete navigator.share;
+    $('modal-agenda-saida').hidden = true;
+    $('menu-exp-agenda').click();
+    await new Promise(ok => setTimeout(ok, 60));
+    out.semShareEscondeBotao = $('ag-share').hidden;
+    out.semShareExplica = !$('ag-share-nao').hidden;
+    navigator.share = shareOriginal || (async () => {});
 
     // com compartilhar, é o contrário
     navigator.canShare = () => true;
@@ -331,12 +348,22 @@ export default async function () {
     String(tela.mesmoArquivo));
   t.conferir('e salva com nome de calendário',
     tela.baixarTemNome === 'fazenda-js-contas-a-pagar.ics', String(tela.baixarTemNome));
-  t.conferir('sem compartilhar no aparelho, o botão some',
-    tela.shareEscondido === true);
-  t.conferir('e a tela diz por que sumiu, em vez de calar',
-    tela.explicaSemShare === true);
+  // O iPhone RECUSA arquivo .ics nessa checagem. Escondendo o botão por causa
+  // disso, a pessoa via dois caminhos onde deveria ver três, e o terceiro
+  // sumia sem explicação. Agora ele aparece e, se recusar, o erro é dito.
+  t.conferir('o botão de compartilhar aparece mesmo quando o aparelho recusa .ics',
+    tela.shareApareceMesmoRecusandoIcs === true);
+  t.conferir('só some quando o aparelho não tem a folha de compartilhar',
+    tela.semShareEscondeBotao === true);
+  t.conferir('e aí a tela diz por que sumiu, em vez de calar',
+    tela.semShareExplica === true);
   t.conferir('com compartilhar, ele aparece e o aviso some',
     tela.shareAparece === true);
+  t.conferir('"Abrir" vai na mesma aba: aplicativo instalado não abre aba nova',
+    tela.abrirNaMesmaAba === true);
+  t.conferir('a tela mostra o diagnóstico do aparelho, com a versão',
+    /Fazenda J\.S v\d+/.test(tela.diag || '') && /instalado/.test(tela.diag || ''),
+    tela.diag);
   t.conferir('o texto de reserva é o arquivo de verdade',
     tela.cruEhOArquivo === true);
   t.conferir('dá para rever a instrução do calendário separado',

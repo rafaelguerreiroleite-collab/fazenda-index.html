@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 54;
+const VERSAO = 55;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1836,8 +1836,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=54';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=54';
+const PDFJS_JS = 'vendor/pdf.min.js?v=55';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=55';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -3365,38 +3365,82 @@ function agendaICS(contas) {
 // de programa não tem, e se um caminho não existir no aparelho ele nem
 // aparece, em vez de falhar calado.
 let saidaURL = null;
+// O que ESTE aparelho permite. Não é curiosidade técnica: dentro de um
+// aplicativo instalado na tela de início do iPhone, três coisas que funcionam
+// em qualquer navegador simplesmente não funcionam, e nenhuma delas avisa.
+// Sem isto, "não apareceu nada" não distingue uma da outra.
+function diagnostico() {
+  const teste = new File(['x'], 'a.ics', { type: 'text/calendar' });
+  let compArq = false;
+  try { compArq = !!(navigator.canShare && navigator.canShare({ files: [teste] })); } catch (e) {}
+  return {
+    versao: VERSAO,
+    ios: noIOS(),
+    instalado: instalado(),
+    temShare: !!navigator.share,
+    compArq,
+    ua: (navigator.userAgent || '').slice(0, 120)
+  };
+}
+const diagEmTexto = d => `Fazenda J.S v${d.versao} | iOS ${d.ios ? 'sim' : 'nao'}`
+  + ` | instalado ${d.instalado ? 'sim' : 'nao'} | compartilhar ${d.temShare ? 'sim' : 'nao'}`
+  + ` | compartilhar-arquivo ${d.compArq ? 'sim' : 'nao'} | ${d.ua}`;
 function mostrarSaida({ nome, blob, resumo, cru, ehAgenda }) {
   if (saidaURL) URL.revokeObjectURL(saidaURL);
   saidaURL = URL.createObjectURL(blob);
   $('ag-resumo').textContent = resumo;
   $('ag-cru').value = cru || '';
   $('ag-cru').hidden = true;
-  // Um link para ABRIR (o aparelho reconhece o tipo e oferece o aplicativo
-  // certo) e outro para BAIXAR (vai para o app Arquivos). São atributos que
-  // brigam no mesmo link: com "download", o aparelho GUARDA em vez de abrir.
+
+  // ABRIR: na MESMA aba, de propósito. Aplicativo instalado na tela de início
+  // do iPhone não abre aba nova — target="_blank" ali não faz absolutamente
+  // nada, e foi por isso que este botão parecia morto. Indo na mesma aba, o
+  // sistema reconhece que o conteúdo não é página, e quem assume é o visual
+  // do próprio iPhone, que oferece o Calendário.
   $('ag-abrir').href = saidaURL;
+  $('ag-abrir').removeAttribute('target');
+  $('ag-abrir').removeAttribute('rel');
+  // BAIXAR continua, porque no computador e no Safari comum é o caminho curto.
+  // Instalado no iPhone, o atributo é ignorado — por isso não é mais o
+  // primeiro da lista nem a única saída.
   $('ag-baixar').href = saidaURL;
   $('ag-baixar').setAttribute('download', nome);
+
+  // COMPARTILHAR: o botão aparece sempre que o aparelho tem a folha de
+  // compartilhar, mesmo quando ele diz que não aceita ESTE tipo de arquivo. O
+  // iPhone recusa .ics nessa checagem, e era isso que escondia o botão — a
+  // pessoa via dois caminhos onde deveria ver três. Recusando de novo na hora
+  // do toque, o erro APARECE, em vez de o botão sumir sem explicação.
   const arquivo = new File([blob], nome, { type: blob.type });
-  const podeCompartilhar = !!(navigator.canShare && navigator.canShare({ files: [arquivo] }));
-  $('ag-share').hidden = !podeCompartilhar;
-  $('ag-share-nao').hidden = podeCompartilhar;
+  const d = diagnostico();
+  $('ag-share').hidden = !d.temShare;
+  $('ag-share-nao').hidden = d.temShare;
   $('ag-share').textContent = ehAgenda
-    ? '1 · Compartilhar → Calendário' : '1 · Compartilhar / Salvar';
-  $('ag-abrir').textContent = ehAgenda ? '2 · Abrir no Calendário' : '2 · Abrir o arquivo';
+    ? 'Compartilhar → Calendário' : 'Compartilhar / Salvar';
+  $('ag-abrir').textContent = ehAgenda ? 'Abrir no Calendário' : 'Abrir o arquivo';
   $('ag-share').onclick = async () => {
     try { await navigator.share({ files: [arquivo], title: nome }); }
     catch (e) {
       if (e && e.name === 'AbortError') return;
-      // Erro do compartilhar tem de APARECER: calado, ele vira "não fez nada".
-      toast('O compartilhar recusou — use "Abrir" ou "Baixar" abaixo');
+      // Segunda tentativa só com o texto: alguns aparelhos recusam o ARQUIVO e
+      // aceitam o conteúdo, e daí dá para salvar nas Notas.
+      try { await navigator.share({ title: nome, text: cru || '' }); return; }
+      catch (e2) {
+        if (e2 && e2.name === 'AbortError') return;
+        toast('Este aparelho recusou compartilhar (' + ((e && e.name) || 'erro') + ') — use "Abrir"');
+      }
     }
   };
-  // As linhas que só fazem sentido para a agenda saem quando o arquivo é outro.
+  $('ag-diag').textContent = diagEmTexto(d);
   $('ag-so-agenda').hidden = !ehAgenda;
   $('modal-saida-titulo').textContent = ehAgenda ? 'Agenda pronta' : 'Arquivo pronto';
   $('modal-agenda-saida').hidden = false;
 }
+$('ag-diag-copiar').addEventListener('click', async () => {
+  const txt = diagEmTexto(diagnostico());
+  try { await navigator.clipboard.writeText(txt); toast('Copiado — cole na conversa'); }
+  catch (e) { $('ag-diag').classList.add('sel'); toast('Não deu para copiar — leia a linha acima'); }
+});
 $('ag-copiar').addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText($('ag-cru').value);
