@@ -450,6 +450,124 @@ export default async function () {
     csvs.agendaTemAsLinhas === true);
   t.conferir('e o título de agenda', csvs.tituloAgenda === 'Agenda pronta', csvs.tituloAgenda);
 
+  // ---------- a conta a prazo vai ao calendário na hora de lançar ----------
+  // Ir ao menu e exportar tudo depois de cada compra é um passo que se esquece
+  // — e o lembrete que ninguém exporta não lembra ninguém de nada.
+  t.secao('lançar conta a prazo já abre o calendário');
+  // As três parcelas do carnê têm o mesmo valor e a mesma data de compra, então
+  // reeditar uma delas acende o detector de duplicata — que é o app trabalhando
+  // certo. O navegador de teste recusa qualquer pergunta por padrão, e a
+  // recusa cancelaria o salvamento: aqui a resposta é "sim, é a mesma mesmo".
+  pagina.on('dialog', d => d.accept());
+  const auto = await pagina.evaluate(async () => {
+    const out = {};
+    closeAllM();
+    bovT = []; avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+    localStorage.removeItem('fjs-ics-enviados');
+    localStorage.removeItem('fjs-ics-auto');
+    localStorage.setItem('fjs-ics-explicado', 'true');
+    tab = 'bovinos'; seg = 'financeiro'; render();
+
+    const lancar = async ({ valor, venc, parcelas, pago, id }) => {
+      $('modal-agenda-saida').hidden = true;
+      openTrans('bov', id ? bovT.find(x => x.id === id) : null);
+      $('t-date').value = '2026-09-16';
+      $('t-amount').value = String(valor).replace('.', ',');
+      $('t-category').value = 'Ração/insumos';
+      document.querySelector('input[name="t-type"][value="saida"]').checked = true;
+      $('t-prazo').checked = !!venc;
+      $('t-venc').value = venc || '';
+      $('t-parcelas').value = String(parcelas || 1);
+      $('t-pago').checked = !!pago;
+      syncPrazoUI && syncPrazoUI();
+      $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      await new Promise(ok => setTimeout(ok, 40));
+    };
+
+    // à vista: não há vencimento, não há o que lembrar — a tela não pode abrir
+    await lancar({ valor: 80 });
+    out.aVistaNaoAbre = $('modal-agenda-saida').hidden;
+
+    // a prazo em 3 parcelas: abre com as TRÊS
+    await lancar({ valor: 900, venc: '2026-12-10', parcelas: 3 });
+    out.aPrazoAbre = !$('modal-agenda-saida').hidden;
+    out.explicaPorQueAbriu = !$('ag-auto').hidden;
+    out.tresEventos = ($('ag-cru').value.match(/BEGIN:VEVENT/g) || []).length;
+    out.resumo = $('ag-resumo').textContent;
+    // e só as novas: o lançamento à vista não pode ter entrado
+    out.soAsNovas = !$('ag-cru').value.includes('R$ 80,00');
+
+    // a memória do que já foi mandado é ACRESCENTADA, não substituída: as três
+    // parcelas continuam lá depois de um envio parcial
+    out.guardouAsTres = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+    // e o envio parcial não pode cancelar nada
+    out.parcialNaoCancela = !$('ag-cru').value.includes('STATUS:CANCELLED');
+
+    // marcar uma parcela como paga manda o CANCELAMENTO dela
+    const parcela = bovT.find(x => x.parcela === 2);
+    await lancar({ valor: parcela.amount, venc: parcela.venc, parcelas: 1, pago: true, id: parcela.id });
+    out.pagarAbre = !$('modal-agenda-saida').hidden;
+    out.pagarCancela = $('ag-cru').value.includes('STATUS:CANCELLED');
+    out.cancelamentoSemAlarme = !$('ag-cru').value.includes('BEGIN:VALARM');
+    out.sobraramDuas = Object.keys(JSON.parse(localStorage.getItem('fjs-ics-enviados'))).length;
+
+    // a exportação inteira depois disso NÃO pode cancelar as que continuam devidas
+    closeAllM();
+    $('menu-exp-agenda').click();
+    await new Promise(ok => setTimeout(ok, 40));
+    out.inteiraNaoCancelaAsDevidas = !$('ag-cru').value.includes('STATUS:CANCELLED');
+    out.inteiraTemAsDuas = ($('ag-cru').value.match(/BEGIN:VEVENT/g) || []).length;
+
+    // desligar: para de abrir sozinho, e o menu continua funcionando
+    $('menu-exp-agenda').click();
+    await new Promise(ok => setTimeout(ok, 40));
+    $('ag-auto-desligar').click();
+    out.desligou = JSON.parse(localStorage.getItem('fjs-ics-auto')) === false;
+    await lancar({ valor: 500, venc: '2027-03-10', parcelas: 1 });
+    out.desligadoNaoAbre = $('modal-agenda-saida').hidden;
+    closeAllM();
+    $('menu-exp-agenda').click();
+    await new Promise(ok => setTimeout(ok, 40));
+    out.menuAindaFunciona = !$('modal-agenda-saida').hidden;
+    localStorage.removeItem('fjs-ics-auto');
+    closeAllM();
+    return out;
+  });
+  t.conferir('lançamento à vista não abre o calendário — não há vencimento',
+    auto.aVistaNaoAbre === true);
+  t.conferir('lançamento a prazo abre na hora, sem passar pelo menu',
+    auto.aPrazoAbre === true);
+  t.conferir('a tela diz por que abriu sozinha, e como fazer parar',
+    auto.explicaPorQueAbriu === true);
+  t.conferir('com as três parcelas do carnê', auto.tresEventos === 3, String(auto.tresEventos));
+  t.conferir('e só com elas, sem reenviar o resto da agenda',
+    auto.soAsNovas === true);
+  t.conferir('o resumo diz o que vai', /3 conta/.test(auto.resumo || ''), auto.resumo);
+  // Se o envio parcial substituísse a memória, o aplicativo acharia que todas
+  // as outras contas sumiram — e a exportação seguinte cancelaria, uma a uma,
+  // contas que continuam devidas.
+  t.conferir('a memória do que já foi mandado é acrescentada, não trocada',
+    auto.guardouAsTres === 3, String(auto.guardouAsTres));
+  t.conferir('envio parcial nunca cancela nada por tabela',
+    auto.parcialNaoCancela === true);
+
+  t.secao('pagar pelo formulário cala o alarme');
+  t.conferir('marcar como paga também abre a tela', auto.pagarAbre === true);
+  t.conferir('e manda o cancelamento daquela parcela', auto.pagarCancela === true);
+  t.conferir('sem alarme, que é o que faz o aviso calar',
+    auto.cancelamentoSemAlarme === true);
+  t.conferir('a paga sai da memória, as outras duas ficam',
+    auto.sobraramDuas === 2, String(auto.sobraramDuas));
+  t.conferir('e a exportação inteira depois não cancela as que continuam devidas',
+    auto.inteiraNaoCancelaAsDevidas === true, '');
+  t.conferir('trazendo as duas que restaram', auto.inteiraTemAsDuas === 2,
+    String(auto.inteiraTemAsDuas));
+
+  t.secao('dá para desligar o automático');
+  t.conferir('o botão desliga de verdade', auto.desligou === true);
+  t.conferir('e aí lançar a prazo não abre mais nada', auto.desligadoNaoAbre === true);
+  t.conferir('mas o menu continua tendo a agenda', auto.menuAindaFunciona === true);
+
   const falhas = t.fim(errosJS);
   await navegador.close();
   await s.fechar();

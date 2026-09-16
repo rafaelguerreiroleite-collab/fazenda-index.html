@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=55" />
+<link rel="stylesheet" href="style.css?v=56" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -532,11 +532,18 @@
         <li>No iPhone, abra o app <b>Calendário</b> → <b>Calendários</b> →
             <b>Adicionar calendário</b>.</li>
         <li>Dê o nome <b>Fazenda J.S</b> e escolha uma cor só dele.</li>
-        <li>Ao importar o arquivo, escolha esse calendário — não o pessoal.</li>
+        <li><b>Ajustes</b> → <b>Apps</b> → <b>Calendário</b> →
+            <b>Calendário Padrão</b> → escolha <b>Fazenda J.S</b>.</li>
       </ol>
+      <p class="ag-destaque">O passo 3 é o que separa de verdade. Ao importar,
+         o iPhone mostra os eventos e o botão <b>Adicionar Tudo</b> — e ele
+         <b>não pergunta</b> em qual calendário põe: usa o padrão, calado.</p>
       <p class="small">Depois é só desmarcar "Fazenda J.S" na lista de
          calendários quando quiser ver a agenda sem as contas. Exportando de
          novo, as contas que já estão lá são atualizadas, não duplicadas.</p>
+      <p class="small">Se algumas contas já foram para o calendário errado:
+         abra cada uma, <b>Editar</b> → <b>Calendário</b> → Fazenda J.S. Ou
+         apague-as e importe de novo com o padrão já ajustado.</p>
     </div>
     <div class="modal-actions">
       <button type="button" class="btn-primary" id="ag-exportar">Entendi, exportar</button>
@@ -556,8 +563,9 @@
     </header>
     <div class="ag-texto">
       <p class="ag-resumo mono" id="ag-resumo"></p>
-      <p>Toque no primeiro que funcionar. No iPhone, o <b>Compartilhar</b>
-         costuma ser o caminho.</p>
+      <p>No iPhone, é o <b>primeiro</b> — os outros dois o sistema bloqueia
+         dentro de aplicativo instalado na tela de início. No computador,
+         qualquer um serve.</p>
       <div class="ag-acoes">
         <a class="btn-primary ag-link" id="ag-abrir">Abrir o arquivo</a>
         <button type="button" class="btn-primary" id="ag-share" hidden>Compartilhar / Salvar</button>
@@ -580,6 +588,12 @@
            com ela dá para resolver sem adivinhar.</p>
         <p class="ag-diag mono" id="ag-diag"></p>
         <button type="button" class="btn-secondary" id="ag-diag-copiar">Copiar o diagnóstico</button>
+      </div>
+      <div id="ag-auto" hidden>
+        <p class="small ag-destaque">Esta tela abriu sozinha porque você acabou
+           de lançar uma conta a prazo. O iPhone não deixa nenhum aplicativo pôr
+           evento no calendário sem um toque seu — falta só ele.</p>
+        <p class="small"><button type="button" class="link-btn" id="ag-auto-desligar">Não abrir sozinho</button></p>
       </div>
       <div id="ag-so-agenda" hidden>
         <p class="small">Na folha de compartilhar, escolha <b>Calendário</b> — e
@@ -775,6 +789,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=55"></script>
+<script src="app.js?v=56"></script>
 </body>
 </html>

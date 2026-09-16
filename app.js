@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 55;
+const VERSAO = 56;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1836,8 +1836,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=55';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=55';
+const PDFJS_JS = 'vendor/pdf.min.js?v=56';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=56';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2315,6 +2315,9 @@ $('form-transaction').addEventListener('submit', e => {
     if (!askDuplicate(`Já existe uma ${tipo} de ${fmtRS(dup.amount)} em ${fmtBRfull(dup.date)}${dup.category ? `\nCategoria: ${dup.category}` : ''}${dup.notes ? `\nDescrição: ${dup.notes}` : ''}${origem}`)) return;
   }
   let t;
+  // O que este salvamento mexeu, para o calendário saber o que mandar — e o
+  // que cancelar, quando a conta acabou de ser marcada como paga.
+  let tocadas = [];
   if (id) {
     t = arr.find(x => x.id === id);
     if (!t) return sumiu('Este lançamento foi removido');
@@ -2341,10 +2344,12 @@ $('form-transaction').addEventListener('submit', e => {
       novas.forEach(p => arr.push(p));
       aplicarAnexos(t, col);
       escreverVarias(col, [t, ...novas]);
+      tocadas = [t, ...novas];
     } else {
       // Editar uma parcela mexe só nela: o resto do carnê continua de pé.
       Object.assign(t, data, t.grupo ? { grupo: t.grupo, parcela: t.parcela, parcelas: t.parcelas } : {});
       aplicarAnexos(t, col); upsert(col, t);
+      tocadas = [t];
     }
   } else if (nParc > 1) {
     // Parcelado: a despesa inteira entra no dia do lançamento e cada parcela
@@ -2357,11 +2362,14 @@ $('form-transaction').addEventListener('submit', e => {
     aplicarAnexos(partes[0], col);
     escreverVarias(col, partes);
     t = partes[0];
+    tocadas = partes;
   } else {
     t = Object.assign({ id: uid() }, data); arr.push(t);
     aplicarAnexos(t, col); upsert(col, t);
+    tocadas = [t];
   }
   closeAllM(); render(); toast('Lançamento salvo');
+  agendarMudanca(tocadas, book);
 });
 $('btn-delete-transaction').addEventListener('click', () => {
   const id = $('t-id').value, book = $('t-book').value;
@@ -2564,6 +2572,10 @@ $('form-move').addEventListener('submit', e => {
     if (!askDuplicate(`Já existe uma ${tipo} de ${fmtN(dupMv.qty, dupMv.qty % 1 ? 2 : 0)} ${it.unit} de ${it.name} em ${fmtBRfull(dupMv.date)}${dupMv.notes ? `\nObs.: ${dupMv.notes}` : ''}`)) return;
   }
   let mv;
+  // A compra de estoque a prazo também vira conta a pagar: ela tem de ir para
+  // o calendário pelo mesmo caminho, senão o automático valeria só para metade
+  // das contas — e ninguém adivinharia qual metade.
+  let tocadasMv = [];
   if (id) {
     mv = moves.find(x => x.id === id);
     if (!mv) return sumiu('Esta movimentação foi removida');
@@ -2586,10 +2598,12 @@ $('form-move').addEventListener('submit', e => {
         partes.forEach(p => bovT.push(p));
         escreverVarias('bovtrans', partes);
         mv.linkGrupo = grupo; mv.linkTrans = null;
+        tocadasMv = partes;
       } else {
         const t = Object.assign({ id: uid() }, base, { venc: aPrazo ? venc : null, pago: false });
         bovT.push(t); upsert('bovtrans', t);
         mv.linkTrans = t.id; mv.linkGrupo = null;
+        tocadasMv = [t];
       }
     }
   } else {
@@ -2598,6 +2612,7 @@ $('form-move').addEventListener('submit', e => {
   }
   upsert('moves', mv);
   closeAllM(); render(); toast('Movimentação salva');
+  agendarMudanca(tocadasMv, 'bov');
 });
 $('btn-delete-move').addEventListener('click', () => {
   const id = $('m-id').value; if (!id || !confirm('Excluir esta movimentação?')) return;
@@ -3325,17 +3340,29 @@ function eventoCancelado(id, dados, seq, carimbo) {
     'END:VEVENT'
   ];
 }
-function agendaICS(contas) {
+// Dois modos. INTEIRO: o arquivo é a agenda toda, e o que não está mais nela
+// é cancelado — é o do menu. PARCIAL: só as contas que acabaram de ser
+// mexidas, para o lançamento ir ao calendário na hora sem reenviar o resto.
+//
+// A diferença que importa é a memória do que já foi mandado: no modo parcial
+// ela é ACRESCENTADA, nunca substituída. Substituindo, um envio de uma conta
+// só faria o aplicativo pensar que todas as outras sumiram — e a exportação
+// seguinte cancelaria, uma a uma, contas que continuam devidas.
+function agendaICS(contas, opc) {
+  const parcial = !!(opc && opc.parcial);
   const seq = proximaSequenciaICS();
   const carimbo = icsCarimbo();
   const hoje = todayISO();
-  // O que foi mandado antes e não está mais em aberto: pago, ou apagado.
   const antes = enviadosICS();
-  const agora = {};
+  const agora = parcial ? Object.assign({}, antes) : {};
   contas.forEach(x => {
     agora[x.c.id] = { venc: x.c.venc, nome: fmtRS(x.c.amount) + ' · ' + (x.c.category || 'Conta a pagar') };
   });
-  const cancelar = Object.keys(antes).filter(id => !agora[id] && antes[id] && antes[id].venc);
+  // Inteiro: cancela tudo o que saiu da agenda. Parcial: só o que foi apontado
+  // — uma conta paga agora mesmo, por exemplo.
+  const cancelar = (parcial ? (opc.cancelar || []) : Object.keys(antes))
+    .filter(id => antes[id] && antes[id].venc && (parcial || !agora[id]));
+  cancelar.forEach(id => { delete agora[id]; });
   LS.s(ICS_ENVIADOS, agora);
   const linhas = [
     'BEGIN:VCALENDAR',
@@ -3385,7 +3412,7 @@ function diagnostico() {
 const diagEmTexto = d => `Fazenda J.S v${d.versao} | iOS ${d.ios ? 'sim' : 'nao'}`
   + ` | instalado ${d.instalado ? 'sim' : 'nao'} | compartilhar ${d.temShare ? 'sim' : 'nao'}`
   + ` | compartilhar-arquivo ${d.compArq ? 'sim' : 'nao'} | ${d.ua}`;
-function mostrarSaida({ nome, blob, resumo, cru, ehAgenda }) {
+function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico }) {
   if (saidaURL) URL.revokeObjectURL(saidaURL);
   saidaURL = URL.createObjectURL(blob);
   $('ag-resumo').textContent = resumo;
@@ -3433,6 +3460,9 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda }) {
   };
   $('ag-diag').textContent = diagEmTexto(d);
   $('ag-so-agenda').hidden = !ehAgenda;
+  // A tela que apareceu sozinha precisa dizer POR QUE apareceu e como fazer
+  // parar: tela que surge sem ser chamada e sem saída vira estorvo.
+  $('ag-auto').hidden = !automatico;
   $('modal-saida-titulo').textContent = ehAgenda ? 'Agenda pronta' : 'Arquivo pronto';
   $('modal-agenda-saida').hidden = false;
 }
@@ -3450,6 +3480,46 @@ $('ag-copiar').addEventListener('click', async () => {
     $('ag-cru').hidden = false; $('ag-cru').select();
     toast('Não deu para copiar sozinho — o texto está aí, selecionado');
   }
+});
+// Conta a prazo lançada vai para o calendário NA HORA, sem passar pelo menu.
+//
+// "Automático" tem um limite que não é meu: o iPhone nunca deixa um programa
+// entregar arquivo sozinho — sempre falta um toque. Então o automático aqui é
+// o arquivo já montado e a tela já aberta, com as parcelas que acabaram de ser
+// criadas, faltando só o toque que o sistema exige.
+//
+// E vai também o contrário: marcar uma conta como paga no formulário manda o
+// cancelamento dela. Sem isso, quem passa a usar só este caminho nunca mais
+// faz a exportação inteira — e o alarme de uma conta já quitada continuaria
+// tocando, que é o jeito mais rápido de a pessoa parar de confiar no aviso.
+function agendarMudanca(tocadas, book) {
+  if (!LS.g('fjs-ics-auto', true)) return false;
+  const lista = (tocadas || []).filter(Boolean);
+  const abertas = lista.filter(emAberto);
+  const enviadas = enviadosICS();
+  const cancelar = lista.filter(t => !emAberto(t) && enviadas[t.id]).map(t => t.id);
+  if (!abertas.length && !cancelar.length) return false;
+  const hoje = todayISO();
+  const contas = abertas
+    .map(t => ({ c: Object.assign({}, t, { dias: daysBetween(hoje, t.venc) }),
+                 livro: NOME_LIVRO[book] || 'Fazenda' }))
+    .sort((a, b) => a.c.venc.localeCompare(b.c.venc));
+  const texto = agendaICS(contas, { parcial: true, cancelar });
+  const partes = [];
+  if (contas.length) partes.push(`${contas.length} conta(s) a prazo`);
+  if (cancelar.length) partes.push(`${cancelar.length} paga(s) saem da agenda`);
+  mostrarSaida({
+    nome: ICS_ARQ,
+    blob: new Blob([texto], { type: 'text/calendar;charset=utf-8' }),
+    resumo: partes.join(' · '),
+    cru: texto, ehAgenda: true, automatico: true
+  });
+  return true;
+}
+$('ag-auto-desligar').addEventListener('click', () => {
+  LS.s('fjs-ics-auto', false);
+  closeAllM();
+  toast('Não vai mais abrir sozinho — o menu (⋯) continua tendo a agenda');
 });
 function exportAgenda() {
   const contas = contasParaAgenda();
