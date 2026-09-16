@@ -1,4 +1,4 @@
-name: Publicar Meus Gastos
+name: Publicar Gastos Giovanna
 
 on:
   push:
@@ -30,14 +30,19 @@ jobs:
       - name: Instalar Firebase CLI
         run: npm install --no-save firebase-tools
 
-      # O site do Meus Gastos e separado do site da Fazenda J.S: outro
+      # O site do Gastos Giovanna e separado do site da Fazenda J.S: outro
       # site de Hosting, outro endereco. Nada aqui toca em fazenda-e3652.web.app.
+      #
+      # Este passo publica so os arquivos estaticos. A ligacao com o
+      # Firestore ja vai pronta dentro do config.js, e as regras de
+      # seguranca sao publicadas a mao no console do Firebase: a conta de
+      # servico deste deploy tem permissao de Hosting e mais nada.
       - name: Publicar no site proprio
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
           SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 }}
           PROJETO: fazenda-e3652
-          SITE: meus-gastos-fernanda
+          SITE: gastos-giovanna
         run: |
           set -euo pipefail
           if [ -z "$SA" ]; then
@@ -45,12 +50,13 @@ jobs:
             exit 1
           fi
           printf '%s' "$SA" > /tmp/sa.json
+          FB="npx firebase -P $PROJETO"
 
           # Cria o site na primeira vez. Se ja existir, segue em frente.
-          npx firebase hosting:sites:create "$SITE" --project "$PROJETO" \
+          $FB hosting:sites:create "$SITE" \
             || echo "Site '$SITE' ja existe, seguindo para o deploy."
 
-          npx firebase target:apply hosting gastos "$SITE" --project "$PROJETO"
-          npx firebase deploy --only hosting:gastos --project "$PROJETO"
+          $FB target:apply hosting gastos "$SITE"
+          $FB deploy --only hosting:gastos
 
           echo "PUBLICADO EM: https://$SITE.web.app"

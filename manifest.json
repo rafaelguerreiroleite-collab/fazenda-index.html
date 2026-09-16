@@ -1,6 +1,6 @@
 {
-  "name": "Meus Gastos",
-  "short_name": "Gastos",
+  "name": "Gastos Giovanna",
+  "short_name": "Giovanna",
   "description": "Controle de gastos do dia a dia",
   "start_url": "index.html",
   "scope": "./",

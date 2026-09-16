@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Meus Gastos</title>
+<title>Gastos Giovanna</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#16202B">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Meus Gastos">
+<meta name="apple-mobile-web-app-title" content="Gastos Giovanna">
 <link rel="icon" href="icone-192.png">
 <link rel="apple-touch-icon" href="icone-192.png">
 <style>
@@ -114,7 +114,7 @@
 
 <!-- ===== tela de entrada ===== -->
 <div class="app" id="tela-codigo" hidden>
-  <header><h1>Meus Gastos<span>controle do dia a dia</span></h1></header>
+  <header><h1>Gastos Giovanna<span>controle do dia a dia</span></h1></header>
   <section class="cartao">
     <span class="rotulo">Código da carteira</span>
     <p class="texto" style="margin:8px 0 14px">
@@ -135,7 +135,7 @@
 <!-- ===== app ===== -->
 <div class="app" id="tela-app" hidden>
   <header>
-    <h1 id="titulo">Meus Gastos<span id="sub-titulo">controle do dia a dia</span></h1>
+    <h1 id="titulo">Gastos Giovanna<span id="sub-titulo">controle do dia a dia</span></h1>
     <button class="icone" id="btn-ajustes" aria-label="Ajustes">⚙</button>
   </header>
   <div class="sinc" id="sinc"><i></i><span id="sinc-txt">—</span></div>
@@ -290,7 +290,13 @@ async function bancoNuvem(cod){
     const emitir = () => aoMudar(ultimosLanc, ultimaCfg, cache ? 'offline' : 'nuvem');
     // Sem await: offline, a escrita entra no cache local na hora e o
     // onSnapshot ja atualiza a tela. Esperar o servidor travaria o formulario.
-    const disparar = p => { Promise.resolve(p).catch(e => mostrarErro(traduzErro(e))); };
+    // erroEscrita segura o recado na tela: antes, o proximo onSnapshot chamava
+    // mostrarErro('') e apagava o aviso de uma gravacao recusada antes de ser lido.
+    let erroEscrita = false;
+    const disparar = p => Promise.resolve(p).then(
+      () => { erroEscrita = false; mostrarErro(''); },
+      e  => { const m = traduzErro(e); if(m){ erroEscrita = true; mostrarErro(m); } }
+    );
 
     return {
       modo:'nuvem',
@@ -299,7 +305,7 @@ async function bancoNuvem(cod){
         fs.onSnapshot(refLanc, s => {
           cache = s.metadata.fromCache;
           ultimosLanc = s.docs.map(d => Object.assign({id:d.id}, d.data()));
-          mostrarErro('');
+          if(!erroEscrita) mostrarErro('');
           emitir();
         }, e => mostrarErro(traduzErro(e)));
         fs.onSnapshot(refCarteira, s => {
@@ -348,10 +354,16 @@ function mostrarErro(msg){
 }
 const doMes = () => lancamentos.filter(d => (d.data||'').slice(0,7)===mesAtual);
 
+// Dinheiro soma em centavos inteiros. Somando em float, dez gastos que batem
+// exatamente o orcamento davam 1775.8700000000001 contra 1775.87, e a tela
+// anunciava "Passou R$ 0,00 do orcamento" com a barra vermelha.
+const cent = v => Math.round((Number(v)||0)*100);
+
 function desenhar(){
   resetApagar();
   const lista = doMes();
-  const total = lista.reduce((s,d)=>s+d.valor,0);
+  const totalCent = lista.reduce((s,d)=>s+cent(d.valor),0);
+  const total = totalCent/100;
   const [ano,mes] = mesAtual.split('-').map(Number);
   $('#mes-nome').textContent = new Date(ano,mes-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   $('#total').textContent = brl(total);
@@ -364,19 +376,20 @@ function desenhar(){
   $('#maior').textContent = maior ? brl(maior.valor) : '—';
   $('#qtd').textContent = lista.length;
 
-  if(config.orcamento>0){
+  const orcCent = cent(config.orcamento);
+  if(orcCent>0){
     $('#orc-area').hidden = false;
     const barra = $('#barra-orc');
-    barra.querySelector('i').style.width = Math.min(100,total/config.orcamento*100)+'%';
-    barra.classList.toggle('estourou', total>config.orcamento);
-    const resta = config.orcamento-total;
-    $('#orc-texto').textContent = resta>=0
-      ? `Restam ${brl(resta)} de ${brl(config.orcamento)}` + (corrente ? ` — ${brl(resta/Math.max(1,nDias-corridos+1))} por dia até o fim do mês.` : '')
-      : `Passou ${brl(-resta)} do orçamento de ${brl(config.orcamento)}.`;
+    barra.querySelector('i').style.width = Math.min(100,totalCent/orcCent*100)+'%';
+    barra.classList.toggle('estourou', totalCent>orcCent);
+    const restaCent = orcCent-totalCent;
+    $('#orc-texto').textContent = restaCent>=0
+      ? `Restam ${brl(restaCent/100)} de ${brl(orcCent/100)}` + (corrente ? ` — ${brl(restaCent/100/Math.max(1,nDias-corridos+1))} por dia até o fim do mês.` : '')
+      : `Passou ${brl(-restaCent/100)} do orçamento de ${brl(orcCent/100)}.`;
   } else $('#orc-area').hidden = true;
 
   const porDia = {};
-  lista.forEach(d => { const i=Number(d.data.slice(8,10)); porDia[i]=(porDia[i]||0)+d.valor; });
+  lista.forEach(d => { const i=Number(d.data.slice(8,10)); porDia[i]=(porDia[i]||0)+cent(d.valor); });
   const pico = Math.max(1, ...Object.values(porDia));
   const fita = $('#fita'); fita.innerHTML='';
   const diaHoje = corrente ? new Date().getDate() : -1;
@@ -384,7 +397,7 @@ function desenhar(){
     const v = porDia[i]||0;
     const b = document.createElement('button');
     b.className = 'dia'+(v>0?' tem':'')+(i===diaHoje?' hoje':'')+(i===diaSel?' sel':'');
-    b.setAttribute('aria-label',`Dia ${i}, ${brl(v)}`);
+    b.setAttribute('aria-label',`Dia ${i}, ${brl(v/100)}`);
     b.innerHTML = `<i style="height:${v>0?Math.max(8,v/pico*100):3}%"></i>`;
     b.onclick = () => { diaSel = diaSel===i?null:i; desenhar(); };
     fita.appendChild(b);
@@ -393,14 +406,14 @@ function desenhar(){
   $('#eixo-fim').textContent = nDias;
 
   const porCat = {};
-  lista.forEach(d => porCat[d.categoria]=(porCat[d.categoria]||0)+d.valor);
+  lista.forEach(d => porCat[d.categoria]=(porCat[d.categoria]||0)+cent(d.valor));
   const cats = Object.entries(porCat).sort((a,b)=>b[1]-a[1]);
   $('#cartao-cats').hidden = !cats.length;
   $('#resumo-cats').innerHTML = cats.map(([n,v])=>`
     <div class="cat-linha">
       <span class="nome"><i style="background:${corDe(n)}"></i>${esc(n)}</span>
-      <span class="trilho"><i style="width:${v/total*100}%;background:${corDe(n)}"></i></span>
-      <span class="val">${brl(v)}</span>
+      <span class="trilho"><i style="width:${totalCent?v/totalCent*100:0}%;background:${corDe(n)}"></i></span>
+      <span class="val">${brl(v/100)}</span>
     </div>`).join('');
 
   $('#filtro-dia').innerHTML = diaSel ? `<div class="filtro-aviso"><span>Mostrando só o dia ${diaSel}</span><button id="limpar-dia">Ver o mês todo</button></div>` : '';
@@ -415,7 +428,7 @@ function desenhar(){
   alvo.innerHTML = Object.entries(grupos).map(([data,itens])=>{
     const [a,m,di]=data.split('-').map(Number);
     const cab = new Date(a,m-1,di).toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'}).replace(/\./g,'');
-    const soma = itens.reduce((s,x)=>s+x.valor,0);
+    const soma = itens.reduce((s,x)=>s+cent(x.valor),0)/100;
     return `<div class="dia-grupo">
       <div class="dia-cab"><span>${cab}</span><b>${brl(soma)}</b></div>
       ${itens.map(x=>`<div class="item ${editando===x.id?'editando':''}">
@@ -461,10 +474,21 @@ function arredondarCentavos(texto, n){
   if(Number(dec[2]) >= 5) centavos += 1;
   return (m[1]==='-' ? -1 : 1) * centavos / 100;
 }
+// Recusa o que nao for um valor inteiro e sem ambiguidade. O parser antigo
+// usava parseFloat direto, que le o comeco da string e ignora o resto: "12abc"
+// virava 12, "10 20" virava 1020 e "1,234.56" virava 1,23. Errar calado o
+// valor de um gasto e pior do que pedir para digitar de novo.
 function lerValor(t){
-  const s = String(t).trim().replace(/\s|R\$/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',','.');
+  let s = String(t).trim().replace(/^R\$\s*/i,'').trim();
+  if(!s || /\s/.test(s)) return null;          // "10 20" nao e um valor
+  let sinal = 1;
+  if(s[0]==='+' || s[0]==='-'){ if(s[0]==='-') sinal = -1; s = s.slice(1); }
+  if(/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g,'');  // 1.234.567,89
+  if(!/^\d*[.,]?\d*$/.test(s) || !/\d/.test(s)) return null;         // um separador so
+  s = s.replace(',','.');
   const n = parseFloat(s);
-  return isNaN(n) ? null : arredondarCentavos(s, n);
+  if(!isFinite(n)) return null;
+  return sinal * arredondarCentavos(s, n);
 }
 function limparForm(){
   editando = null;
@@ -472,10 +496,17 @@ function limparForm(){
   $('#form-titulo').textContent='Novo gasto'; $('#salvar').textContent='Adicionar gasto';
   $('#cancelar').hidden = true; $('#aviso').textContent='';
 }
+// A nuvem recusa valor >= 100 milhoes (regra do Firestore). Sem checar aqui,
+// o lancamento sumia da tela depois de aparecer, com um erro generico.
+const VALOR_MAXIMO = 99999999.99;
+
 async function salvarGasto(){
   const v = lerValor($('#valor').value);
-  if(v===null||v<=0){ $('#aviso').textContent='Coloque um valor maior que zero, ex.: 42,90'; $('#valor').focus(); return; }
+  if(v===null){ $('#aviso').textContent='Não entendi esse valor. Digite assim: 42,90'; $('#valor').focus(); return; }
+  if(v<=0){ $('#aviso').textContent='Coloque um valor maior que zero, ex.: 42,90'; $('#valor').focus(); return; }
+  if(v>VALOR_MAXIMO){ $('#aviso').textContent='Valor alto demais. O limite por lançamento é R$ 99.999.999,99.'; $('#valor').focus(); return; }
   const data = $('#data').value || hojeISO();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(data)){ $('#aviso').textContent='Data inválida.'; return; }
   const base = {valor:v, categoria:catSel, pagamento:pagSel, nota:$('#nota').value.trim(), data};
   if(editando){
     const antigo = lancamentos.find(x=>x.id===editando) || {};
@@ -483,7 +514,10 @@ async function salvarGasto(){
   } else {
     await banco.salvarLancamento(Object.assign(base, {id:'g'+Date.now()+Math.random().toString(36).slice(2,5), criadoEm:Date.now()}));
   }
+  // Vai para o mes do lancamento e larga o filtro de dia se ele esconderia o
+  // que acabou de ser salvo — senao o gasto some da tela e a pessoa lanca de novo.
   if(data.slice(0,7)!==mesAtual){ mesAtual = data.slice(0,7); diaSel = null; }
+  if(diaSel !== null && Number(data.slice(8,10)) !== diaSel) diaSel = null;
   limparForm(); desenhar();
 }
 
@@ -556,12 +590,29 @@ $('#btn-ajustes').onclick = () => {
   }
 };
 $('#orcamento').addEventListener('change', async e => {
-  config.orcamento = lerValor(e.target.value)||0;
+  const texto = e.target.value.trim();
+  const v = texto === '' ? 0 : lerValor(texto);
+  // Texto invalido antes apagava o orcamento sem avisar; negativo era recusado
+  // pela nuvem com um erro generico.
+  if(v === null || v < 0 || v > VALOR_MAXIMO){
+    $('#aviso-cat').textContent = 'Orçamento inválido. Use algo como 2.500,00 (ou deixe em branco para desligar).';
+    e.target.value = config.orcamento ? config.orcamento.toFixed(2).replace('.',',') : '';
+    return;
+  }
+  $('#aviso-cat').textContent = '';
+  config.orcamento = v;
   await banco.salvarConfig(config); desenhar();
 });
 $('#add-cat').onclick = async () => {
   const n = $('#nova-cat').value.trim();
   if(!n || config.categorias.some(c=>c.nome.toLowerCase()===n.toLowerCase())) return;
+  // A nuvem recusa mais de 40 categorias; sem este limite a gravacao falhava
+  // inteira e as categorias paravam de salvar sem explicacao.
+  if(config.categorias.length >= 40){
+    $('#aviso-cat').textContent = 'Limite de 40 categorias. Remova alguma antes de criar outra.';
+    return;
+  }
+  $('#aviso-cat').textContent = '';
   config.categorias.push({nome:n, cor:CORES[config.categorias.length % CORES.length]});
   $('#nova-cat').value=''; catSel = n;
   await banco.salvarConfig(config); desenharChips();

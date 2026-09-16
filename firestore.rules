@@ -1,14 +1,32 @@
+// ATENCAO: este arquivo guarda as regras de DOIS apps que dividem o mesmo
+// banco Firestore do projeto fazenda-e3652. Publicar so uma metade derruba
+// o acesso da outra. Se as regras da fazenda mudarem no console, copie a
+// mudanca para ca antes do proximo deploy, senao o deploy reverte.
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ===================== Fazenda =====================
+    // Copiado do que esta publicado no console (versao de 11/08/2026).
+    match /farms/{farmId} {
+      allow get, write: if request.auth != null;
+
+      match /{document=**} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // ================ Gastos Giovanna ==================
+    // Sem login: o codigo da carteira e a senha. Por isso o codigo precisa
+    // ter de 10 a 24 caracteres, e LIST e proibido na colecao de carteiras
+    // (sem isso, qualquer um baixaria a lista de todos os codigos).
     function codigoOk(c) {
       return c.size() >= 10 && c.size() <= 24 && c.matches('^[A-Z0-9]+$');
     }
 
     match /carteiras/{codigo} {
 
-      // get, e NUNCA list: ninguém consegue varrer a coleção
       allow get: if codigoOk(codigo);
 
       allow create, update: if codigoOk(codigo)
