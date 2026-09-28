@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 60;
+const VERSAO = 61;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -686,6 +686,10 @@ function casaBusca(t, termo, livro) {
   return partes.every(p => alvo.includes(p));
 }
 const buscaDe = id => (termoBusca[id] || '').trim();
+// O rótulo do saldo responde de uma vez "está filtrado" e "achou quantos" —
+// sem isso a contagem só existia somando as linhas da lista com o dedo.
+const rotuloBusca = (termo, n) => !termo ? ''
+  : ` · busca · ${n} encontrado${n === 1 ? '' : 's'}`;
 // A busca esconde lançamento, e nesta tela o que esconde tem de se anunciar.
 // Ela ainda muda o SALDO — some do total o que não casa —, e um total menor
 // sem explicação é pior que nenhum total.
@@ -758,6 +762,7 @@ function render() {
     if (seg === 'financeiro') { $('bov-fin').classList.add('active'); renderFin('bov'); }
   } else if (tab === 'aviarios') { renderFin('av'); }
   else { renderFazenda(); }
+  posicionarResultados();
   renderLembrete();
   // Vendidas, Mortalidade e Custos não têm nada para adicionar pelo botão +.
   // A aba Fazenda é só leitura: o lançamento se faz na atividade a que pertence.
@@ -1555,7 +1560,7 @@ function renderFazenda() {
   notaDoRegime('fz-regime-nota', regime, LIVROS.flatMap(b => arrLivro(b)));
 
   $('fz-balance').innerHTML = `
-    <div class="bc-label">Fazenda inteira · saldo do período${sufixoRegime(regime)}${termo ? ' · busca' : ''}</div>
+    <div class="bc-label">Fazenda inteira · saldo do período${sufixoRegime(regime)}${rotuloBusca(termo, R.n)}</div>
     <div class="bc-value ${bal < 0 ? 'negative' : 'positive'}">${fmtRS(bal)}</div>
     <div class="bc-split">
       <div><div class="lbl">Receitas</div><div class="val in">${fmtRS(inn)}</div></div>
@@ -1691,6 +1696,57 @@ Object.keys(termoBusca).forEach(id => {
   // O "×" do teclado do iPhone dispara "search", não "input"
   el.addEventListener('search', () => aoDigitarBusca(id));
 });
+// Buscando, o resultado sobe para logo abaixo do saldo.
+//
+// Sem isto ele nascia no fim da tela: em Bovinos, depois do saldo, do "A pagar"
+// e das categorias; na Fazenda, depois de SEIS blocos. Quem digitava uma
+// palavra via a tela mudar em cima e tinha de rolar para descobrir o que achou
+// — e o que achou é a única coisa que ele pediu.
+//
+// Sobe para depois do SALDO, não para antes: o saldo com a busca ativa já é a
+// resposta de "quanto gastei com isso", e ele tem de vir antes da lista que o
+// compõe. Nada é escondido — o resto da tela continua embaixo, inteiro.
+const RESULTADO = {
+  'bfin-busca': { ancora: 'bfin-balance', partes: ['bfin-list'] },
+  'av-busca': { ancora: 'av-balance', partes: ['av-list'] },
+  // O aviso de "nada encontrado" sobe junto: quando a busca não acha nada, a
+  // frase que explica por quê é justamente o que a pessoa precisa ler, e
+  // deixá-la no fim da tela seria esconder a explicação atrás de tudo.
+  'fz-busca': { ancora: 'fz-balance', partes: ['fz-lista-titulo', 'fz-lista', 'fz-empty'] }
+};
+// O lugar de casa de cada peça, lido uma vez, antes de qualquer mudança.
+const lugarOriginal = {};
+Object.values(RESULTADO).forEach(r => r.partes.forEach(id => {
+  const el = $(id);
+  if (el) lugarOriginal[id] = { pai: el.parentNode, proximo: el.nextElementSibling };
+}));
+function posicionarResultados() {
+  Object.entries(RESULTADO).forEach(([idBusca, r]) => {
+    const ancora = $(r.ancora);
+    if (!ancora) return;
+    if (buscaDe(idBusca)) {
+      let ref = ancora;
+      r.partes.forEach(id => {
+        const el = $(id);
+        if (!el) return;
+        // Só mexe quando está fora do lugar: mover um elemento que já está
+        // onde deveria refaria o desenho dele a cada tecla, sem precisar.
+        if (el.previousElementSibling !== ref) ancora.parentNode.insertBefore(el, ref.nextSibling);
+        ref = el;
+      });
+    } else {
+      // De trás para a frente: o vizinho que o título usa como referência é a
+      // própria lista, que precisa ter voltado antes dele.
+      [...r.partes].reverse().forEach(id => {
+        const el = $(id), lug = lugarOriginal[id];
+        if (!el || !lug) return;
+        if (el.parentNode !== lug.pai || el.nextElementSibling !== lug.proximo) {
+          lug.pai.insertBefore(el, lug.proximo);
+        }
+      });
+    }
+  });
+}
 function limparBusca(id) {
   termoBusca[id] = '';
   clearTimeout(buscaTimer);
@@ -1976,8 +2032,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=60';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=60';
+const PDFJS_JS = 'vendor/pdf.min.js?v=61';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=61';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2137,7 +2193,7 @@ function renderFin(book) {
   const bal = inn - out;
   const balEl = isAv ? $('av-balance') : $('bfin-balance');
   balEl.innerHTML = `
-    <div class="bc-label">Saldo do período${sufixoRegime(regime)}${termo ? ' · busca' : ''}</div>
+    <div class="bc-label">Saldo do período${sufixoRegime(regime)}${rotuloBusca(termo, filtered.length)}</div>
     <div class="bc-value ${bal < 0 ? 'negative' : 'positive'}">${fmtRS(bal)}</div>
     <div class="bc-split">
       <div><div class="lbl">Entradas</div><div class="val in">${fmtRS(inn)}</div></div>

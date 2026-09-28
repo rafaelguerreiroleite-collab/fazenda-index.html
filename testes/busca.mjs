@@ -315,6 +315,77 @@ export default async function () {
       && bate.semResultado.aPagar === 20,
     `${bate.semBusca.aPagar} / ${bate.comBusca.aPagar} / ${bate.semResultado.aPagar}`);
 
+  // ---------- o resultado tem de aparecer sem rolar a tela ----------
+  // Buscando, o achado nascia no fim: em Bovinos depois do saldo, do "A pagar"
+  // e das categorias; na Fazenda depois de SEIS blocos. Quem digitava uma
+  // palavra via a tela mudar em cima e tinha de rolar para descobrir o que
+  // achou — e o que achou é a única coisa que ele pediu.
+  t.secao('o resultado sobe para junto do saldo');
+  const lugar = await pagina.evaluate(() => {
+    bovT = [{ id: 'o1', date: '2026-03-01', type: 'saida', amount: 100, category: 'Vacina' },
+            { id: 'o2', date: '2026-03-02', type: 'saida', amount: 200, category: 'Frete',
+              venc: '2026-12-01', pago: false }];
+    avT = []; gerT = [{ id: 'o3', date: '2026-03-03', type: 'saida', amount: 50, category: 'Vacina' }];
+    animals = []; weighings = []; items = []; moves = [];
+    definirRegime('competencia');
+    ['bfin-period', 'fz-period'].forEach(id => { $(id).value = 'all'; guardarPeriodo(id); });
+    const ordem = pai => [...$(pai).children].map(e => e.id || e.className.split(' ')[0]);
+    const pos = (pai, id) => ordem(pai).indexOf(id);
+    const out = {};
+
+    tab = 'bovinos'; seg = 'financeiro'; render();
+    out.bovAntes = ordem('bov-fin');
+    termoBusca['bfin-busca'] = 'vacina'; render();
+    out.bovDepois = ordem('bov-fin');
+    out.bovListaLogoAposSaldo = pos('bov-fin', 'bfin-list') === pos('bov-fin', 'bfin-balance') + 1;
+    out.bovRotulo = $('bfin-balance').innerText.split('\n')[0];
+    // nada foi escondido: as outras caixas continuam na tela, só abaixo
+    out.bovTemTudo = out.bovDepois.length === out.bovAntes.length
+      && out.bovAntes.every(x => out.bovDepois.includes(x));
+    termoBusca['bfin-busca'] = ''; render();
+    out.bovVoltou = ordem('bov-fin').join(',') === out.bovAntes.join(',');
+
+    tab = 'fazenda'; render();
+    out.fzAntes = ordem('view-fazenda');
+    out.fzListaAntes = pos('view-fazenda', 'fz-lista');
+    termoBusca['fz-busca'] = 'vacina'; render();
+    out.fzDepois = ordem('view-fazenda');
+    out.fzListaDepois = pos('view-fazenda', 'fz-lista');
+    out.fzTituloJunto = pos('view-fazenda', 'fz-lista-titulo') === out.fzListaDepois - 1;
+    out.fzRotulo = $('fz-balance').innerText.split('\n')[0];
+    out.fzTemTudo = out.fzDepois.length === out.fzAntes.length
+      && out.fzAntes.every(x => out.fzDepois.includes(x));
+    // sem achar nada, a explicação também tem de estar em cima
+    termoBusca['fz-busca'] = 'zzz'; render();
+    out.fzVazioPerto = pos('view-fazenda', 'fz-empty') < pos('view-fazenda', 'fz-atividades');
+    out.fzVazioVisivel = !$('fz-empty').hidden;
+    // redesenhar várias vezes não pode empilhar nada fora do lugar
+    termoBusca['fz-busca'] = 'vacina'; render(); render(); render();
+    out.fzEstavel = ordem('view-fazenda').join(',') === out.fzDepois.join(',');
+    termoBusca['fz-busca'] = ''; render();
+    out.fzVoltou = ordem('view-fazenda').join(',') === out.fzAntes.join(',');
+    return out;
+  });
+  t.conferir('em Bovinos a lista passa a vir logo depois do saldo',
+    lugar.bovListaLogoAposSaldo === true, lugar.bovDepois.join(' → '));
+  t.conferir('na Fazenda ela sobe de seis blocos abaixo para junto do saldo',
+    lugar.fzListaAntes >= 8 && lugar.fzListaDepois <= 5,
+    `${lugar.fzListaAntes} → ${lugar.fzListaDepois}`);
+  t.conferir('com o título dela colado em cima', lugar.fzTituloJunto === true);
+  // Reordenar, não esconder: o resto da tela continua inteiro, só abaixo.
+  t.conferir('nenhuma caixa da tela desaparece em Bovinos', lugar.bovTemTudo === true);
+  t.conferir('nem na Fazenda', lugar.fzTemTudo === true);
+  t.conferir('sem achar nada, a explicação também fica em cima',
+    lugar.fzVazioPerto && lugar.fzVazioVisivel, '');
+  t.conferir('o saldo diz quantos achou, sem precisar contar com o dedo',
+    /1 ENCONTRADO/i.test(lugar.bovRotulo) && /2 ENCONTRADOS/i.test(lugar.fzRotulo),
+    `${lugar.bovRotulo} | ${lugar.fzRotulo}`);
+  // Mover a cada tecla tem de ser idempotente, senão a tela embaralha sozinha.
+  t.conferir('redesenhar de novo não embaralha a ordem', lugar.fzEstavel === true);
+  t.conferir('limpar a busca devolve a ordem original em Bovinos',
+    lugar.bovVoltou === true, lugar.bovDepois.join(' → '));
+  t.conferir('e na Fazenda', lugar.fzVoltou === true, lugar.fzDepois.join(' → '));
+
   const falhas = t.fim(errosJS);
   await navegador.close();
   await s.fechar();
