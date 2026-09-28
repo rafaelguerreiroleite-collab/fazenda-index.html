@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=58" />
+<link rel="stylesheet" href="style.css?v=59" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -240,6 +240,11 @@
         <option value="vencimento">Por vencimento (agenda de pagamentos)</option>
       </select>
     </div>
+    <div class="busca-row">
+      <input type="search" id="bfin-busca" class="busca" inputmode="search"
+             placeholder="Buscar palavra, valor ou data — ex: vacina" autocomplete="off" />
+      <button type="button" class="busca-x" data-limpar-busca="bfin-busca" hidden aria-label="Limpar busca">×</button>
+    </div>
     <p class="fz-regime-nota mono" id="bfin-regime-nota"></p>
     <div class="balance-card" id="bfin-balance"></div>
     <div id="bfin-apagar"></div>
@@ -263,6 +268,11 @@
         <option value="caixa">Por caixa (dinheiro que saiu)</option>
         <option value="vencimento">Por vencimento (agenda de pagamentos)</option>
       </select>
+    </div>
+    <div class="busca-row">
+      <input type="search" id="av-busca" class="busca" inputmode="search"
+             placeholder="Buscar palavra, valor ou data — ex: ração" autocomplete="off" />
+      <button type="button" class="busca-x" data-limpar-busca="av-busca" hidden aria-label="Limpar busca">×</button>
     </div>
     <p class="fz-regime-nota mono" id="av-regime-nota"></p>
     <div class="balance-card" id="av-balance"></div>
@@ -290,6 +300,11 @@
       <option value="caixa">Por caixa (dinheiro que saiu)</option>
       <option value="vencimento">Por vencimento (agenda de pagamentos)</option>
     </select>
+  </div>
+  <div class="busca-row">
+    <input type="search" id="fz-busca" class="busca" inputmode="search"
+           placeholder="Buscar palavra, valor ou data — ex: energia" autocomplete="off" />
+    <button type="button" class="busca-x" data-limpar-busca="fz-busca" hidden aria-label="Limpar busca">×</button>
   </div>
   <p class="fz-regime-nota mono" id="fz-regime-nota"></p>
   <div class="balance-card" id="fz-balance"></div>
@@ -789,6 +804,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=58"></script>
+<script src="app.js?v=59"></script>
 </body>
 </html>

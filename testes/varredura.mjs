@@ -569,6 +569,50 @@ export default async function () {
           return todosT.every(t => { const d = dataDoRegime(t, rg); return !d || ofer.has(d.slice(0, 7)); });
         }), 'um mês com lançamento ficou fora do seletor');
 
+      // --- busca por palavra ---
+      // Ela ESCONDE lançamento e MUDA o saldo. As propriedades que a prendem:
+      // nunca inventa, nunca some com tudo sem motivo, e o que ela mostra
+      // somado com o que ela escondeu fecha o total sem busca.
+      const termoSorteado = ['', 'a', 'racao', 'Ração', 'VACINA', '2026', ';', '   ',
+        'zzz-nao-existe', 'a e', '1', 'ç'][ent(0, 11)];
+      const regimeB = ['competencia', 'caixa', 'vencimento'][ent(0, 2)];
+      const semBusca = resumoFazenda(periodo, regimeB);
+      const comBusca = resumoFazenda(periodo, regimeB, termoSorteado);
+      regra('busca: nunca mostra mais do que existe sem ela',
+        comBusca.n <= semBusca.n, `${comBusca.n} vs ${semBusca.n}`);
+      regra('busca: termo vazio ou só espaço não filtra nada',
+        !(/^\s*$/.test(termoSorteado)) || comBusca.n === semBusca.n,
+        `"${termoSorteado}": ${comBusca.n} vs ${semBusca.n}`);
+      regra('busca: custo e receita nunca passam do total sem busca',
+        comBusca.custos <= semBusca.custos + 1e-6
+          && comBusca.receitas <= semBusca.receitas + 1e-6,
+        `${comBusca.custos}/${comBusca.receitas} vs ${semBusca.custos}/${semBusca.receitas}`);
+      regra('busca: nada de NaN em nenhum número',
+        [comBusca.receitas, comBusca.custos, comBusca.saldo, comBusca.movimento]
+          .every(Number.isFinite), JSON.stringify(comBusca).slice(0, 100));
+      regra('busca: o saldo continua sendo receitas menos custos',
+        Math.abs(comBusca.saldo - (comBusca.receitas - comBusca.custos)) < 1e-6, '');
+      regra('busca: as atividades continuam somando o saldo',
+        Math.abs(comBusca.atividades.reduce((s2, a) => s2 + a.saldo, 0) - comBusca.saldo) < 1e-6, '');
+      regra('busca: as categorias continuam somando o movimento',
+        Math.abs(comBusca.categorias.reduce((s2, [, v]) => s2 + v, 0) - comBusca.movimento) < 1e-6, '');
+      // A soma fecha: o que casou mais o que não casou é o total sem busca.
+      // Se esta cair, algum lançamento está sendo contado duas vezes ou nenhuma.
+      const naoCasou = LIVROS.flatMap(b2 => arrLivro(b2)
+        .filter(t2 => { const d = dataDoRegime(t2, regimeB); return d && inPeriod(d, periodo); })
+        .filter(t2 => !casaBusca(t2, termoSorteado, NOME_LIVRO[b2])));
+      regra('busca: o que ela mostra mais o que ela escondeu é o total',
+        comBusca.n + naoCasou.length === semBusca.n,
+        `${comBusca.n} + ${naoCasou.length} vs ${semBusca.n}`);
+      // Acento não pode decidir se acha ou não: quem digita no curral não põe til.
+      const comTil = { id: 'bt', date: '2026-01-01', type: 'saida', amount: 1,
+        category: 'Ração e manutenção', notes: 'irrigação' };
+      regra('busca: acento no texto não impede de achar sem acento',
+        casaBusca(comTil, 'racao', 'Bovinos') && casaBusca(comTil, 'RAÇÃO', 'Bovinos')
+          && casaBusca(comTil, 'irrigacao', 'Bovinos'), '');
+      regra('busca: palavra que não existe não acha nada',
+        !casaBusca(comTil, 'tratorzinho', 'Bovinos'), '');
+
       regra('Fazenda: todo período nunca movimenta menos que um filtro estreito',
         largo.movimento >= R.movimento - 1e-6, `${largo.movimento} vs ${R.movimento}`);
 

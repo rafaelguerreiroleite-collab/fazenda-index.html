@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 58;
+const VERSAO = 59;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -625,6 +625,54 @@ function atualizarOpcoesPeriodo(id, lista, regime) {
   el.value = alvo || 'this-month';
 }
 
+// ===== Busca por palavra =====
+// "Quanto gastei com vacina?" não é uma pergunta que período e regime respondem.
+//
+// O termo NÃO fica guardado no aparelho, de propósito. Uma busca que sobrevive
+// ao fechamento deixaria o aplicativo abrindo com metade dos lançamentos
+// escondidos, e quem não lembra de ter digitado nada concluiria que perdeu
+// dado. Período fica guardado porque é uma postura; busca é um gesto.
+const termoBusca = { 'bfin-busca': '', 'av-busca': '', 'fz-busca': '' };
+// Sem acento e sem maiúscula dos dois lados: quem digita no curral escreve
+// "racao", e "Ração" tem de aparecer. O NFD separa a letra do acento, e o
+// intervalo apagado é exatamente o dos acentos.
+const semAcento = v => String(v == null ? '' : v)
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+// Tudo o que a linha mostra entra no que se procura, e mais o que ela esconde:
+// o valor escrito como aparece (1.234,50) e como foi digitado (1234.5), as duas
+// datas, a parcela e a atividade. Procurar "1234" ou "10/11" tem de achar.
+function textoDoLancamento(t, livro) {
+  return semAcento([
+    t.category, t.notes, livro,
+    fmtRS(t.amount), String(t.amount), String(Math.round(t.amount)),
+    fmtBRfull(t.date), t.venc ? fmtBRfull(t.venc) : '', t.pagoEm ? fmtBRfull(t.pagoEm) : '',
+    t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
+    t.type === 'entrada' ? 'entrada receita' : 'saida gasto despesa custo',
+    emAberto(t) ? 'a pagar em aberto devendo' : (t.venc ? 'pago quitado' : ''),
+    (t.anexos || []).map(x => x.nome).join(' ')
+  ].filter(Boolean).join(' '));
+}
+// Todas as palavras têm de aparecer, em qualquer ordem e em qualquer campo:
+// "vacina 2026" acha a vacina daquele ano. Exigir a frase inteira junto faria
+// a busca falhar por causa da ordem em que a pessoa lembrou das coisas.
+function casaBusca(t, termo, livro) {
+  if (!termo) return true;
+  const alvo = textoDoLancamento(t, livro);
+  return semAcento(termo).split(/\s+/).filter(Boolean).every(p => alvo.includes(p));
+}
+const buscaDe = id => (termoBusca[id] || '').trim();
+// A busca esconde lançamento, e nesta tela o que esconde tem de se anunciar.
+// Ela ainda muda o SALDO — some do total o que não casa —, e um total menor
+// sem explicação é pior que nenhum total.
+function avisoDaBusca(escondidos, id) {
+  if (!escondidos.length) return '';
+  const soma = escondidos.reduce((s, t) => s + t.amount, 0);
+  return `<button type="button" class="fora-periodo" data-limpar-busca="${id}">
+    <span class="fp-texto mono">+ ${escondidos.length} lançamento${escondidos.length > 1 ? 's' : ''} fora da busca · ${fmtRS(soma)}</span>
+    <span class="fp-acao mono">Limpar busca</span>
+  </button>`;
+}
+
 // Lançamento com data fora do período escolhido sumia da tela sem deixar
 // rastro: quem acabou de lançar concluía que o lançamento se perdeu. Acontece
 // sobretudo com data futura, porque "Este mês" e "Este ano" a excluem — uma
@@ -669,6 +717,7 @@ let tab = 'bovinos', seg = 'rebanho', detailAnimal = null, detailItem = null;
 let bovSort = LS.g('fjs-sort-rebanho', 'ident-asc');
 
 function render() {
+  sincronizarBusca();
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === tab));
   $('view-bovinos').classList.toggle('active', tab === 'bovinos');
   $('view-aviarios').classList.toggle('active', tab === 'aviarios');
@@ -1398,9 +1447,14 @@ function dataDoRegime(t, regime) {
   if (t.type === 'saida' && t.venc) return t.pagoEm || t.venc;  // pago: vale a data do pagamento
   return t.date;                                       // à vista, ou entrada: no dia
 }
-function resumoFazenda(period, regime) {
+// A busca entra aqui dentro, e não só na lista: saldo, atividades, naturezas e
+// categorias têm de contar a MESMA coisa que as linhas mostram. É por isso que
+// ela é um parâmetro e não uma leitura de tela — resumoFazenda é chamado pelos
+// testes e pela varredura, onde não existe tela nenhuma.
+function resumoFazenda(period, regime, termo) {
   const doLivro = (lista, nome) => lista
     .filter(t => { const d = dataDoRegime(t, regime); return d && inPeriod(d, period); })
+    .filter(t => casaBusca(t, termo, nome))
     .map(t => ({ t, livro: nome }));
   const tudo = LIVROS.flatMap(b => doLivro(arrLivro(b), NOME_LIVRO[b]));
   const soma = (arr, tipo) => arr.filter(x => x.t.type === tipo).reduce((s, x) => s + x.t.amount, 0);
@@ -1437,18 +1491,26 @@ function renderFazenda() {
   const regime = regimeAtual();
   atualizarOpcoesPeriodo('fz-period', LIVROS.flatMap(b => arrLivro(b)), regime);
   const period = $('fz-period').value;
-  const R = resumoFazenda(period, regime);
+  const termo = buscaDe('fz-busca');
+  const R = resumoFazenda(period, regime, termo);
   // A lista embaixo tem de mostrar exatamente o que o saldo somou, e no regime
   // de caixa a data que vale é outra. Mostrando pela data da compra, o saldo
   // diria uma coisa e a lista, outra.
-  const tudo = LIVROS.flatMap(b => arrLivro(b)
+  const noPeriodo = LIVROS.flatMap(b => arrLivro(b)
     .map(t => ({ t, livro: NOME_LIVRO[b], book: b, quando: dataDoRegime(t, regime) }))
     .filter(x => x.quando && inPeriod(x.quando, period)));
+  const tudo = noPeriodo.filter(x => casaBusca(x.t, termo, x.livro));
   $('fz-empty').hidden = R.n > 0;
   // "Nenhum lançamento" seria mentira no regime de caixa quando existem
   // lançamentos e nenhum foi pago ainda: eles existem, só não saíram do caixa.
   const existemNoPeriodo = LIVROS.flatMap(b => arrLivro(b)).some(t => inPeriod(t.date, period));
-  if (R.n === 0 && regime === 'caixa' && existemNoPeriodo) {
+  // A busca vem primeiro entre as explicações: quando é ela que esvaziou a
+  // tela, culpar o regime seria mandar a pessoa mexer no lugar errado.
+  if (R.n === 0 && termo && noPeriodo.length) {
+    $('fz-empty-titulo').textContent = `Nada encontrado para "${termo}"`;
+    $('fz-empty-texto').textContent = `Há ${noPeriodo.length} lançamento(s) neste período, `
+      + 'mas nenhum com essa palavra. Apague a busca para ver todos.';
+  } else if (R.n === 0 && regime === 'caixa' && existemNoPeriodo) {
     $('fz-empty-titulo').textContent = 'Nada saiu nem entrou no caixa neste período';
     $('fz-empty-texto').textContent = 'Há lançamentos no período, mas nenhum pago ainda. '
       + 'Troque para "Por vencimento" para ver quando eles vencem.';
@@ -1467,7 +1529,7 @@ function renderFazenda() {
   notaDoRegime('fz-regime-nota', regime, LIVROS.flatMap(b => arrLivro(b)));
 
   $('fz-balance').innerHTML = `
-    <div class="bc-label">Fazenda inteira · saldo do período${sufixoRegime(regime)}</div>
+    <div class="bc-label">Fazenda inteira · saldo do período${sufixoRegime(regime)}${termo ? ' · busca' : ''}</div>
     <div class="bc-value ${bal < 0 ? 'negative' : 'positive'}">${fmtRS(bal)}</div>
     <div class="bc-split">
       <div><div class="lbl">Receitas</div><div class="val in">${fmtRS(inn)}</div></div>
@@ -1563,6 +1625,7 @@ function renderFazenda() {
     </div>`).join('')
     // Mesmo aviso do Financeiro, pela data que o regime escolhido usa: no
     // caixa, o que conta é a data do pagamento, não a da compra.
+    + avisoDaBusca(noPeriodo.filter(x => !casaBusca(x.t, termo, x.livro)).map(x => x.t), 'fz-busca')
     + avisoForaDoPeriodo(
         LIVROS.flatMap(b => arrLivro(b))
           .map(t => ({ amount: t.amount, quando: dataDoRegime(t, regime) }))
@@ -1570,6 +1633,42 @@ function renderFazenda() {
         'fz-period');
 }
 $('fz-period').addEventListener('change', () => { guardarPeriodo('fz-period'); render(); });
+
+// A busca redesenha a cada letra. Redesenhar a tela inteira a cada tecla numa
+// fazenda com milhares de lançamentos engasgaria no meio da palavra, então o
+// desenho espera a digitação parar — 200 ms é curto o bastante para parecer
+// instantâneo e longo o bastante para não redesenhar sete vezes em "vacina".
+let buscaTimer = null;
+function aoDigitarBusca(id) {
+  termoBusca[id] = $(id).value;
+  sincronizarBusca();
+  clearTimeout(buscaTimer);
+  buscaTimer = setTimeout(render, 200);
+}
+// O "×" aparece ou some por causa do ESTADO da busca, não por causa do evento
+// que a mudou. Preso ao evento de digitar, ele ficava para trás em qualquer
+// outro caminho — e um botão de limpar que não está lá quando há o que limpar
+// é pior que não ter botão nenhum.
+function sincronizarBusca() {
+  Object.keys(termoBusca).forEach(id => {
+    const el = $(id);
+    if (el && el.value !== termoBusca[id]) el.value = termoBusca[id];
+    const x = document.querySelector(`.busca-x[data-limpar-busca="${id}"]`);
+    if (x) x.hidden = !termoBusca[id];
+  });
+}
+Object.keys(termoBusca).forEach(id => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('input', () => aoDigitarBusca(id));
+  // O "×" do teclado do iPhone dispara "search", não "input"
+  el.addEventListener('search', () => aoDigitarBusca(id));
+});
+function limparBusca(id) {
+  termoBusca[id] = '';
+  clearTimeout(buscaTimer);
+  render();
+}
 // A escolha do regime fica guardada: quem trabalha por caixa não quer voltar
 // para competência toda vez que abre o aplicativo.
 REGIMES.forEach(id => {
@@ -1850,8 +1949,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=58';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=58';
+const PDFJS_JS = 'vendor/pdf.min.js?v=59';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=59';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -1993,14 +2092,21 @@ function renderFin(book) {
   // caixa é a do pagamento — e conta a prazo em aberto não entra em caixa
   // nenhum, porque o dinheiro não saiu.
   const comQuando = list.map(t => ({ t, quando: dataDoRegime(t, regime) }));
-  const filtered = comQuando.filter(x => x.quando && inPeriod(x.quando, period)).map(x => x.t);
+  // A busca entra ANTES das somas. Filtrando só a lista, o saldo diria uma
+  // coisa e as linhas embaixo dele, outra — e quem procurou "vacina" leria o
+  // total da fazenda inteira achando que era o da vacina.
+  const idBusca = isAv ? 'av-busca' : 'bfin-busca';
+  const termo = buscaDe(idBusca);
+  const noPeriodo = comQuando.filter(x => x.quando && inPeriod(x.quando, period));
+  const naBusca = noPeriodo.filter(x => casaBusca(x.t, termo, NOME_LIVRO[book]));
+  const filtered = naBusca.map(x => x.t);
   notaDoRegime(isAv ? 'av-regime-nota' : 'bfin-regime-nota', regime, list);
   const inn = filtered.filter(t => t.type === 'entrada').reduce((s, t) => s + t.amount, 0);
   const out = filtered.filter(t => t.type === 'saida').reduce((s, t) => s + t.amount, 0);
   const bal = inn - out;
   const balEl = isAv ? $('av-balance') : $('bfin-balance');
   balEl.innerHTML = `
-    <div class="bc-label">Saldo do período${sufixoRegime(regime)}</div>
+    <div class="bc-label">Saldo do período${sufixoRegime(regime)}${termo ? ' · busca' : ''}</div>
     <div class="bc-value ${bal < 0 ? 'negative' : 'positive'}">${fmtRS(bal)}</div>
     <div class="bc-split">
       <div><div class="lbl">Entradas</div><div class="val in">${fmtRS(inn)}</div></div>
@@ -2030,8 +2136,7 @@ function renderFin(book) {
   const listEl = isAv ? $('av-list') : $('bfin-list');
   // Ordena e data pela MESMA data que o saldo somou: mostrando a da compra num
   // saldo de caixa, a lista contaria uma história diferente do total acima.
-  const sorted = comQuando.filter(x => x.quando && inPeriod(x.quando, period))
-    .sort((a, b) => a.quando < b.quando ? 1 : -1);
+  const sorted = naBusca.slice().sort((a, b) => a.quando < b.quando ? 1 : -1);
   listEl.innerHTML = sorted.map(({ t, quando }) => `<div class="list-item transaction-item" data-trans="${t.id}" data-book="${book}">
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
@@ -2042,6 +2147,9 @@ function renderFin(book) {
     </div>`).join('')
     // Só entra aqui o que o PERÍODO escondeu. O que o regime deixa de fora é
     // outra coisa — conta a pagar — e já tem aviso próprio logo acima.
+    // Dois avisos diferentes, porque são duas causas diferentes e cada uma tem
+    // o seu remédio: o período se abre em "Todo período", a busca se apaga.
+    + avisoDaBusca(noPeriodo.filter(x => !casaBusca(x.t, termo, NOME_LIVRO[book])).map(x => x.t), idBusca)
     + avisoForaDoPeriodo(
         comQuando.filter(x => x.quando && !inPeriod(x.quando, period))
           .map(x => ({ amount: x.t.amount, quando: x.quando })),
@@ -4096,6 +4204,8 @@ definirRegime(regimeAtual());
 document.addEventListener('click', e => {
   const vt = e.target.closest('[data-ver-tudo]');
   if (vt) { $(vt.dataset.verTudo).value = 'all'; guardarPeriodo(vt.dataset.verTudo); render(); return; }
+  const lb = e.target.closest('[data-limpar-busca]');
+  if (lb) { limparBusca(lb.dataset.limparBusca); return; }
   const aed = e.target.closest('[data-animal-edit]');
   if (aed) { const a = animals.find(x => x.id === aed.dataset.animalEdit); if (a) openAnimal(a); return; }
   const ai = e.target.closest('[data-animal]');

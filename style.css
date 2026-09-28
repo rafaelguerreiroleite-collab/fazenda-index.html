@@ -624,3 +624,12 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .ag-diag { font-size: 0.6rem; color: #57534e; word-break: break-all; background: #f5f5f4;
   padding: 0.4rem 0.5rem; border-radius: 6px; margin: 0.4rem 0; }
 .ag-diag.sel { user-select: all; -webkit-user-select: all; }
+
+/* Busca por palavra nos financeiros. O campo ocupa a linha inteira porque o
+   que se digita nele é livre — categoria, valor, data — e caber é o que
+   importa num celular. */
+.busca-row { position: relative; margin: -0.4rem 0 0.7rem; }
+.busca { width: 100%; padding-right: 2.2rem; }
+.busca-x { position: absolute; right: 0.15rem; top: 50%; transform: translateY(-50%);
+  background: none; border: 0; font-size: 1.5rem; line-height: 1; color: #78716c;
+  padding: 0 0.5rem; cursor: pointer; }
