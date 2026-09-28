@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 59;
+const VERSAO = 60;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -644,7 +644,13 @@ const semAcento = v => String(v == null ? '' : v)
 function textoDoLancamento(t, livro) {
   return semAcento([
     t.category, t.notes, livro,
-    fmtRS(t.amount), String(t.amount), String(Math.round(t.amount)),
+    // Três formas do mesmo valor: como a tela mostra (R$ 1.234,50), como foi
+    // digitado (1234.5) e como se escreve aqui (1234,50). Havia uma quarta, o
+    // valor ARREDONDADO, e ela mentia: procurar "1235" trazia um lançamento de
+    // R$ 1.234,50 — e, como a busca muda o saldo, um total com um lançamento
+    // que a pessoa não pediu é um número errado na cabeça dela.
+    fmtRS(t.amount), String(t.amount),
+    Number.isFinite(t.amount) ? t.amount.toFixed(2).replace('.', ',') : '',
     fmtBRfull(t.date), t.venc ? fmtBRfull(t.venc) : '', t.pagoEm ? fmtBRfull(t.pagoEm) : '',
     t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
     t.type === 'entrada' ? 'entrada receita' : 'saida gasto despesa custo',
@@ -655,10 +661,29 @@ function textoDoLancamento(t, livro) {
 // Todas as palavras têm de aparecer, em qualquer ordem e em qualquer campo:
 // "vacina 2026" acha a vacina daquele ano. Exigir a frase inteira junto faria
 // a busca falhar por causa da ordem em que a pessoa lembrou das coisas.
+// O termo é quebrado UMA vez por busca, não uma vez por lançamento. Com
+// milhares de lançamentos, normalizar e dividir o mesmo texto a cada linha é
+// trabalho repetido que se paga a cada tecla digitada.
+let partesCache = { termo: null, partes: [] };
+function partesDaBusca(termo) {
+  if (partesCache.termo !== termo) {
+    partesCache = { termo, partes: semAcento(termo).split(/\s+/).filter(Boolean) };
+  }
+  return partesCache.partes;
+}
 function casaBusca(t, termo, livro) {
-  if (!termo) return true;
+  const partes = termo ? partesDaBusca(termo) : [];
+  if (!partes.length) return true;
+  // Categoria e observação primeiro, que é onde a busca típica acha. Só se
+  // algum termo não estiver neles é que o texto completo é montado — e é ele
+  // que custa, porque formatar o valor em reais passa pela tabela de idioma do
+  // aparelho, o trabalho mais caro de toda a comparação. Numa fazenda com
+  // milhares de lançamentos, esse desvio é a diferença entre a lista responder
+  // enquanto se digita e ela travar a cada letra.
+  const barato = semAcento((t.category || '') + ' ' + (t.notes || ''));
+  if (partes.every(p => barato.includes(p))) return true;
   const alvo = textoDoLancamento(t, livro);
-  return semAcento(termo).split(/\s+/).filter(Boolean).every(p => alvo.includes(p));
+  return partes.every(p => alvo.includes(p));
 }
 const buscaDe = id => (termoBusca[id] || '').trim();
 // A busca esconde lançamento, e nesta tela o que esconde tem de se anunciar.
@@ -1499,7 +1524,8 @@ function renderFazenda() {
   const noPeriodo = LIVROS.flatMap(b => arrLivro(b)
     .map(t => ({ t, livro: NOME_LIVRO[b], book: b, quando: dataDoRegime(t, regime) }))
     .filter(x => x.quando && inPeriod(x.quando, period)));
-  const tudo = noPeriodo.filter(x => casaBusca(x.t, termo, x.livro));
+  const tudo = [], foraDaBusca = [];
+  noPeriodo.forEach(x => (casaBusca(x.t, termo, x.livro) ? tudo : foraDaBusca).push(x));
   $('fz-empty').hidden = R.n > 0;
   // "Nenhum lançamento" seria mentira no regime de caixa quando existem
   // lançamentos e nenhum foi pago ainda: eles existem, só não saíram do caixa.
@@ -1625,11 +1651,12 @@ function renderFazenda() {
     </div>`).join('')
     // Mesmo aviso do Financeiro, pela data que o regime escolhido usa: no
     // caixa, o que conta é a data do pagamento, não a da compra.
-    + avisoDaBusca(noPeriodo.filter(x => !casaBusca(x.t, termo, x.livro)).map(x => x.t), 'fz-busca')
+    + avisoDaBusca(foraDaBusca.map(x => x.t), 'fz-busca')
     + avisoForaDoPeriodo(
-        LIVROS.flatMap(b => arrLivro(b))
-          .map(t => ({ amount: t.amount, quando: dataDoRegime(t, regime) }))
-          .filter(x => x.quando && !inPeriod(x.quando, period)),
+        LIVROS.flatMap(b => arrLivro(b)
+          .map(t => ({ t, livro: NOME_LIVRO[b], amount: t.amount, quando: dataDoRegime(t, regime) })))
+          .filter(x => x.quando && !inPeriod(x.quando, period)
+            && casaBusca(x.t, termo, x.livro)),
         'fz-period');
 }
 $('fz-period').addEventListener('change', () => { guardarPeriodo('fz-period'); render(); });
@@ -1949,8 +1976,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=59';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=59';
+const PDFJS_JS = 'vendor/pdf.min.js?v=60';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=60';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2097,8 +2124,12 @@ function renderFin(book) {
   // total da fazenda inteira achando que era o da vacina.
   const idBusca = isAv ? 'av-busca' : 'bfin-busca';
   const termo = buscaDe(idBusca);
+  const nomeLivro = NOME_LIVRO[book];
   const noPeriodo = comQuando.filter(x => x.quando && inPeriod(x.quando, period));
-  const naBusca = noPeriodo.filter(x => casaBusca(x.t, termo, NOME_LIVRO[book]));
+  // Uma passada só: separar aqui evita refazer a comparação de texto de cada
+  // lançamento mais adiante, na lista e nos dois avisos.
+  const naBusca = [], foraDaBusca = [];
+  noPeriodo.forEach(x => (casaBusca(x.t, termo, nomeLivro) ? naBusca : foraDaBusca).push(x));
   const filtered = naBusca.map(x => x.t);
   notaDoRegime(isAv ? 'av-regime-nota' : 'bfin-regime-nota', regime, list);
   const inn = filtered.filter(t => t.type === 'entrada').reduce((s, t) => s + t.amount, 0);
@@ -2149,9 +2180,14 @@ function renderFin(book) {
     // outra coisa — conta a pagar — e já tem aviso próprio logo acima.
     // Dois avisos diferentes, porque são duas causas diferentes e cada uma tem
     // o seu remédio: o período se abre em "Todo período", a busca se apaga.
-    + avisoDaBusca(noPeriodo.filter(x => !casaBusca(x.t, termo, NOME_LIVRO[book])).map(x => x.t), idBusca)
+    + avisoDaBusca(foraDaBusca.map(x => x.t), idBusca)
+    // O aviso do período conta só o que CASA COM A BUSCA. Contando tudo, ele
+    // prometia "+2 lançamentos · R$ 1.299,00" e o toque revelava um só — o
+    // outro continuava escondido pela busca, que o clique não mexe. Aviso que
+    // promete errado é pior que aviso nenhum: ensina a não confiar nos dois.
     + avisoForaDoPeriodo(
-        comQuando.filter(x => x.quando && !inPeriod(x.quando, period))
+        comQuando.filter(x => x.quando && !inPeriod(x.quando, period)
+          && casaBusca(x.t, termo, nomeLivro))
           .map(x => ({ amount: x.t.amount, quando: x.quando })),
         isAv ? 'av-period' : 'bfin-period');
   if (isAv) $('av-empty').hidden = avT.length > 0;

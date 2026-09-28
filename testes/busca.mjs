@@ -217,6 +217,104 @@ export default async function () {
     tres.resumoDireto === 2 && tres.resumoSemTermo === 5,
     `${tres.resumoDireto} / ${tres.resumoSemTermo}`);
 
+  // ---------- os dois avisos não podem prometer errado ----------
+  // O aviso de período diz "+N lançamentos, R$ X" e oferece um toque que os
+  // traz. Com busca ativa, ele contava TUDO o que estava fora do período —
+  // inclusive o que a busca continuaria escondendo depois do toque. Prometia
+  // dois e entregava um. Aviso que promete errado é pior que aviso nenhum:
+  // ensina a não confiar nos dois.
+  t.secao('o aviso de período promete o que o toque entrega');
+  const promessa = await pagina.evaluate(async () => {
+    const p = n => String(n).padStart(2, '0');
+    const h = new Date();
+    const esteMes = `${h.getFullYear()}-${p(h.getMonth() + 1)}-05`;
+    const futuro = `${h.getFullYear() + 1}-03-10`;
+    bovT = [
+      { id: 'q1', date: esteMes, type: 'saida', amount: 100, category: 'Vacina' },
+      { id: 'q2', date: futuro, type: 'saida', amount: 300, category: 'Vacina' },
+      // some pelos DOIS filtros: fora do período E fora da busca
+      { id: 'q3', date: futuro, type: 'saida', amount: 999, category: 'Frete' }
+    ];
+    avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
+    definirRegime('competencia');
+    tab = 'bovinos'; seg = 'financeiro';
+    $('bfin-period').value = 'this-month'; guardarPeriodo('bfin-period');
+    termoBusca['bfin-busca'] = 'vacina';
+    render();
+    const out = { antes: $('bfin-list').querySelectorAll('[data-trans]').length };
+    const av = [...$('bfin-list').querySelectorAll('.fora-periodo')].find(a => a.dataset.verTudo);
+    out.texto = av ? av.innerText.replace(/\n/g, ' · ') : null;
+    if (av) av.click();
+    await new Promise(k => setTimeout(k, 60));
+    out.depois = $('bfin-list').querySelectorAll('[data-trans]').length;
+    out.ganho = out.depois - out.antes;
+    termoBusca['bfin-busca'] = '';
+    render();
+    return out;
+  });
+  t.conferir('o aviso conta 1, não 2 — o outro a busca continuaria escondendo',
+    /\+ 1 lançamento com data futura/.test(promessa.texto || ''), promessa.texto);
+  t.conferir('e a soma é só a dele', /R\$ 300,00/.test(promessa.texto || ''), promessa.texto);
+  t.conferir('o toque entrega exatamente o que prometeu',
+    promessa.ganho === 1, `prometeu 1, entregou ${promessa.ganho}`);
+
+  t.secao('busca por valor não arredonda');
+  const valores = await pagina.evaluate(() => {
+    const t1 = { type: 'saida', date: '2026-01-01', amount: 1234.5, category: 'X', notes: '' };
+    return {
+      digitado: casaBusca(t1, '1234', 'Bovinos'),
+      brasileiro: casaBusca(t1, '1234,50', 'Bovinos'),
+      // Havia uma forma arredondada no que se procura, e ela mentia: como a
+      // busca muda o saldo, um lançamento que a pessoa não pediu vira um
+      // número errado na cabeça dela.
+      arredondado: casaBusca(t1, '1235', 'Bovinos'),
+      comoNaTela: casaBusca(t1, '1.234,50', 'Bovinos')
+    };
+  });
+  t.conferir('acha digitando o valor sem separador', valores.digitado === true);
+  t.conferir('acha escrevendo à brasileira, com centavos',
+    valores.brasileiro === true);
+  t.conferir('acha copiando como está na tela', valores.comoNaTela === true);
+  t.conferir('mas 1235 NÃO traz um lançamento de 1.234,50',
+    valores.arredondado === false);
+
+  t.secao('a lista e as somas contam a mesma coisa');
+  const bate = await pagina.evaluate(() => {
+    bovT = [{ id: 'z1', date: '2026-03-01', type: 'saida', amount: 10, category: 'Vacina' },
+            { id: 'z2', date: '2026-03-02', type: 'saida', amount: 20, category: 'Frete',
+              venc: '2026-12-01', pago: false }];
+    avT = [{ id: 'z3', date: '2026-03-03', type: 'entrada', amount: 30, category: 'Vacina' }];
+    gerT = [{ id: 'z4', date: '2026-03-04', type: 'saida', amount: 40, category: 'Manutenção' }];
+    animals = []; weighings = []; items = []; moves = [];
+    definirRegime('competencia');
+    tab = 'fazenda'; $('fz-period').value = 'all'; guardarPeriodo('fz-period');
+    const ver = termo => {
+      termoBusca['fz-busca'] = termo; render();
+      return {
+        linhas: $('fz-lista').querySelectorAll('[data-trans]').length,
+        contadas: resumoFazenda('all', 'competencia', termo).n,
+        aPagar: resumoFazenda('all', 'competencia', termo).aPagarTotal
+      };
+    };
+    const out = { semBusca: ver(''), comBusca: ver('vacina'), semResultado: ver('zzz') };
+    termoBusca['fz-busca'] = ''; render();
+    return out;
+  });
+  t.conferir('sem busca, a lista tem tantas linhas quanto o resumo conta',
+    bate.semBusca.linhas === bate.semBusca.contadas && bate.semBusca.linhas === 4,
+    `${bate.semBusca.linhas} vs ${bate.semBusca.contadas}`);
+  t.conferir('com busca, também', bate.comBusca.linhas === bate.comBusca.contadas
+    && bate.comBusca.linhas === 2, `${bate.comBusca.linhas} vs ${bate.comBusca.contadas}`);
+  t.conferir('sem resultado, também', bate.semResultado.linhas === 0
+    && bate.semResultado.contadas === 0, `${bate.semResultado.linhas}`);
+  // Dívida é dívida: o filtro de período já não mexia nela, e a busca também
+  // não pode. Um total de "a pagar" que encolhe porque alguém procurou uma
+  // palavra faria a pessoa achar que deve menos do que deve.
+  t.conferir('o total a pagar não muda com a busca',
+    bate.semBusca.aPagar === 20 && bate.comBusca.aPagar === 20
+      && bate.semResultado.aPagar === 20,
+    `${bate.semBusca.aPagar} / ${bate.comBusca.aPagar} / ${bate.semResultado.aPagar}`);
+
   const falhas = t.fim(errosJS);
   await navegador.close();
   await s.fechar();

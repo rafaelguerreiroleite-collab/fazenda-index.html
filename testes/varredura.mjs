@@ -612,6 +612,35 @@ export default async function () {
           && casaBusca(comTil, 'irrigacao', 'Bovinos'), '');
       regra('busca: palavra que não existe não acha nada',
         !casaBusca(comTil, 'tratorzinho', 'Bovinos'), '');
+      // O aviso de período promete "+N lançamentos" e um toque que os traz. Com
+      // busca ativa, o que ele conta tem de ser o que vai APARECER — e o que
+      // aparece é o que também casa com a busca. Contando tudo, ele prometia
+      // mais do que entregava.
+      const foraDoPeriodo = LIVROS.flatMap(b2 => arrLivro(b2)
+        .map(t2 => ({ t: t2, livro: NOME_LIVRO[b2], quando: dataDoRegime(t2, regimeB) }))
+        .filter(x => x.quando && !inPeriod(x.quando, periodo)));
+      const prometidos = foraDoPeriodo.filter(x => casaBusca(x.t, termoSorteado, x.livro));
+      const aoAbrirTudo = resumoFazenda('all', regimeB, termoSorteado).n;
+      regra('busca: o aviso de período promete o que abrir o período entrega',
+        comBusca.n + prometidos.length === aoAbrirTudo,
+        `${comBusca.n} + ${prometidos.length} vs ${aoAbrirTudo}`);
+      regra('busca: o aviso nunca promete mais do que existe',
+        prometidos.length <= foraDoPeriodo.length, '');
+      // O caminho barato (categoria e observação) e o caminho completo têm de
+      // concordar SEMPRE: se o atalho deixasse passar algo diferente, a busca
+      // daria resultados distintos conforme onde a palavra estivesse.
+      const umaConta = LIVROS.flatMap(b2 => arrLivro(b2))[0];
+      if (umaConta) {
+        const completo = (termo2, livro2) => {
+          const ps = termo2 ? semAcento(termo2).split(/\s+/).filter(Boolean) : [];
+          if (!ps.length) return true;
+          const alvo = textoDoLancamento(umaConta, livro2);
+          return ps.every(q => alvo.includes(q));
+        };
+        regra('busca: o atalho e o caminho completo dão a mesma resposta',
+          casaBusca(umaConta, termoSorteado, 'Bovinos') === completo(termoSorteado, 'Bovinos'),
+          `"${termoSorteado}"`);
+      }
 
       regra('Fazenda: todo período nunca movimenta menos que um filtro estreito',
         largo.movimento >= R.movimento - 1e-6, `${largo.movimento} vs ${R.movimento}`);
