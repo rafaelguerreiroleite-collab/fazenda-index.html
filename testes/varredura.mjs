@@ -707,6 +707,62 @@ export default async function () {
       regra('GMD mês: vender o animal depois não muda o mês que já passou',
         Math.abs(semVenda.meses.reduce((x, m) => x + m.kg, 0) - kgNaConta) < 1e-6, '');
 
+      // --- GMD do rebanho: rodadas e geral ---
+      const rods = rodadasDePesagem();
+      regra('rodadas: saem em ordem e não se sobrepõem',
+        rods.every((r, k) => r.ini <= r.fim && (k === 0 || rods[k - 1].fim < r.ini)),
+        rods.map(r => r.ini + '..' + r.fim).join(' '));
+      regra('rodadas: toda pesagem cai em exatamente uma',
+        pesagensG.every(w => rods.filter(r => w.date >= r.ini && w.date <= r.fim).length === 1), '');
+      regra('rodadas: dias de curral seguidos não viram rodadas separadas',
+        rods.every((r, k) => k === 0 || daysBetween(rods[k - 1].fim, r.ini) > JANELA_RODADA), '');
+
+      const epv = gmdEntrePesagens();
+      regra('entre pesagens: cada linha é o quilo dela sobre o dia dela',
+        epv.linhas.every(l => Math.abs(l.gmd - l.kg / l.dias) < 1e-9), '');
+      regra('entre pesagens: o quilo somado é o dos intervalos, nem um grama a mais',
+        Math.abs(epv.linhas.reduce((x, l) => x + l.kg, 0) - kgEsperado) < 1e-6,
+        `${epv.linhas.reduce((x, l) => x + l.kg, 0)} vs ${kgEsperado}`);
+      regra('entre pesagens: os dias somados são os dos intervalos',
+        epv.linhas.reduce((x, l) => x + l.dias, 0) === diasEsperado, '');
+      // Os dois recursos olham os MESMOS intervalos por caminhos diferentes —
+      // um reparte por mês, o outro agrupa por rodada. Têm de fechar igual.
+      regra('entre pesagens e mês a mês contam o mesmo quilo',
+        Math.abs(epv.linhas.reduce((x, l) => x + l.kg, 0) - kgNaConta) < 1e-6, '');
+      regra('entre pesagens: sai da mais recente para a mais antiga',
+        epv.linhas.every((l, k) => k === 0 || epv.linhas[k - 1].fim > l.fim), '');
+      regra('entre pesagens: nenhuma linha sem dia nem sem animal',
+        epv.linhas.every(l => l.dias > 0 && l.animais > 0 && Number.isFinite(l.gmd)), '');
+
+      const ger = gmdGeralRebanho();
+      let kgGer = 0, diasGer = 0;
+      const porAnimal = [];
+      animaisG.forEach(a => {
+        const ws = wOf(a.id);
+        if (ws.length < 2) return;
+        const d = daysBetween(ws[0].date, ws[ws.length - 1].date);
+        if (!(d > 0) || !mesmaCondicao(ws[0], ws[ws.length - 1])) return;
+        const k = ws[ws.length - 1].weight - ws[0].weight;
+        kgGer += k; diasGer += d; porAnimal.push(k / d);
+      });
+      regra('geral: soma o ganho de cada animal do primeiro ao último peso dele',
+        Math.abs(ger.kg - kgGer) < 1e-6, `${ger.kg} vs ${kgGer}`);
+      regra('geral: soma os dias de cada animal, não o calendário do rebanho',
+        ger.dias === diasGer, `${ger.dias} vs ${diasGer}`);
+      regra('geral: é quilo total sobre dia-animal total',
+        ger.gmd == null || Math.abs(ger.gmd - ger.kg / ger.dias) < 1e-9, '');
+      // Propriedade que a média simples violaria: uma média ponderada fica
+      // sempre entre o menor e o maior dos valores que ela pondera.
+      regra('geral: fica entre o pior e o melhor animal',
+        ger.gmd == null || !porAnimal.length
+          || (ger.gmd >= Math.min(...porAnimal) - 1e-6 && ger.gmd <= Math.max(...porAnimal) + 1e-6),
+        `${ger.gmd} fora de [${Math.min(...porAnimal)}, ${Math.max(...porAnimal)}]`);
+      regra('geral: as datas das pontas existem quando há conta',
+        ger.gmd == null || (ger.primeira && ger.ultima && ger.primeira <= ger.ultima),
+        `${ger.primeira} a ${ger.ultima}`);
+      regra('geral: sem par de pesagens que sirva, não inventa número',
+        porAnimal.length > 0 || ger.gmd === null, String(ger.gmd));
+
       // --- preço da arroba na venda ---
       // A armadilha é a média: média de razões não é razão de médias, e com
       // animais de pesos diferentes a segunda dá um número que nunca existiu.

@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 63;
+const VERSAO = 64;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -561,6 +561,78 @@ function diasPorMes(ini, fim) {
   }
   return out;
 }
+// ===== GMD do rebanho: entre pesagens, e do começo até agora =====
+// Os números que existiam eram por ANIMAL. Estes são do rebanho:
+//   - de uma pesagem para a outra, que é a lida que se faz no curral
+//   - da primeira pesagem de cada bicho até a mais recente dele
+//
+// O curral não pesa tudo no mesmo dia: um lote leva dois ou três. Datas
+// coladas são a MESMA lida, e separá-las produziria linhas de um dia só com
+// números sem sentido. Dez dias de janela separa bem uma pesagem mensal da
+// seguinte e junta os dias de um mesmo mutirão.
+const JANELA_RODADA = 10;
+function rodadasDePesagem(lista) {
+  const datas = [...new Set((lista || weighings).map(w => w.date).filter(Boolean))].sort();
+  const rodadas = [];
+  datas.forEach(d => {
+    const ult = rodadas[rodadas.length - 1];
+    if (ult && daysBetween(ult.fim, d) <= JANELA_RODADA) { ult.fim = d; }
+    else rodadas.push({ ini: d, fim: d });
+  });
+  return rodadas;
+}
+const rodadaDe = (rodadas, data) => rodadas.findIndex(r => data >= r.ini && data <= r.fim);
+// O ganho de cada intervalo é jogado na rodada em que ele FECHOU — é assim que
+// se lê no curral: "na pesagem de setembro o lote fez 0,620 desde a anterior".
+// Animal que faltou a uma rodada não se perde: o intervalo dele simplesmente
+// fecha numa rodada mais adiante.
+function gmdEntrePesagens(lista) {
+  const rodadas = rodadasDePesagem();
+  const por = {};
+  let intervalos = 0, misturados = 0;
+  (lista || animals).forEach(a => {
+    const ws = wOf(a.id);
+    for (let i = 1; i < ws.length; i++) {
+      const ant = ws[i - 1], atual = ws[i];
+      const dias = daysBetween(ant.date, atual.date);
+      if (!(dias > 0)) continue;
+      intervalos++;
+      if (!mesmaCondicao(ant, atual)) { misturados++; continue; }
+      const k = rodadaDe(rodadas, atual.date);
+      if (k < 0) continue;
+      const e = por[k] || (por[k] = { kg: 0, dias: 0, animais: new Set(), r: rodadas[k] });
+      e.kg += atual.weight - ant.weight;
+      e.dias += dias;
+      e.animais.add(a.id);
+    }
+  });
+  // Quilo total sobre dia-animal total, como no mês a mês: a média dos GMDs
+  // de cada bicho daria peso igual a quem ficou 90 dias e a quem ficou 20.
+  const linhas = Object.values(por).map(e => ({
+    ini: e.r.ini, fim: e.r.fim, kg: e.kg, dias: e.dias, animais: e.animais.size,
+    gmd: e.dias > 0 ? e.kg / e.dias : null,
+    diasMedia: e.animais.size ? e.dias / e.animais.size : 0
+  })).sort((a, b) => b.fim.localeCompare(a.fim));
+  return { linhas, intervalos, misturados, rodadas: rodadas.length };
+}
+// Da PRIMEIRA pesagem de cada animal até a mais recente dele. Não é a primeira
+// data do rebanho até a última: cada bicho entrou num dia, e medir o tempo de
+// um pelo calendário do outro inventaria dias em que ele nem estava aqui.
+function gmdGeralRebanho(lista) {
+  let kg = 0, dias = 0, n = 0, fora = 0, primeira = null, ultima = null;
+  (lista || animals).forEach(a => {
+    const ws = wOf(a.id);
+    if (ws.length < 2) return;
+    const p = ws[0], u = ws[ws.length - 1];
+    const d = daysBetween(p.date, u.date);
+    if (!(d > 0)) return;
+    if (!mesmaCondicao(p, u)) { fora++; return; }
+    kg += u.weight - p.weight; dias += d; n++;
+    if (!primeira || p.date < primeira) primeira = p.date;
+    if (!ultima || u.date > ultima) ultima = u.date;
+  });
+  return { gmd: dias > 0 ? kg / dias : null, kg, dias, n, fora, primeira, ultima };
+}
 const MES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const rotuloMesCurto = m => {
   const [a, mm] = String(m).split('-');
@@ -885,6 +957,39 @@ function renderRebanho() {
   const temEst = Number.isFinite(gmdSim) && pesosEst.length > 0;
   const totalEst = pesosEst.reduce((s, p) => s + p, 0);
   const diasDesde = lastDates.length ? Math.max(0, daysBetween(lastDates[lastDates.length - 1], hoje)) : 0;
+  // ---- GMD do rebanho: entre pesagens, e do começo até agora ----
+  const ge = gmdGeralRebanho();
+  const ep = gmdEntrePesagens();
+  const caixaP = $('bov-gmd-pes');
+  caixaP.hidden = !ep.linhas.length && ge.gmd == null;
+  if (!caixaP.hidden) {
+    $('bov-gmd-geral').innerHTML = ge.gmd == null ? '' : `
+      <div class="gg-rot mono">Da 1ª pesagem de cada animal até a mais recente</div>
+      <div class="gg-val ${ge.gmd < 0 ? 'gm-neg-txt' : gmdCls(ge.gmd)}">${fmtN(ge.gmd, 3)}</div>
+      <div class="gg-det mono">${ge.n} animal(is) · ${fmtN(ge.kg, 0)} kg em ${ge.dias} dias-animal`
+      + `${ge.primeira ? ' · ' + fmtBR(ge.primeira) + ' a ' + fmtBR(ge.ultima) : ''}</div>`;
+    const maiorP = Math.max(...ep.linhas.map(l => Math.abs(l.gmd)), 0.001);
+    $('bov-gmd-pes-lista').innerHTML = ep.linhas.slice(0, 12).map(l => {
+      const larg = Math.max(2, Math.round(Math.abs(l.gmd) / maiorP * 100));
+      const rot = l.ini === l.fim ? fmtBR(l.fim) : fmtBR(l.ini) + '–' + fmtBR(l.fim);
+      return `<div class="gm-linha gm-linha-pes">
+        <span class="gm-mes">${esc(rot)}</span>
+        <span class="gm-barra"><i class="${l.gmd < 0 ? 'gm-neg' : gmdCls(l.gmd)}" style="width:${larg}%"></i></span>
+        <span class="gm-val ${l.gmd < 0 ? 'gm-neg-txt' : ''}">${fmtN(l.gmd, 3)}</span>
+        <span class="gm-n">${l.animais}</span>
+      </div>`;
+    }).join('');
+    $('bov-gmd-pes-nota').innerHTML = 'Cada linha é uma pesagem: o ganho desde a pesagem '
+      + 'anterior de cada animal. Dias de curral seguidos contam como a mesma pesagem. '
+      + 'Entram todos os animais com duas pesagens, inclusive os já vendidos — o ganho '
+      + 'deles aconteceu.'
+      + (ge.fora || ep.misturados
+        ? ` <b>${ge.fora + ep.misturados} comparação(ões) entre jejum e cheio ficaram de fora.</b>` : '')
+      + '<br>O cartão "GMD médio" lá em cima é a média dos animais, um a um; estes aqui '
+      + 'são do rebanho, e pesam cada animal pelos dias que ele ficou. Com bichos de '
+      + 'tempos diferentes os dois não batem, e é este que corresponde ao quilo que entrou.';
+  }
+
   // ---- GMD mês a mês ----
   const gm = gmdPorMes();
   const meses = gm.meses.slice(0, 12);
@@ -2206,8 +2311,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=63';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=63';
+const PDFJS_JS = 'vendor/pdf.min.js?v=64';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=64';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -3567,6 +3672,15 @@ function exportRelatorio() {
   põe('Resumo', 'A pagar em aberto', fmtN(R.aPagarTotal, 2), `${R.contas.length} conta(s)`);
   // O desempenho mês a mês é o que o sócio e o banco perguntam depois do
   // dinheiro: não adianta saber quanto entrou sem saber se o gado ganhou.
+  // O número do começo até agora vai junto: é o que resume o rebanho inteiro
+  // numa linha, e é a primeira coisa que o sócio pergunta.
+  const gger = gmdGeralRebanho();
+  if (gger.gmd != null) {
+    põe('GMD do rebanho', 'Da 1ª pesagem de cada animal até a mais recente',
+      numCsv(gger.gmd, 3),
+      `${gger.n} animal(is) · ${numCsv(gger.kg, 1)} kg em ${gger.dias} dias-animal`
+      + (gger.primeira ? ` · ${fmtBRfull(gger.primeira)} a ${fmtBRfull(gger.ultima)}` : ''));
+  }
   const gmes = gmdPorMes();
   gmes.meses.slice(0, 24).forEach(m => {
     põe('GMD mês a mês', rotuloMesCurto(m.mes), numCsv(m.gmd, 3),

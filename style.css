@@ -659,3 +659,12 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .gm-val { font-family: 'DM Mono', monospace; font-size: 0.74rem; text-align: right; }
 .gm-val.gm-neg-txt { color: #b91c1c; }
 .gm-n { font-family: 'DM Mono', monospace; font-size: 0.62rem; color: #a8a29e; text-align: right; }
+.gm-geral { text-align: center; padding: 0.3rem 0 0.7rem; border-bottom: 1px solid #f5f5f4;
+  margin-bottom: 0.5rem; }
+.gg-rot { font-size: 0.62rem; color: #78716c; }
+.gg-val { font-size: 1.9rem; font-weight: 600; line-height: 1.15; }
+.gg-val.gmd-low { color: #dc2626; } .gg-val.gmd-mid { color: #b45309; }
+.gg-val.gmd-good { color: #16a34a; } .gg-val.gmd-great { color: #15803d; }
+.gg-det { font-size: 0.6rem; color: #a8a29e; }
+.gm-linha-pes .gm-mes { font-size: 0.62rem; }
+.gm-linha-pes { grid-template-columns: 5.4rem 1fr 3.2rem 1.6rem; }

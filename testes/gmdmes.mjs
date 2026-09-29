@@ -238,6 +238,127 @@ export default async function () {
       && /kg/.test(rel.linhas) && /1,017/.test(rel.linhas),
     rel.linhas);
 
+  // ---------- o rebanho de uma pesagem para a outra ----------
+  // Os números que existiam eram por ANIMAL: o GMD daquele bicho, do começo ao
+  // fim ou da penúltima para a última. Faltava a leitura do REBANHO — a que se
+  // faz no curral olhando o lote, e a do começo de tudo até agora.
+  t.secao('rodadas: o curral não pesa tudo no mesmo dia');
+  const rod = await pagina.evaluate(() => {
+    weighings = [
+      { id: 'r1', animalId: 'x', date: '2026-03-10', weight: 1 },
+      { id: 'r2', animalId: 'y', date: '2026-03-11', weight: 1 },   // mesmo mutirão
+      { id: 'r3', animalId: 'z', date: '2026-03-12', weight: 1 },   // idem
+      { id: 'r4', animalId: 'x', date: '2026-06-10', weight: 1 },   // outra pesagem
+      { id: 'r5', animalId: 'x', date: '2026-06-25', weight: 1 }    // 15 dias: outra
+    ];
+    animals = [];
+    return {
+      rodadas: rodadasDePesagem().map(r => `${r.ini}..${r.fim}`),
+      achaDentro: rodadaDe(rodadasDePesagem(), '2026-03-11'),
+      achaFora: rodadaDe(rodadasDePesagem(), '2026-04-01')
+    };
+  });
+  t.conferir('dias de curral seguidos viram UMA pesagem',
+    rod.rodadas[0] === '2026-03-10..2026-03-12', rod.rodadas.join(' '));
+  t.conferir('e datas distantes viram pesagens separadas',
+    rod.rodadas.length === 3, rod.rodadas.join(' '));
+  t.conferir('uma data cai na rodada dela', rod.achaDentro === 0, String(rod.achaDentro));
+  t.conferir('e uma data sem rodada não é forçada em nenhuma',
+    rod.achaFora === -1, String(rod.achaFora));
+
+  t.secao('o GMD do rebanho em cada pesagem');
+  const ent = await pagina.evaluate(() => {
+    animals = [{ id: 'a1', ident: '1' }, { id: 'a2', ident: '2' }, { id: 'a3', ident: '3' }];
+    weighings = [
+      { id: 'w1', animalId: 'a1', date: '2026-03-10', weight: 300 },
+      { id: 'w2', animalId: 'a2', date: '2026-03-10', weight: 280 },
+      { id: 'w3', animalId: 'a3', date: '2026-03-11', weight: 320 },
+      { id: 'w4', animalId: 'a1', date: '2026-06-10', weight: 390 },
+      { id: 'w5', animalId: 'a2', date: '2026-06-10', weight: 350 },
+      // a3 FALTOU ao mutirão de junho
+      { id: 'w6', animalId: 'a1', date: '2026-09-10', weight: 450 },
+      { id: 'w7', animalId: 'a2', date: '2026-09-11', weight: 410 },
+      { id: 'w8', animalId: 'a3', date: '2026-09-11', weight: 440 }
+    ];
+    bovT = []; avT = []; gerT = []; items = []; moves = [];
+    const r = gmdEntrePesagens();
+    const g = gmdGeralRebanho();
+    return {
+      linhas: r.linhas.map(l => ({ fim: l.fim, gmd: l.gmd, an: l.animais, dias: l.dias })),
+      geral: { gmd: g.gmd, n: g.n, kg: g.kg, dias: g.dias, de: g.primeira, ate: g.ultima },
+      misturados: r.misturados
+    };
+  });
+  t.conferir('uma linha por pesagem que fechou ganho',
+    ent.linhas.length === 2, String(ent.linhas.length));
+  t.conferir('da mais recente para a mais antiga',
+    ent.linhas[0].fim === '2026-09-11' && ent.linhas[1].fim === '2026-06-10',
+    ent.linhas.map(l => l.fim).join(','));
+  // junho: a1 fez 90 kg em 92 dias, a2 fez 70 em 92 → 160/184
+  t.conferir('a pesagem de junho junta os dois que vieram',
+    ent.linhas[1].an === 2 && ent.linhas[1].dias === 184
+      && Math.abs(ent.linhas[1].gmd - 160 / 184) < 1e-9,
+    JSON.stringify(ent.linhas[1]));
+  // O boi que faltou a junho não se perde: o intervalo dele fecha em setembro,
+  // carregando os 184 dias que ele passou sem subir na balança.
+  t.conferir('o animal que faltou a uma pesagem entra na seguinte, inteiro',
+    ent.linhas[0].an === 3 && ent.linhas[0].dias === 369
+      && Math.abs(ent.linhas[0].gmd - 240 / 369) < 1e-9,
+    JSON.stringify(ent.linhas[0]));
+
+  t.secao('do começo até a pesagem mais recente');
+  // Cada bicho entrou num dia: medir o tempo de um pelo calendário do outro
+  // inventaria dias em que ele nem estava aqui.
+  t.conferir('soma o ganho de cada animal do primeiro ao último peso dele',
+    Math.abs(ent.geral.kg - 400) < 1e-9, String(ent.geral.kg));
+  t.conferir('e os dias de cada um, não a distância entre a 1ª e a última data',
+    ent.geral.dias === 553, String(ent.geral.dias));
+  t.conferir('o GMD geral é quilo total sobre dia-animal total',
+    Math.abs(ent.geral.gmd - 400 / 553) < 1e-9, String(ent.geral.gmd));
+  t.conferir('com os três animais na conta', ent.geral.n === 3, String(ent.geral.n));
+  t.conferir('e as datas das pontas', ent.geral.de === '2026-03-10' && ent.geral.ate === '2026-09-11',
+    `${ent.geral.de} a ${ent.geral.ate}`);
+
+  t.secao('na tela, sem tirar o que já havia');
+  const telaP = await pagina.evaluate(() => {
+    const out = {};
+    tab = 'bovinos'; seg = 'rebanho'; render();
+    out.visivel = !$('bov-gmd-pes').hidden;
+    out.cabeca = $('bov-gmd-geral').innerText.replace(/\n/g, ' | ');
+    out.linhas = $('bov-gmd-pes-lista').querySelectorAll('.gm-linha').length;
+    out.texto = $('bov-gmd-pes-lista').innerText.replace(/\n/g, ' | ');
+    out.nota = $('bov-gmd-pes-nota').innerText;
+    // os três números por ANIMAL continuam onde estavam
+    out.cartao = /GMD MÉDIO/i.test($('bov-stats').innerText);
+    out.mesAMes = !$('bov-gmd-mes').hidden;
+    detailAnimal = 'a1'; render();
+    out.detalhe = /GMD TOTAL/i.test($('animal-header').innerText)
+      && /GMD RECENTE/i.test($('animal-header').innerText);
+    detailAnimal = null;
+    // jejum misturado é anunciado
+    weighings[5].jejum = true; render();
+    out.avisaJejum = /jejum e cheio/.test($('bov-gmd-pes-nota').innerText);
+    weighings[5].jejum = false;
+    // sem pesagem, o bloco some
+    weighings = []; render();
+    out.some = $('bov-gmd-pes').hidden;
+    return out;
+  });
+  t.conferir('o bloco aparece', telaP.visivel === true);
+  t.conferir('com o número do começo até agora em destaque',
+    /Da 1ª pesagem/.test(telaP.cabeca) && /0,723/.test(telaP.cabeca), telaP.cabeca);
+  t.conferir('e uma linha por pesagem, com a data do mutirão',
+    telaP.linhas === 2 && /10\/09\/26–11\/09\/26/.test(telaP.texto), telaP.texto);
+  // A nota precisa explicar por que este número não bate com o cartão de cima:
+  // dois números parecidos que discordam, sem explicação, é pior que um só.
+  t.conferir('a nota explica a diferença para o cartão "GMD médio"',
+    /média dos animais, um a um/.test(telaP.nota), telaP.nota.slice(-160));
+  t.conferir('o cartão GMD médio continua lá', telaP.cartao === true);
+  t.conferir('o bloco mês a mês continua lá', telaP.mesAMes === true);
+  t.conferir('e o GMD total e recente do animal também', telaP.detalhe === true);
+  t.conferir('jejum misturado é anunciado', telaP.avisaJejum === true);
+  t.conferir('sem pesagem, o bloco some', telaP.some === true);
+
   const falhas = t.fim(errosJS);
   await navegador.close();
   await s.fechar();
