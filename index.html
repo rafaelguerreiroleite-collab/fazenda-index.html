@@ -18,8 +18,8 @@
      que ele nunca viu não tem como ser confundido com nada que já tenha. -->
 <link rel="apple-touch-icon" sizes="180x180" href="icone-fazenda-js.png" />
 <link rel="apple-touch-icon" href="icone-fazenda-js.png" />
-<link rel="icon" type="image/png" href="icon-192.png?v=69" />
-<link rel="stylesheet" href="style.css?v=69" />
+<link rel="icon" type="image/png" href="icon-192.png?v=70" />
+<link rel="stylesheet" href="style.css?v=70" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -824,6 +824,7 @@ BR002,15/01/2025,340</pre>
       <hr />
       <button class="menu-item" id="menu-migrate" hidden><span>☁️</span> Enviar dados locais antigos p/ nuvem</button>
       <button class="menu-item" id="menu-atualizar"><span>🔄</span> Buscar atualização do aplicativo</button>
+      <button class="menu-item" id="menu-icone"><span>🏠</span> Arrumar o ícone da tela de início</button>
       <button class="menu-item" id="menu-limpeza"><span>🧹</span> Limpeza: manter só os pesados num dia</button>
       <button class="menu-item" id="menu-backup"><span>💾</span> Backup completo (baixar tudo)</button>
       <button class="menu-item" id="menu-restore"><span>♻️</span> Restaurar backup</button>
@@ -833,6 +834,43 @@ BR002,15/01/2025,340</pre>
       <button class="menu-item danger" id="menu-clear"><span>🗑️</span> Apagar todos os dados</button>
     </div>
   </div>
+</div>
+
+<div class="modal" id="modal-icone" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2>Ícone da tela de início</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <div class="import-body">
+      <div class="ic-alvo">
+        <img src="icone-fazenda-js.png" alt="Logo da Fazenda J.S" class="ic-logo" />
+        <p class="ic-legenda mono">é este que tem de aparecer</p>
+      </div>
+      <p class="ic-motivo">O iPhone grava o ícone <b>na hora em que o atalho é criado</b> e nunca mais
+        vai buscar de novo. Não é o aplicativo que está atrasado — é regra da Apple, e nenhum
+        aplicativo consegue passar por cima dela. O jeito é refazer o atalho, e leva meio minuto.</p>
+      <ol class="ic-passos">
+        <li>Segure o ícone antigo na tela de início → <b>Remover app</b> → <b>Apagar da Tela de Início</b>.
+          <span class="ic-calma">Nada seu se perde: os dados ficam na nuvem e voltam sozinhos.</span></li>
+        <li>Abra o <b>Safari</b> e vá no endereço abaixo.</li>
+        <li>Toque em <b>Compartilhar</b> (o quadrado com a seta para cima) → <b>Adicionar à Tela de Início</b>.
+          <span class="ic-calma">O ícone aparece ali do lado do nome: confira se já é o logo de cima antes de confirmar.</span></li>
+      </ol>
+      <p class="ic-end mono" id="ic-endereco"></p>
+      <button type="button" class="btn-secondary" id="ic-copiar">📋 Copiar o endereço</button>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" data-close>Fechar</button>
+        <button type="button" class="btn-primary" id="ic-pronto">Já arrumei</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="install-banner" id="icone-banner" hidden>
+  <span>🏠 O ícone na tela de início está com o logo antigo?</span>
+  <button id="icone-btn">Arrumar</button>
+  <button class="close" id="icone-fechar" aria-label="Fechar">×</button>
 </div>
 
 <div class="install-banner" id="install-banner" hidden>
@@ -846,6 +884,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=69"></script>
+<script src="app.js?v=70"></script>
 </body>
 </html>

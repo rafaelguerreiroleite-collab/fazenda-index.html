@@ -558,7 +558,53 @@ export default async function () {
     /Vaca ·\s*\d+ pesag/.test(semRaca) && !/undefined|null/.test(semRaca),
     semRaca.split('\n').slice(0, 3).join(' | '));
 
+  // ---------- tela do ícone da tela de início ----------
+  // O iOS não troca o ícone de um atalho já criado, e nenhum código muda isso.
+  // O que o app garante é que a receita esteja guardada aqui dentro, a um
+  // toque, em vez de na cabeça de quem usa.
+  t.secao('arrumar o ícone da tela de início');
+  const ic = await pagina.evaluate(() => {
+    localStorage.removeItem('fjs-icone-ok');
+    $('menu-icone').click();
+    const m = $('modal-icone');
+    const img = m.querySelector('.ic-logo');
+    return { abriu: !m.hidden, menuFechou: $('modal-menu').hidden,
+      endereco: $('ic-endereco').textContent,
+      logo: img.getAttribute('src'),
+      texto: m.innerText.replace(/\s+/g, ' ') };
+  });
+  t.conferir('o menu abre a tela e sai da frente', ic.abriu && ic.menuFechou);
+  t.conferir('mostra o logo novo para comparar', ic.logo === 'icone-fazenda-js.png', ic.logo);
+  t.conferir('a imagem do logo carrega de verdade',
+    await pagina.evaluate(() => { const i = $('modal-icone').querySelector('.ic-logo');
+      return i.complete && i.naturalWidth > 0; }));
+  t.conferir('traz os três passos na ordem',
+    /Remover app[\s\S]*Safari[\s\S]*Adicionar à Tela de Início/.test(ic.texto));
+  t.conferir('avisa que nada se perde', /Nada seu se perde/.test(ic.texto));
+  t.conferir('não promete que o aplicativo troca sozinho',
+    /regra da Apple/.test(ic.texto) && !/atualiza sozinho|troca sozinho/.test(ic.texto));
+  t.conferir('o endereço mostrado é o de onde o app está',
+    ic.endereco === location_esperado(ic.endereco), ic.endereco);
+  // "Já arrumei" precisa calar de vez — aviso que volta todo dia vira ruído e
+  // acaba ignorado justamente quando importar.
+  const calou = await pagina.evaluate(() => {
+    $('icone-banner').hidden = false;
+    $('ic-pronto').click();
+    return { banner: $('icone-banner').hidden, modal: $('modal-icone').hidden,
+      marcado: localStorage.getItem('fjs-icone-ok') };
+  });
+  t.conferir('"já arrumei" fecha tudo e não volta a avisar',
+    calou.banner && calou.modal && calou.marcado === '1');
+  // No navegador comum não existe atalho para arrumar: o aviso ali seria ruído.
+  const soNoApp = await pagina.evaluate(() => ({
+    instaladoAgora: precisaDaTela(), escondido: $('icone-banner').hidden }));
+  t.conferir('no navegador o aviso não aparece',
+    soNoApp.instaladoAgora === false && soNoApp.escondido);
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;
 }
+// O app roda em localhost no teste: ali ele mostra o endereço de produção, e é
+// isso que precisa sair — mandar "localhost" para o celular não ajudaria ninguém.
+function location_esperado() { return 'https://fazenda-e3652.web.app'; }

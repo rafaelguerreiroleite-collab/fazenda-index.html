@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 69;
+const VERSAO = 70;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2418,8 +2418,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=69';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=69';
+const PDFJS_JS = 'vendor/pdf.min.js?v=70';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=70';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -4784,6 +4784,52 @@ $('install-btn').addEventListener('click', async () => {
   $('install-banner').hidden = true; deferredPrompt = null;
 });
 $('close-banner').addEventListener('click', () => { $('install-banner').hidden = true; localStorage.setItem('fjs-install-dismissed', '1'); });
+
+// ===== Ícone da tela de início =====
+// O logo da fazenda mudou, mas o atalho já instalado continua com o desenho
+// velho. Isso não tem conserto pelo código: o iOS baixa o ícone UMA vez, na
+// hora em que o atalho é criado, e nunca mais volta a buscar — não existe API,
+// nem cabeçalho, nem versão de arquivo que force a troca. Já troquei o nome do
+// arquivo do ícone justamente para o cache do aparelho não ter o que
+// reaproveitar num atalho NOVO; o antigo, só refazendo.
+//
+// Então o que o aplicativo pode fazer é a única coisa que sobra: não deixar a
+// receita na cabeça de quem usa. O caminho fica guardado aqui dentro, a um
+// toque, com o logo certo na tela para comparar com o da tela de início.
+const ENDERECO_APP = 'https://fazenda-e3652.web.app';
+const enderecoDoApp = () => {
+  // Em teste o app roda em localhost; mandar o endereço de produção ali seria
+  // mentira. Fora de produção, mostra o endereço de onde ele realmente está.
+  try {
+    const h = location.hostname;
+    if (h === 'fazenda-e3652.web.app' || h === 'localhost' || h === '127.0.0.1' || !h) return ENDERECO_APP;
+    return location.origin;
+  } catch (e) { return ENDERECO_APP; }
+};
+function abrirTelaIcone() {
+  $('ic-endereco').textContent = enderecoDoApp();
+  closeAllM();
+  openM('modal-icone');
+}
+$('menu-icone').addEventListener('click', abrirTelaIcone);
+$('icone-btn').addEventListener('click', abrirTelaIcone);
+$('ic-copiar').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(enderecoDoApp()); toast('Endereço copiado — cole no Safari'); }
+  catch (e) { toast('Não deu para copiar — o endereço está escrito acima'); }
+});
+const esconderBannerIcone = () => { $('icone-banner').hidden = true; };
+// "Já arrumei" cala de vez; o × cala só desta vez. Quem refez o atalho não
+// pode continuar levando o mesmo aviso todo dia.
+$('ic-pronto').addEventListener('click', () => {
+  localStorage.setItem('fjs-icone-ok', '1');
+  esconderBannerIcone(); closeAllM(); toast('Combinado — não aviso mais');
+});
+$('icone-fechar').addEventListener('click', esconderBannerIcone);
+// O aviso só aparece para quem está no modo aplicativo num iPhone: no
+// navegador não existe atalho para arrumar, e o aviso seria ruído. Não dá para
+// saber POR CÓDIGO se o ícone é o velho ou o novo — por isso a frase pergunta
+// em vez de afirmar, e some no primeiro "já arrumei".
+if (precisaDaTela() && !localStorage.getItem('fjs-icone-ok')) $('icone-banner').hidden = false;
 // ===== Atualização do aplicativo =====
 // A verificação de versão acontecia UMA vez, ao carregar, e nunca mais. Com o
 // app aberto o dia inteiro no iPad, versão nova só chegava fechando e abrindo —
