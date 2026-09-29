@@ -499,6 +499,10 @@ const wOf = aid => weighings.filter(w => w.animalId === aid).sort((a, b) => a.da
 // brinco precisam concordar — se cada tela filtrasse por conta própria, o
 // animal morto sumiria de uma e continuaria somando na outra.
 const noRebanho = a => !a.sold && !a.dead;
+// Categoria e raça andam juntas na lista: "Novilho · Nelore" responde de
+// relance o que o curral pergunta. Sem raça cadastrada, a linha fica igual
+// ao que era — nada de separador sobrando.
+const catERaca = a => (a.cat || 'Sem categoria') + (a.raca ? ' · ' + a.raca : '');
 
 // "292", " 292" e "292 " são o mesmo brinco. Sem normalizar, um espaço a mais
 // digitado no curral criava um animal novo e o GMD desaparecia.
@@ -1162,7 +1166,7 @@ function renderRebanho() {
     return `<div class="list-item" data-animal="${a.id}">
       <div class="item-main">
         <div class="item-title">${esc(a.ident)}</div>
-        <div class="item-subtitle">${esc(a.cat || 'Sem categoria')} · ${ws.length} pesag.${a.manejoData ? ' · manejo ' + fmtBR(a.manejoData) : ''}</div>
+        <div class="item-subtitle">${esc(catERaca(a))} · ${ws.length} pesag.${a.manejoData ? ' · manejo ' + fmtBR(a.manejoData) : ''}</div>
         <div class="item-quando mono">${last ? 'última ' + fmtBR(last.date) : 'nunca pesado'}</div>
       </div>
       <div class="item-side">
@@ -1200,7 +1204,7 @@ function renderMortes() {
       <div class="item-main">
         <div class="item-title">${esc(a.ident)}</div>
         <div class="item-subtitle">${a.deadDate ? fmtBR(a.deadDate) : 'sem data'} · ${esc(a.deadCause || 'causa não informada')}</div>
-        <div class="item-quando mono">${esc(a.cat || 'Sem categoria')}</div>
+        <div class="item-quando mono">${esc(catERaca(a))}</div>
       </div>
       <div class="item-side">
         <div class="value">${peso != null ? fmtN(peso, 0) + ' kg' : '—'}</div>
@@ -1273,7 +1277,7 @@ function renderVendidas() {
     return `<div class="list-item" data-animal-edit="${a.id}">
       <div class="item-main">
         <div class="item-title">${esc(a.ident)}</div>
-        <div class="item-subtitle">${esc(a.cat || 'Sem categoria')}${a.soldDate ? ' · vendido em ' + fmtBR(a.soldDate) : ''}</div>
+        <div class="item-subtitle">${esc(catERaca(a))}${a.soldDate ? ' · vendido em ' + fmtBR(a.soldDate) : ''}</div>
       </div>
       <div class="item-side">
         <div class="value">${w != null ? fmtN(w, 0) + ' kg' : '—'}</div>
@@ -1519,7 +1523,7 @@ function renderAnimalDetail() {
         <h2>${esc(a.ident)}</h2>
         <button class="edit-link" id="btn-edit-animal">editar</button>
       </div>
-      <div class="meta">${esc(a.cat || 'Sem categoria')}${a.entryDate ? ' · entrada ' + fmtBR(a.entryDate) : ''} · ${ws.length} pesagens${arro != null ? ' · ~' + fmtN(arro, 1) + ' @ (rend. ' + settings.yield + '%)' : ''}</div>
+      <div class="meta">${esc(catERaca(a))}${a.entryDate ? ' · entrada ' + fmtBR(a.entryDate) : ''} · ${ws.length} pesagens${arro != null ? ' · ~' + fmtN(arro, 1) + ' @ (rend. ' + settings.yield + '%)' : ''}</div>
       ${a.manejoData ? `<div class="meta">Manejo sanitário: ${fmtBR(a.manejoData)}${a.manejoMedicamento ? ' — ' + esc(a.manejoMedicamento) : ''}</div>` : ''}
       ${vendidoDeVerdade(a) ? `<div class="meta">Vendido${a.soldDate ? ' em ' + fmtBR(a.soldDate) : ''}${
         Number.isFinite(a.soldWeight) ? ' · ' + fmtN(a.soldWeight, 0) + ' kg' : ''}${
@@ -2653,6 +2657,7 @@ function openAnimal(a) {
   $('an-id').value = a ? a.id : '';
   $('an-ident').value = a ? a.ident : '';
   $('an-cat').value = a ? (a.cat || '') : '';
+  $('an-raca').value = a ? (a.raca || '') : '';
   $('an-entry-date').value = a ? (a.entryDate || '') : todayISO();
   $('an-entry-weight').value = a ? numParaCampo(a.entryWeight) : '';
   $('an-manejo-data').value = a ? (a.manejoData || '') : '';
@@ -2722,6 +2727,7 @@ $('form-animal').addEventListener('submit', e => {
   const soldPriceRaw = parseNum($('an-sold-price').value);
   const data = {
     ident, cat: $('an-cat').value.trim(),
+    raca: $('an-raca').value.trim() || null,
     entryDate: $('an-entry-date').value || null,
     entryWeight: parseNum($('an-entry-weight').value) || null,
     manejoData: $('an-manejo-data').value || null,
@@ -3657,7 +3663,7 @@ $('menu-exp-pes').addEventListener('click', () => {
   // acompanha), a arroba e tudo sobre a saída do animal. E o animal cadastrado
   // ainda não pesado não saía de jeito nenhum, porque o arquivo era montado a
   // partir das pesagens: o arquivo mostrava um rebanho menor do que o real.
-  const rows = ['identificacao;categoria;data;peso_kg;arrobas;gmd_kg_dia;dias_desde_anterior;'
+  const rows = ['identificacao;categoria;raca;data;peso_kg;arrobas;gmd_kg_dia;dias_desde_anterior;'
     + 'jejum;situacao;data_entrada;peso_entrada;manejo_data;manejo_medicamento;'
     + 'data_saida;peso_venda;preco_venda;preco_arroba_venda;causa_morte;observacoes;obs_animal'];
   const situacaoDe = a => !a ? 'desconhecido' : a.dead ? 'morto' : a.sold ? 'vendido' : 'rebanho';
@@ -3665,6 +3671,7 @@ $('menu-exp-pes').addEventListener('click', () => {
   const linha = (a, w, gmd, dias) => [
     csv(a ? a.ident : '?'),
     csv(a ? (a.cat || '') : ''),
+    csv(a ? (a.raca || '') : ''),
     w ? fmtBRfull(w.date) : '',
     w ? numCsv(w.weight) : '',
     w ? numCsv(arrobasDe(w.weight, settings.yield), 2) : '',

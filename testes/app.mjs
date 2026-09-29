@@ -521,6 +521,43 @@ export default async function () {
     coer.vendSujo === coer.nVend && coer.mortoSujo === coer.nMortos + 1,
     `vendidas ${coer.vendSujo} · mortes ${coer.mortoSujo}`);
 
+  // ---------- raça no cadastro ----------
+  // Raça é dado de venda: comprador paga diferente por nelore e por cruzado, e
+  // o que não é gravado no cadastro é o que some quando o lote é negociado.
+  t.secao('raça do animal');
+  await pagina.evaluate(() => { animals = []; weighings = []; render(); openAnimal(); });
+  await pagina.fill('#an-ident', 'R1');
+  await pagina.fill('#an-cat', 'Novilho');
+  await pagina.fill('#an-raca', 'Nelore');
+  await pagina.click('#form-animal button[type="submit"]'); await pagina.waitForTimeout(120);
+  const raca = await pagina.evaluate(() => {
+    tab = 'bovinos'; seg = 'rebanho'; render();
+    const lista = $('animal-list').innerText;
+    openAnimal(animals[0]);
+    const noForm = $('an-raca').value;
+    closeAllM();
+    let capturado = null; const orig = window.download; window.download = (n, c) => { capturado = c; };
+    $('menu-exp-pes').click(); window.download = orig;
+    const cab = capturado.split('\n')[0].split(';');
+    const linha = capturado.split('\n')[1].split(';');
+    return { guardado: animals[0].raca, noForm, lista,
+      colunaRaca: cab.indexOf('raca'), valorNaColuna: linha[cab.indexOf('raca')] };
+  });
+  t.conferir('a raça digitada fica guardada no animal', raca.guardado === 'Nelore', String(raca.guardado));
+  t.conferir('e volta preenchida ao reabrir o cadastro', raca.noForm === 'Nelore', raca.noForm);
+  t.conferir('a lista mostra categoria e raça juntas',
+    /Novilho · Nelore/.test(raca.lista), raca.lista.split('\n').slice(0, 3).join(' | '));
+  t.conferir('a planilha exportada tem coluna de raça', raca.colunaRaca === 2, 'coluna ' + raca.colunaRaca);
+  t.conferir('e a raça sai preenchida nela', raca.valorNaColuna === 'Nelore', raca.valorNaColuna);
+  // Sem raça cadastrada nada muda de forma: nem separador solto, nem "undefined".
+  const semRaca = await pagina.evaluate(() => {
+    animals = [{ id: 'z1', ident: 'Z1', cat: 'Vaca' }]; weighings = []; render();
+    return $('animal-list').innerText;
+  });
+  t.conferir('animal sem raça não ganha separador solto',
+    /Vaca ·\s*\d+ pesag/.test(semRaca) && !/undefined|null/.test(semRaca),
+    semRaca.split('\n').slice(0, 3).join(' | '));
+
   const falhas = t.fim(errosJS);
   await navegador.close(); await s.fechar();
   return falhas;
