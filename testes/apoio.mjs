@@ -71,6 +71,15 @@ export async function abrirApp(url, { locale = 'pt-BR' } = {}) {
   return { navegador, pagina, errosJS };
 }
 
+// Abre todos os blocos dobráveis da tela. Eles nascem fechados para a lista
+// não começar a duas telas de rolagem do topo, e o conferidor que quer LER o
+// conteúdo precisa fazer o que o usuário faz: tocar no cabeçalho.
+export const ABRIR_DOBRAS =
+  "document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });";
+export async function abrirDobras(pagina) {
+  await pagina.evaluate(ABRIR_DOBRAS);
+}
+
 export function placar(titulo) {
   let ok = 0, falhas = 0;
   const linhas = [];

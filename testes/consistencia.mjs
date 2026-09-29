@@ -245,7 +245,10 @@ export default async function () {
     bovT = carne(1); avT = []; gerT = []; animals = []; weighings = []; items = []; moves = [];
     tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
     const fin = $('bfin-list').innerText;
-    const apagar = $('bfin-apagar').innerText;
+        // O bloco nasce fechado para a lista não começar a duas telas do topo;
+    // quem quer LER as linhas faz o que o usuário faz: abre.
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
+const apagar = $('bfin-apagar').innerText;
     tab = 'fazenda'; $('fz-period').value = 'all'; render();
     const fazenda = $('fz-lista').innerText;
     return {

@@ -195,9 +195,13 @@ export default async function () {
     avT = [];
     localStorage.removeItem('fjs-lembrete-visto');
     tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+    // O bloco nasce fechado, com o total e as vencidas no cabeçalho; as linhas
+    // ficam a um toque. Quem quer lê-las faz o que o usuário faz: abre.
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
     return {
-      total: document.querySelector('#bfin-apagar .ap-total').textContent,
-      vencidas: document.querySelector('#bfin-apagar .ap-vencidas') ? document.querySelector('#bfin-apagar .ap-vencidas').textContent : null,
+      total: document.querySelector('#bfin-apagar .dc-num').textContent,
+      vencidas: document.querySelector('#bfin-apagar .dc-sub')
+        ? document.querySelector('#bfin-apagar .dc-sub').textContent : null,
       linhas: [...document.querySelectorAll('#bfin-apagar .ap-linha')].map(l => ({
         cat: l.querySelector('.cat').textContent, quando: l.querySelector('.quando').textContent, classe: l.className
       })),
@@ -211,6 +215,9 @@ export default async function () {
   t.conferir('compra à vista não entra em "a pagar"', !prazo.linhas.some(l => /À vista/.test(l.cat)));
   t.conferir('entrada de dinheiro nunca vira conta a pagar', !prazo.linhas.some(l => /Venda/.test(l.cat)));
   t.conferir('destaca o total vencido', /1 vencida/.test(prazo.vencidas || '') && /1\.000,00/.test(prazo.vencidas || ''), prazo.vencidas || 'sem destaque');
+  // Fechado não pode ser mudo: o que se deve e o que venceu ficam no cabeçalho.
+  t.conferir('e o cabeçalho fechado já mostra quanto se deve',
+    prazo.total === 'R$ 2.000,00', prazo.total);
   t.conferir('vencida diz há quantos dias', /venceu há 3 dias/.test(prazo.linhas[0].quando), prazo.linhas[0].quando);
   t.conferir('e é marcada como vencida', /venceu/.test(prazo.linhas[0].classe), prazo.linhas[0].classe);
   t.conferir('a que vence hoje diz "vence hoje"', /vence hoje/.test(prazo.linhas[1].quando), prazo.linhas[1].quando);
@@ -226,9 +233,11 @@ export default async function () {
   // Marcar como pago tira da lista e do total
   const depoisPago = await pagina.evaluate(() => {
     const t = bovT.find(x => x.id === 'q1'); t.pago = true; t.pagoEm = todayISO(); render();
-    return { total: document.querySelector('#bfin-apagar .ap-total').textContent,
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
+    return { total: document.querySelector('#bfin-apagar .dc-num').textContent,
       linhas: document.querySelectorAll('#bfin-apagar .ap-linha').length,
-      vencidas: document.querySelector('#bfin-apagar .ap-vencidas'),
+      vencidas: /vencida/.test(document.querySelector('#bfin-apagar .dc-sub').textContent)
+        ? 'ainda avisa' : null,
       saldo: document.querySelector('#bfin-balance .bc-value').textContent };
   });
   t.conferir('pagar tira a conta da lista', depoisPago.linhas === 3, String(depoisPago.linhas));
@@ -319,8 +328,9 @@ export default async function () {
       soma: bovT.reduce((s, x) => s + x.amount, 0),
       vencs: bovT.slice().sort((a, b) => a.parcela - b.parcela).map(x => x.venc),
       datas: [...new Set(bovT.map(x => x.date))],
+      _: document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; }),
       rotulos: [...document.querySelectorAll('#bfin-apagar .ap-linha .cat')].map(e => e.textContent),
-      aPagar: document.querySelector('#bfin-apagar .ap-total').textContent,
+      aPagar: document.querySelector('#bfin-apagar .dc-num').textContent,
       saldo: document.querySelector('#bfin-balance .bc-value').textContent,
       mesmoGrupo: new Set(bovT.map(x => x.grupo)).size === 1,
       ligada: moves[0].linkGrupo === bovT[0].grupo
@@ -353,7 +363,7 @@ export default async function () {
     $('form-move').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     seg = 'financeiro'; $('bfin-period').value = 'all'; render();
     return { abriuCom, qtd: bovT.length, soma: bovT.reduce((s, x) => s + x.amount, 0),
-      aPagar: document.querySelector('#bfin-apagar .ap-total').textContent };
+      aPagar: document.querySelector('#bfin-apagar .dc-num').textContent };
   });
   t.conferir('reabrir a compra mostra o parcelamento que ela tem',
     editada.abriuCom.prazo === true && editada.abriuCom.parcelas === '3' && editada.abriuCom.venc === '2026-09-10',
@@ -392,7 +402,7 @@ export default async function () {
     return { campoAparece, previa, qtd: avT.length,
       soma: avT.reduce((s, x) => s + x.amount, 0),
         vencs: avT.slice().sort((a, b) => a.parcela - b.parcela).map(x => x.venc),
-      aPagar: document.querySelector('#av-apagar .ap-total').textContent,
+      aPagar: document.querySelector('#av-apagar .dc-num').textContent,
       lembrete: $('lembrete').textContent,
       bovIntacto: bovT.length };
   });
@@ -434,7 +444,8 @@ export default async function () {
         negativo: c.className.includes('neg') })),
       classes: [...document.querySelectorAll('#fz-classes .fz-classe')].map(c =>
         c.querySelector('.n').textContent + '=' + c.querySelector('.v').textContent),
-      aPagar: ler('#fz-apagar .ap-total'),
+      aPagar: ler('#fz-apagar .dc-num'),
+      _: document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; }),
       contas: [...document.querySelectorAll('#fz-apagar .ap-linha .cat')].map(e => e.textContent),
       cats: [...document.querySelectorAll('#fz-cats .cb-line')].length,
       vazio: $('fz-empty').hidden
@@ -559,7 +570,7 @@ export default async function () {
     return { fabAparece, aoAbrir, depoisBov, aoTrocar, fz, bovTela, avTela,
       avFinal: avT.length, bovFinal: bovT.length,
       parcelasNoAv: avT.filter(x => x.parcelas === 3).length,
-      aPagarFz: ler('#fz-apagar .ap-total') };
+      aPagarFz: ler('#fz-apagar .dc-num') };
   });
 
   t.conferir('o botão + aparece na aba Fazenda', lanc.fabAparece === true);

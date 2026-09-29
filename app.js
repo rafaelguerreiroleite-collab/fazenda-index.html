@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 64;
+const VERSAO = 65;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -561,6 +561,44 @@ function diasPorMes(ini, fim) {
   }
   return out;
 }
+// ===== Blocos que abrem e fecham =====
+// A tela cresceu por empilhamento. Medido num iPhone com uma fazenda de 60
+// animais e dois anos de lançamentos: a lista de animais começava a 1147 px e a
+// de lançamentos da Fazenda a 1997 px, numa tela de 900. Duas telas de rolagem
+// de resumo antes do conteúdo — e o conteúdo é o que a pessoa veio ver.
+//
+// Fechado não é escondido: o número que importa fica NA LINHA do cabeçalho, e o
+// detalhe está a um toque. Cada bloco guarda o próprio estado, e nada abre nem
+// fecha sozinho — um padrão previsível vale mais que um padrão esperto.
+const dobraAberta = id => LS.g('fjs-dobra-' + id, false) === true;
+function dobravel(id, resumo, corpo) {
+  if (!corpo) return '';
+  return `<details class="dobra"${dobraAberta(id) ? ' open' : ''} data-dobra="${id}">`
+    + `<summary class="dobra-cab">${resumo}</summary>`
+    + `<div class="dobra-corpo">${corpo}</div></details>`;
+}
+// O evento "toggle" não sobe na árvore: sem a fase de captura, o clique não
+// chegaria aqui e o estado não seria guardado.
+document.addEventListener('toggle', e => {
+  const d = e.target && e.target.closest && e.target.closest('[data-dobra]');
+  if (d) LS.s('fjs-dobra-' + d.dataset.dobra, d.open);
+}, true);
+// Cabeçalho de bloco: título, o número que resume, e uma linha de apoio.
+const cabecaDobra = (titulo, valor, apoio, alerta) =>
+  `<span class="dc-tit mono">${titulo}</span>`
+  // Sem número, a coluna dele sai do caminho e a linha de apoio ganha a
+  // largura inteira — um espaço vazio à direita empurraria o texto para duas
+  // linhas sem nada para mostrar ali.
+  + (valor ? `<span class="dc-num${alerta ? ' dc-alerta' : ''}">${valor}</span>` : '')
+  + (apoio ? `<span class="dc-sub mono">${apoio}</span>` : '')
+  // A seta vive aqui, e não em dobravel(): o bloco da estimativa é feito em
+  // HTML e só troca o cabeçalho, e sem isto ficava sem a seta — parecendo a
+  // única caixa da tela que não abre.
+  + '<span class="dobra-seta" aria-hidden="true"></span>';
+// Dinheiro curto para caber no cabeçalho: sem "R$" e sem centavos, que no
+// resumo não decidem nada e custam metade da linha.
+const curto = v => (v < 0 ? '−' : '') + fmtN(Math.abs(v), 0);
+
 // ===== GMD do rebanho: entre pesagens, e do começo até agora =====
 // Os números que existiam eram por ANIMAL. Estes são do rebanho:
 //   - de uma pesagem para a outra, que é a lida que se faz no curral
@@ -963,13 +1001,8 @@ function renderRebanho() {
   const caixaP = $('bov-gmd-pes');
   caixaP.hidden = !ep.linhas.length && ge.gmd == null;
   if (!caixaP.hidden) {
-    $('bov-gmd-geral').innerHTML = ge.gmd == null ? '' : `
-      <div class="gg-rot mono">Da 1ª pesagem de cada animal até a mais recente</div>
-      <div class="gg-val ${ge.gmd < 0 ? 'gm-neg-txt' : gmdCls(ge.gmd)}">${fmtN(ge.gmd, 3)}</div>
-      <div class="gg-det mono">${ge.n} animal(is) · ${fmtN(ge.kg, 0)} kg em ${ge.dias} dias-animal`
-      + `${ge.primeira ? ' · ' + fmtBR(ge.primeira) + ' a ' + fmtBR(ge.ultima) : ''}</div>`;
     const maiorP = Math.max(...ep.linhas.map(l => Math.abs(l.gmd)), 0.001);
-    $('bov-gmd-pes-lista').innerHTML = ep.linhas.slice(0, 12).map(l => {
+    const linhasP = ep.linhas.slice(0, 12).map(l => {
       const larg = Math.max(2, Math.round(Math.abs(l.gmd) / maiorP * 100));
       const rot = l.ini === l.fim ? fmtBR(l.fim) : fmtBR(l.ini) + '–' + fmtBR(l.fim);
       return `<div class="gm-linha gm-linha-pes">
@@ -979,15 +1012,29 @@ function renderRebanho() {
         <span class="gm-n">${l.animais}</span>
       </div>`;
     }).join('');
-    $('bov-gmd-pes-nota').innerHTML = 'Cada linha é uma pesagem: o ganho desde a pesagem '
-      + 'anterior de cada animal. Dias de curral seguidos contam como a mesma pesagem. '
-      + 'Entram todos os animais com duas pesagens, inclusive os já vendidos — o ganho '
-      + 'deles aconteceu.'
+    // O número do começo até agora vai NO CABEÇALHO: é o que resume o rebanho,
+    // e não faria sentido precisar abrir o bloco para vê-lo.
+    const corpoP = `<div class="gm-geral" id="bov-gmd-geral">` + (ge.gmd == null ? '' : `
+        <div class="gg-rot mono">Da 1ª pesagem de cada animal até a mais recente</div>
+        <div class="gg-val ${ge.gmd < 0 ? 'gm-neg-txt' : gmdCls(ge.gmd)}">${fmtN(ge.gmd, 3)}</div>
+        <div class="gg-det mono">${ge.n} animal(is) · ${fmtN(ge.kg, 0)} kg em ${ge.dias} dias-animal`
+      + `${ge.primeira ? ' · ' + fmtBR(ge.primeira) + ' a ' + fmtBR(ge.ultima) : ''}</div>`) + `</div>`
+      + `<div class="gm-linhas" id="bov-gmd-pes-lista">${linhasP}</div>`
+      + `<p class="est-nota mono" id="bov-gmd-pes-nota">`
+      + 'Cada linha é uma pesagem: o ganho desde a pesagem anterior de cada animal. '
+      + 'Dias de curral seguidos contam como a mesma pesagem. Entram todos os animais '
+      + 'com duas pesagens, inclusive os já vendidos — o ganho deles aconteceu.'
       + (ge.fora || ep.misturados
         ? ` <b>${ge.fora + ep.misturados} comparação(ões) entre jejum e cheio ficaram de fora.</b>` : '')
       + '<br>O cartão "GMD médio" lá em cima é a média dos animais, um a um; estes aqui '
       + 'são do rebanho, e pesam cada animal pelos dias que ele ficou. Com bichos de '
-      + 'tempos diferentes os dois não batem, e é este que corresponde ao quilo que entrou.';
+      + 'tempos diferentes os dois não batem, e é este que corresponde ao quilo que entrou.'
+      + '</p>';
+    caixaP.innerHTML = dobravel('gmd-pes',
+      cabecaDobra('GMD do rebanho', ge.gmd == null ? '—' : fmtN(ge.gmd, 3),
+        (ge.gmd == null ? 'sem par de pesagens' : `desde ${fmtBR(ge.primeira)} · ${ge.n} animal(is)`)
+        + (ep.linhas.length ? ` · última pesagem ${fmtN(ep.linhas[0].gmd, 3)}` : '')),
+      corpoP);
   }
 
   // ---- GMD mês a mês ----
@@ -1000,7 +1047,7 @@ function renderRebanho() {
     // entre si, e uma escala fixa esconderia a diferença quando todos forem
     // baixos — que é justamente quando ela precisa aparecer.
     const maior = Math.max(...meses.map(m => Math.abs(m.gmd)), 0.001);
-    $('bov-gmd-mes-lista').innerHTML = meses.map(m => {
+    const linhasM = meses.map(m => {
       const larg = Math.max(2, Math.round(Math.abs(m.gmd) / maior * 100));
       return `<div class="gm-linha">
         <span class="gm-mes">${esc(rotuloMesCurto(m.mes))}</span>
@@ -1009,13 +1056,28 @@ function renderRebanho() {
         <span class="gm-n">${m.animais}</span>
       </div>`;
     }).join('');
-    $('bov-gmd-mes-nota').innerHTML = 'O ganho de cada intervalo é espalhado pelos dias que ele durou — '
+    const corpoM = `<div class="gm-linhas" id="bov-gmd-mes-lista">${linhasM}</div>`
+      + `<p class="est-nota mono" id="bov-gmd-mes-nota">`
+      + 'O ganho de cada intervalo é espalhado pelos dias que ele durou — '
       + 'pesagem de janeiro a abril rende para os três meses, não só para abril. '
       + 'O número da direita é quantos animais entraram no mês.'
-      + (gm.misturados ? ` <b>${gm.misturados} intervalo(s) comparando jejum com cheio ficaram de fora.</b>` : '');
+      + (gm.misturados ? ` <b>${gm.misturados} intervalo(s) comparando jejum com cheio ficaram de fora.</b>` : '')
+      + '</p>';
+    // Os dois últimos meses no cabeçalho: comparar é o que este bloco faz, e
+    // uma comparação precisa de dois números para existir.
+    const doisUltimos = meses.slice(0, 2).map(m => `${rotuloMesCurto(m.mes)} ${fmtN(m.gmd, 3)}`).join(' · ');
+    caixa.innerHTML = dobravel('gmd-mes',
+      cabecaDobra('GMD mês a mês', fmtN(meses[0].gmd, 3), doisUltimos),
+      corpoM);
   }
 
   $('bov-stats-est').hidden = !temEst;
+  // O total estimado vai para o cabeçalho: é o número que se leva para a
+  // negociação, e não faria sentido precisar abrir o bloco para vê-lo.
+  $('bov-est-cab').innerHTML = cabecaDobra('Estimativa do rebanho hoje',
+    temEst ? fmtN(arrobaOf(totalEst), 0) + ' @' : '',
+    temEst ? `${fmtN(totalEst / pesosEst.length, 0)} kg médios · GMD ${fmtN(gmdSim, 3)} · ${diasDesde}d`
+      : 'informe o GMD do lote para projetar');
   $('bov-est-nota').textContent = !Number.isFinite(gmdSim)
     ? 'Informe o GMD que o lote vem fazendo para ver onde o rebanho estaria hoje.'
     : !pesosEst.length ? 'Sem pesagem para projetar.'
@@ -1577,13 +1639,15 @@ function renderAPagar(book) {
   const soma = c => c.reduce((s, t) => s + t.amount, 0);
   const vencidas = contas.filter(t => t.dias < 0);
   const total = soma(contas);
-  el.innerHTML = `
-    <div class="ap-cabeca">
-      <span class="ap-titulo mono">A pagar</span>
-      <span class="ap-total">${fmtRS(total)}</span>
-    </div>
-    ${vencidas.length ? `<div class="ap-vencidas mono">${vencidas.length} vencida${vencidas.length > 1 ? 's' : ''} · ${fmtRS(soma(vencidas))}</div>` : ''}
-    ${contas.map(t => {
+  // Este era o bloco que mais empurrava a lista para baixo: 618 px em Bovinos e
+  // 908 px na Fazenda. O que a pessoa precisa saber de relance — quanto deve e
+  // quantas venceram — cabe numa linha; a lista de cada conta fica a um toque.
+  el.innerHTML = dobravel('apagar-' + book,
+    cabecaDobra('A pagar', fmtRS(total),
+      `${contas.length} conta(s)`
+        + (vencidas.length ? ` · ${vencidas.length} vencida(s) · ${fmtRS(soma(vencidas))}` : ''),
+      vencidas.length > 0),
+    `${contas.map(t => {
       const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
       const quando = t.dias < 0 ? `venceu há ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
         : t.dias === 0 ? 'vence hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
@@ -1595,7 +1659,7 @@ function renderAPagar(book) {
         <span class="ap-valor">${fmtRS(t.amount)}</span>
         <button type="button" class="ap-pagar" data-pagar="${t.id}" data-livro="${book}">Pagar</button>
       </div>`;
-    }).join('')}`;
+    }).join('')}`);
 }
 // O lembrete fica no topo do app, visível de qualquer aba: quem abre o
 // aplicativo para pesar não vai procurar por uma conta no Financeiro.
@@ -1704,7 +1768,7 @@ function notaDoRegime(idNota, regime, lista) {
     const hoje = todayISO();
     const futuras = aberto.filter(t => t.venc > hoje);
     const somaFut = futuras.reduce((s, t) => s + t.amount, 0);
-    el.innerHTML = 'Contando pela data de vencimento — cada parcela cai no mês em que vence.'
+    el.innerHTML = 'Pela data de vencimento — cada parcela cai no mês em que vence.'
       + (futuras.length ? ` <b>${futuras.length} conta(s) já agendada(s) para depois de hoje (${fmtRS(somaFut)}).</b>` : '');
     return;
   }
@@ -1715,10 +1779,10 @@ function notaDoRegime(idNota, regime, lista) {
   const ondeVer = aberto.length
     ? ` Escolha <b>“Por vencimento”</b> para ver em que mês cada uma cai.` : '';
   el.innerHTML = regime === 'caixa'
-    ? 'Contando pela data em que o dinheiro saiu.'
+    ? 'Pela data em que o dinheiro saiu.'
       + (aberto.length ? ` <b>${aberto.length} conta(s) a pagar (${fmtRS(soma)}) ficam de fora até serem pagas.</b>` : '')
       + ondeVer
-    : 'Contando pela data da compra — a compra parcelada conta inteira no mês em que foi feita.' + ondeVer;
+    : 'Pela data da compra — a parcelada conta inteira no mês da compra.' + ondeVer;
 }
 // O rótulo do saldo precisa dizer por qual régua ele foi somado. "Saldo do
 // período" sozinho, com três réguas possíveis, é um número sem unidade.
@@ -1848,26 +1912,30 @@ function renderFazenda() {
 
   // Cada atividade com o seu resultado, lado a lado.
   const atividades = R.atividades;
-  $('fz-atividades').innerHTML = `
-    <div class="fz-titulo mono">Resultado por atividade</div>
-    <div class="fz-grade">${atividades.map(a => `
+  // O saldo de cada atividade cabe na linha do cabeçalho: é o que se olha de
+  // relance para saber qual delas está sustentando a outra.
+  $('fz-atividades').innerHTML = dobravel('fz-atividades',
+    cabecaDobra('Resultado por atividade', '',
+      atividades.map(a => `${a.nome} ${curto(a.saldo)}`).join(' · ')),
+    `<div class="fz-grade">${atividades.map(a => `
       <div class="fz-card ${a.saldo < 0 ? 'neg' : ''}">
         <div class="fz-nome">${a.nome}</div>
         <div class="fz-saldo">${fmtRS(a.saldo)}</div>
         <div class="fz-detalhe mono">+${fmtN(a.entrada, 0)} · −${fmtN(a.saida, 0)}</div>
-      </div>`).join('')}</div>`;
+      </div>`).join('')}</div>`);
 
   // Custeio x Investimento: dinheiro que some no ciclo não é o mesmo que
   // dinheiro que vira benfeitoria. Somar os dois esconde a diferença.
   const porClasse = R.classes;
   const ordem = ['Receita', 'Custeio', 'Investimento'];
   const classes = ordem.filter(c => porClasse[c]);
-  $('fz-classes').innerHTML = classes.length ? `
-    <div class="fz-titulo mono">Por natureza</div>
-    <div class="fz-classes">${classes.map(c => `
+  $('fz-classes').innerHTML = !classes.length ? '' : dobravel('fz-classes',
+    cabecaDobra('Por natureza', '',
+      classes.map(c => `${c} ${curto(porClasse[c])}`).join(' · ')),
+    `<div class="fz-classes">${classes.map(c => `
       <div class="fz-classe ${c === 'Receita' ? 'rec' : c === 'Investimento' ? 'inv' : 'cus'}">
         <span class="n">${c}</span><span class="v">${fmtRS(porClasse[c])}</span>
-      </div>`).join('')}</div>` : '';
+      </div>`).join('')}</div>`);
 
   // Contas a pagar dos dois livros juntas: a fazenda paga de um bolso só.
   const contas = R.contas;
@@ -1876,13 +1944,13 @@ function renderFazenda() {
   else {
     elAp.style.display = '';
     const vencidas = contas.filter(x => x.t.dias < 0);
-    elAp.innerHTML = `
-      <div class="ap-cabeca">
-        <span class="ap-titulo mono">A pagar · fazenda inteira</span>
-        <span class="ap-total">${fmtRS(contas.reduce((s, x) => s + x.t.amount, 0))}</span>
-      </div>
-      ${vencidas.length ? `<div class="ap-vencidas mono">${vencidas.length} vencida${vencidas.length > 1 ? 's' : ''} · ${fmtRS(vencidas.reduce((s, x) => s + x.t.amount, 0))}</div>` : ''}
-      ${contas.map(({ t, livro, book }) => {
+    elAp.innerHTML = dobravel('apagar-fz',
+      cabecaDobra('A pagar · fazenda inteira',
+        fmtRS(contas.reduce((s, x) => s + x.t.amount, 0)),
+        `${contas.length} conta(s)`
+          + (vencidas.length ? ` · ${vencidas.length} vencida(s) · ${fmtRS(vencidas.reduce((s, x) => s + x.t.amount, 0))}` : ''),
+        vencidas.length > 0),
+      `${contas.map(({ t, livro, book }) => {
         const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
         const quando = t.dias < 0 ? `venceu há ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
           : t.dias === 0 ? 'vence hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
@@ -1897,24 +1965,28 @@ function renderFazenda() {
           <span class="ap-valor">${fmtRS(t.amount)}</span>
           <button type="button" class="ap-pagar" data-pagar="${t.id}" data-livro="${book}">Pagar</button>
         </div>`;
-      }).join('')}`;
+      }).join('')}`);
   }
 
   // Categorias dos dois livros somadas, com o resto sempre declarado.
   const todas = R.categorias;
   const mostrar = todas.slice(0, 8), sobra = todas.slice(8);
   const maxV = mostrar.length ? mostrar[0][1] : 1;
-  $('fz-cats').innerHTML = mostrar.length ? `<div class="cb-header">Por categoria · fazenda inteira</div>`
-    + mostrar.map(([k, v]) => {
+  // A maior categoria é o que se quer saber de relance; o resto é detalhe.
+  const topoFz = mostrar.length ? mostrar[0][0].split('|')[1] : '';
+  $('fz-cats').innerHTML = !mostrar.length ? '' : dobravel('fz-cats',
+    cabecaDobra('Por categoria', fmtRS(mostrar[0][1]),
+      `maior: ${esc(topoFz)} · ${todas.length} no total`),
+    mostrar.map(([k, v]) => {
       const [tp, cat] = k.split('|');
       return `<div class="cb-row">
         <div class="cb-line"><span>${esc(cat)}</span><span class="value ${tp}">${tp === 'saida' ? '−' : '+'} ${fmtRS(v)}</span></div>
         <div class="cb-bar"><div class="cb-fill ${tp}" style="width:${Math.max(4, v / maxV * 100)}%"></div></div>
       </div>`;
     }).join('')
-    + (sobra.length ? `<div class="cb-resto mono">+ ${sobra.length} outra${sobra.length > 1 ? 's' : ''} categoria${sobra.length > 1 ? 's' : ''} · ${fmtRS(sobra.reduce((s, [, v]) => s + v, 0))}</div>` : '')
-    : '';
+    + (sobra.length ? `<div class="cb-resto mono">+ ${sobra.length} outra${sobra.length > 1 ? 's' : ''} categoria${sobra.length > 1 ? 's' : ''} · ${fmtRS(sobra.reduce((s, [, v]) => s + v, 0))}</div>` : ''));
   $('fz-cats').style.display = mostrar.length ? '' : 'none';
+  $('fz-cats').classList.add('so-dobra');
 
   // Sem esta lista, um lançamento Geral só existiria dentro de somatórios: não
   // haveria como vê-lo, corrigi-lo nem apagá-lo, porque Geral não tem aba
@@ -2311,8 +2383,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=64';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=64';
+const PDFJS_JS = 'vendor/pdf.min.js?v=65';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=65';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2488,7 +2560,10 @@ function renderFin(book) {
   const somaSobra = sobra.reduce((s, [, v]) => s + v, 0);
   const maxV = entries.length ? entries[0][1] : 1;
   const catEl = isAv ? $('av-cats') : $('bfin-cats');
-  catEl.innerHTML = entries.length ? `<div class="cb-header">Por categoria</div>` + entries.map(([k, v]) => {
+  catEl.innerHTML = !entries.length ? '' : dobravel('cats-' + book,
+    cabecaDobra('Por categoria', fmtRS(entries[0][1]),
+      `maior: ${esc(entries[0][0].split('|')[1])} · ${todasCats.length} no total`),
+    entries.map(([k, v]) => {
     const [tp, cat] = k.split('|');
     return `<div class="cb-row">
       <div class="cb-line"><span>${esc(cat)}</span><span class="value ${tp}">${tp === 'saida' ? '−' : '+'} ${fmtRS(v)}</span></div>
@@ -2496,8 +2571,9 @@ function renderFin(book) {
     </div>`;
   }).join('') + (sobra.length
     ? `<div class="cb-resto mono">+ ${sobra.length} outra${sobra.length > 1 ? 's' : ''} categoria${sobra.length > 1 ? 's' : ''} · ${fmtRS(somaSobra)}</div>`
-    : '') : '';
+    : ''));
   catEl.style.display = entries.length ? '' : 'none';
+  catEl.classList.add('so-dobra');
   renderAPagar(book);
   const listEl = isAv ? $('av-list') : $('bfin-list');
   // Ordena e data pela MESMA data que o saldo somou: mostrando a da compra num
@@ -4594,6 +4670,12 @@ $('bov-gmd-sim').addEventListener('input', () => {
 // Mesmo cuidado com o regime: valor guardado por uma versão antiga não pode
 // deixar o seletor num estado que não existe mais.
 definirRegime(regimeAtual());
+// Os dobráveis feitos em HTML precisam do estado guardado aplicado uma vez, no
+// arranque. A cada desenho seria pior: fecharia o bloco na mão de quem acabou
+// de abri-lo.
+document.querySelectorAll('details[data-dobra]').forEach(d => {
+  d.open = dobraAberta(d.dataset.dobra);
+});
 
 document.addEventListener('click', e => {
   const vt = e.target.closest('[data-ver-tudo]');

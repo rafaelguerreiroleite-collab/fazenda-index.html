@@ -178,6 +178,7 @@ export default async function () {
     ];
     bovT = []; avT = []; gerT = []; items = []; moves = [];
     tab = 'bovinos'; seg = 'rebanho'; render();
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
     out.visivel = !$('bov-gmd-mes').hidden;
     out.texto = $('bov-gmd-mes-lista').innerText.replace(/\n/g, ' | ');
     out.nota = $('bov-gmd-mes-nota').innerText;
@@ -191,6 +192,7 @@ export default async function () {
 
     // jejum misturado é anunciado
     weighings[1].jejum = true; render();
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
     out.avisaJejum = /jejum com cheio/.test($('bov-gmd-mes-nota').innerText);
     weighings[1].jejum = false;
 
@@ -323,6 +325,7 @@ export default async function () {
   const telaP = await pagina.evaluate(() => {
     const out = {};
     tab = 'bovinos'; seg = 'rebanho'; render();
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
     out.visivel = !$('bov-gmd-pes').hidden;
     out.cabeca = $('bov-gmd-geral').innerText.replace(/\n/g, ' | ');
     out.linhas = $('bov-gmd-pes-lista').querySelectorAll('.gm-linha').length;
@@ -337,6 +340,7 @@ export default async function () {
     detailAnimal = null;
     // jejum misturado é anunciado
     weighings[5].jejum = true; render();
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
     out.avisaJejum = /jejum e cheio/.test($('bov-gmd-pes-nota').innerText);
     weighings[5].jejum = false;
     // sem pesagem, o bloco some

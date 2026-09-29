@@ -496,6 +496,7 @@ export default async function () {
       $('bov-gmd-sim').value = gmd;
       $('bov-gmd-sim').dispatchEvent(new Event('input', { bubbles: true }));
       render();
+      document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
       return { escondido: $('bov-stats-est').hidden,
         texto: $('bov-stats-est').innerText, nota: $('bov-est-nota').textContent };
     };

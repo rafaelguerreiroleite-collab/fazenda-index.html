@@ -668,3 +668,33 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .gg-det { font-size: 0.6rem; color: #a8a29e; }
 .gm-linha-pes .gm-mes { font-size: 0.62rem; }
 .gm-linha-pes { grid-template-columns: 5.4rem 1fr 3.2rem 1.6rem; }
+
+/* Blocos que abrem e fecham. Fechado, o cabeçalho ainda carrega o número que
+   resume o bloco — a tela encurta sem a informação sair dela. */
+.dobra { background: #fff; border: 1px solid #e7e5e4; border-radius: 12px;
+  margin-bottom: 0.45rem; overflow: hidden; }
+.dobra-cab { display: grid; grid-template-columns: 1fr auto 1.1rem;
+  grid-template-areas: "tit num seta" "sub num seta"; align-items: center;
+  gap: 0 0.5rem; padding: 0.45rem 0.75rem; cursor: pointer; list-style: none;
+  min-height: 2.4rem; }
+.dobra-cab::-webkit-details-marker { display: none; }
+.dc-tit { grid-area: tit; font-size: 0.68rem; color: #57534e; }
+.dc-sub { grid-area: sub; font-size: 0.62rem; color: #a8a29e; }
+.dc-num { grid-area: num; font-size: 1.05rem; font-weight: 600; color: #1c1917;
+  text-align: right; white-space: nowrap; }
+.dc-num.dc-alerta { color: #b91c1c; }
+.dobra-seta { grid-area: seta; width: 0.5rem; height: 0.5rem; justify-self: end;
+  border-right: 2px solid #a8a29e; border-bottom: 2px solid #a8a29e;
+  transform: rotate(45deg); transition: transform .15s; }
+.dobra[open] .dobra-seta { transform: rotate(-135deg); }
+.dobra-corpo { padding: 0 0.8rem 0.7rem; border-top: 1px solid #f5f5f4; }
+/* Dentro de um bloco dobrável, as caixas internas perdem a moldura própria:
+   moldura dentro de moldura vira ruído numa tela de celular. */
+.dobra-corpo .gmd-mes, .dobra-corpo .category-breakdown { border: 0; padding: 0;
+  margin: 0; background: none; }
+/* Cabeçalho sem número: a coluna dele sai e o apoio ganha a linha inteira. */
+.dobra-cab:not(:has(.dc-num)) { grid-template-columns: 1fr 1.1rem;
+  grid-template-areas: "tit seta" "sub seta"; }
+/* Caixa que só carrega um bloco dobrável não precisa de moldura própria:
+   moldura dentro de moldura vira ruído numa tela de celular. */
+.so-dobra { background: none !important; border: 0 !important; padding: 0 !important; }
