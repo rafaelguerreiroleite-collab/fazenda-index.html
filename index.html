@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=62" />
+<link rel="stylesheet" href="style.css?v=63" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -96,6 +96,14 @@
       <p class="est-nota mono" id="bov-est-nota"></p>
     </div>
     <div class="stats-row" id="bov-stats-est" hidden></div>
+    <!-- Comparar meses é outra pergunta que o GMD de uma pesagem para a outra:
+         aquele serve no curral, com o animal na balança; este diz em que mês o
+         gado ganhou, para comparar a seca com as águas. Os dois ficam. -->
+    <div class="gmd-mes" id="bov-gmd-mes" hidden>
+      <div class="gm-titulo mono">GMD mês a mês</div>
+      <div class="gm-linhas" id="bov-gmd-mes-lista"></div>
+      <p class="est-nota mono" id="bov-gmd-mes-nota"></p>
+    </div>
     <div class="filter-row one">
       <select id="bov-sort">
         <option value="ident-asc" selected>Ordem: brinco crescente</option>
@@ -806,6 +814,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=62"></script>
+<script src="app.js?v=63"></script>
 </body>
 </html>

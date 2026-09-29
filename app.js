@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 62;
+const VERSAO = 63;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -526,6 +526,82 @@ function gmdTotal(ws) { return ws.length >= 2 ? gmdBetween(ws[0], ws[ws.length -
 function gmdRecent(ws) { return ws.length >= 2 ? gmdBetween(ws[ws.length - 2], ws[ws.length - 1]) : null; }
 const gmdCls = g => !Number.isFinite(g) ? '' : g < 0.4 ? 'gmd-low' : g < 0.8 ? 'gmd-mid' : g < 1.2 ? 'gmd-good' : 'gmd-great';
 
+// ===== GMD mês a mês =====
+// O GMD de uma pesagem para a outra continua onde estava — é o que serve no
+// curral, com o animal na balança. Este aqui responde outra coisa: em que MÊS
+// o gado ganhou, para comparar a seca com as águas, um trato com outro.
+//
+// O intervalo entre duas pesagens quase nunca cabe num mês só: pesou em
+// janeiro e em abril, o ganho aconteceu ao longo de noventa dias. Jogá-lo
+// inteiro em abril diria que janeiro e fevereiro não renderam nada — e diria
+// que abril rendeu o triplo do que rendeu. Por isso o ganho é espalhado pelos
+// DIAS que ele durou, cada mês ficando com a parte dele.
+//
+// Anda de mês em mês, e não de dia em dia: um intervalo de dois anos são 24
+// voltas em vez de 730, e a varredura sorteia intervalos bem maiores que isso.
+function diasPorMes(ini, fim) {
+  const out = {};
+  let cur = new Date(ini + 'T12:00');
+  const f = new Date(fim + 'T12:00');
+  let voltas = 0;
+  while (cur < f && voltas++ < 1200) {
+    // O fim do mês que interessa é o do mês do DIA SEGUINTE a "cur". Olhando o
+    // mês do próprio "cur", quando ele já é o último dia do mês a conta devolve
+    // ele mesmo, o passo dá zero e o intervalo para no primeiro mês.
+    const prox = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1, 12);
+    const fimDoMes = new Date(prox.getFullYear(), prox.getMonth() + 1, 0, 12);
+    const ate = fimDoMes < f ? fimDoMes : f;
+    const dias = Math.round((ate - cur) / 86400000);
+    if (dias <= 0) break;
+    // Os dias contados vão do dia SEGUINTE a "cur" até "ate" — todos dentro do
+    // mês de "ate", que é por isso o mês que fica com eles.
+    const m = `${ate.getFullYear()}-${String(ate.getMonth() + 1).padStart(2, '0')}`;
+    out[m] = (out[m] || 0) + dias;
+    cur = ate;
+  }
+  return out;
+}
+const MES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const rotuloMesCurto = m => {
+  const [a, mm] = String(m).split('-');
+  return `${MES_CURTO[Number(mm) - 1] || mm}/${a.slice(2)}`;
+};
+function gmdPorMes(lista) {
+  const porMes = {};
+  let intervalos = 0, misturados = 0;
+  // Entram os animais TODOS, inclusive vendidos e mortos: o ganho daquele mês
+  // aconteceu, e tirá-lo agora mudaria o passado. Um mês fechado não pode
+  // mudar de valor porque um boi foi vendido depois.
+  (lista || animals).forEach(a => {
+    const ws = wOf(a.id);
+    for (let i = 1; i < ws.length; i++) {
+      const ant = ws[i - 1], atual = ws[i];
+      const dias = daysBetween(ant.date, atual.date);
+      if (!(dias > 0)) continue;
+      intervalos++;
+      // Jejum contra cheio distorce o ganho, e num número que existe para
+      // comparar meses a distorção passaria por diferença de pasto.
+      if (!mesmaCondicao(ant, atual)) { misturados++; continue; }
+      const ganho = atual.weight - ant.weight;
+      if (!Number.isFinite(ganho)) continue;
+      Object.entries(diasPorMes(ant.date, atual.date)).forEach(([m, d]) => {
+        const e = porMes[m] || (porMes[m] = { kg: 0, dias: 0, animais: new Set() });
+        e.kg += ganho * d / dias;
+        e.dias += d;
+        e.animais.add(a.id);
+      });
+    }
+  });
+  // O GMD do mês é o total de quilos dividido pelo total de dias-animal, e não
+  // a média dos GMDs de cada bicho: um animal pesado em dois dias do mês não
+  // pode pesar o mesmo que outro que ficou os trinta.
+  const meses = Object.entries(porMes)
+    .map(([mes, e]) => ({ mes, kg: e.kg, dias: e.dias, animais: e.animais.size,
+      gmd: e.dias > 0 ? e.kg / e.dias : null }))
+    .sort((a, b) => b.mes.localeCompare(a.mes));
+  return { meses, intervalos, misturados };
+}
+
 const movesOf = iid => moves.filter(m => m.itemId === iid).sort((a, b) => a.date < b.date ? 1 : -1);
 const qtyOf = iid => moves.filter(m => m.itemId === iid).reduce((s, m) => s + (m.type === 'entrada' ? m.qty : -m.qty), 0);
 function avgCostOf(iid) {
@@ -809,6 +885,31 @@ function renderRebanho() {
   const temEst = Number.isFinite(gmdSim) && pesosEst.length > 0;
   const totalEst = pesosEst.reduce((s, p) => s + p, 0);
   const diasDesde = lastDates.length ? Math.max(0, daysBetween(lastDates[lastDates.length - 1], hoje)) : 0;
+  // ---- GMD mês a mês ----
+  const gm = gmdPorMes();
+  const meses = gm.meses.slice(0, 12);
+  const caixa = $('bov-gmd-mes');
+  caixa.hidden = !meses.length;
+  if (meses.length) {
+    // A barra é proporcional ao maior do período: comparar meses é comparar
+    // entre si, e uma escala fixa esconderia a diferença quando todos forem
+    // baixos — que é justamente quando ela precisa aparecer.
+    const maior = Math.max(...meses.map(m => Math.abs(m.gmd)), 0.001);
+    $('bov-gmd-mes-lista').innerHTML = meses.map(m => {
+      const larg = Math.max(2, Math.round(Math.abs(m.gmd) / maior * 100));
+      return `<div class="gm-linha">
+        <span class="gm-mes">${esc(rotuloMesCurto(m.mes))}</span>
+        <span class="gm-barra"><i class="${m.gmd < 0 ? 'gm-neg' : gmdCls(m.gmd)}" style="width:${larg}%"></i></span>
+        <span class="gm-val ${m.gmd < 0 ? 'gm-neg-txt' : ''}">${fmtN(m.gmd, 3)}</span>
+        <span class="gm-n">${m.animais}</span>
+      </div>`;
+    }).join('');
+    $('bov-gmd-mes-nota').innerHTML = 'O ganho de cada intervalo é espalhado pelos dias que ele durou — '
+      + 'pesagem de janeiro a abril rende para os três meses, não só para abril. '
+      + 'O número da direita é quantos animais entraram no mês.'
+      + (gm.misturados ? ` <b>${gm.misturados} intervalo(s) comparando jejum com cheio ficaram de fora.</b>` : '');
+  }
+
   $('bov-stats-est').hidden = !temEst;
   $('bov-est-nota').textContent = !Number.isFinite(gmdSim)
     ? 'Informe o GMD que o lote vem fazendo para ver onde o rebanho estaria hoje.'
@@ -2105,8 +2206,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=62';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=62';
+const PDFJS_JS = 'vendor/pdf.min.js?v=63';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=63';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -3464,6 +3565,17 @@ function exportRelatorio() {
   põe('Resumo', 'Custos', fmtN(R.custos, 2), '');
   põe('Resumo', 'Saldo', fmtN(R.saldo, 2), R.saldo < 0 ? 'negativo' : '');
   põe('Resumo', 'A pagar em aberto', fmtN(R.aPagarTotal, 2), `${R.contas.length} conta(s)`);
+  // O desempenho mês a mês é o que o sócio e o banco perguntam depois do
+  // dinheiro: não adianta saber quanto entrou sem saber se o gado ganhou.
+  const gmes = gmdPorMes();
+  gmes.meses.slice(0, 24).forEach(m => {
+    põe('GMD mês a mês', rotuloMesCurto(m.mes), numCsv(m.gmd, 3),
+      `${m.animais} animal(is) · ${m.dias} dias-animal · ${numCsv(m.kg, 1)} kg`);
+  });
+  if (gmes.misturados) {
+    põe('GMD mês a mês', 'Intervalos fora da conta', String(gmes.misturados),
+      'comparavam jejum com cheio');
+  }
 
   // As duas visões saem juntas, sempre. Exportar só uma obrigaria quem lê a
   // adivinhar qual é — e as duas respondem perguntas diferentes sobre o mesmo

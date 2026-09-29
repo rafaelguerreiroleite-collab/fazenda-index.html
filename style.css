@@ -639,3 +639,23 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .cr-venda { margin-top: 0.5rem; font-size: 0.72rem; color: #d6e4da; line-height: 1.5; }
 .cr-venda .mg-ok { color: #86efac; }
 .cr-venda .mg-ruim { color: #fca5a5; }
+
+/* GMD mês a mês: uma linha por mês, barra proporcional ao maior do período.
+   Comparar meses é comparar entre si — escala fixa esconderia a diferença
+   justamente quando todos estão baixos. */
+.gmd-mes { background: #fff; border: 1px solid #e7e5e4; border-radius: 12px;
+  padding: 0.7rem 0.8rem; margin-bottom: 0.9rem; }
+.gm-titulo { font-size: 0.7rem; color: #57534e; margin-bottom: 0.5rem; }
+.gm-linha { display: grid; grid-template-columns: 3.1rem 1fr 3.2rem 1.6rem;
+  align-items: center; gap: 0.4rem; padding: 0.15rem 0; }
+.gm-mes { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: #57534e; }
+.gm-barra { background: #f5f5f4; border-radius: 4px; height: 0.7rem; overflow: hidden; }
+.gm-barra i { display: block; height: 100%; border-radius: 4px; background: #57534e; }
+.gm-barra i.gmd-low { background: #dc2626; }
+.gm-barra i.gmd-mid { background: #f59e0b; }
+.gm-barra i.gmd-good { background: #16a34a; }
+.gm-barra i.gmd-great { background: #15803d; }
+.gm-barra i.gm-neg { background: #991b1b; }
+.gm-val { font-family: 'DM Mono', monospace; font-size: 0.74rem; text-align: right; }
+.gm-val.gm-neg-txt { color: #b91c1c; }
+.gm-n { font-family: 'DM Mono', monospace; font-size: 0.62rem; color: #a8a29e; text-align: right; }

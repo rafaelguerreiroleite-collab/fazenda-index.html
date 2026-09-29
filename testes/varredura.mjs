@@ -645,6 +645,68 @@ export default async function () {
       regra('Fazenda: todo período nunca movimenta menos que um filtro estreito',
         largo.movimento >= R.movimento - 1e-6, `${largo.movimento} vs ${R.movimento}`);
 
+      // --- GMD mês a mês ---
+      // Repartir o ganho entre os meses é onde se perde ou se inventa quilo sem
+      // ninguém ver: o total tem de continuar sendo o mesmo depois de repartido.
+      const dA = dataAleatoria(), dB = dataAleatoria();
+      const ini = dA < dB ? dA : dB, fim = dA < dB ? dB : dA;
+      const repart = diasPorMes(ini, fim);
+      const somaDias = Object.values(repart).reduce((x, y) => x + y, 0);
+      regra('GMD mês: os dias repartidos somam exatamente o intervalo',
+        somaDias === Math.max(0, daysBetween(ini, fim)), `${ini}→${fim}: ${somaDias}`);
+      regra('GMD mês: nenhum mês fica com dia negativo ou quebrado',
+        Object.values(repart).every(d => Number.isInteger(d) && d > 0), JSON.stringify(repart));
+      regra('GMD mês: todo mês repartido está dentro do intervalo',
+        Object.keys(repart).every(m => m >= ini.slice(0, 7) && m <= fim.slice(0, 7)),
+        `${ini}→${fim}: ${Object.keys(repart).join(',')}`);
+      regra('GMD mês: intervalo invertido não reparte nada',
+        Object.keys(diasPorMes(fim, ini)).length === 0 || fim === ini, '');
+
+      const animaisG = [];
+      const pesagensG = [];
+      for (let k = 0; k < ent(1, 5); k++) {
+        const aid = `ga${i}_${k}`;
+        animaisG.push({ id: aid, ident: String(ent(1, 999)),
+          sold: rnd() < 0.2, soldDate: dataAleatoria() });
+        const datas = Array.from({ length: ent(0, 4) }, () => dataAleatoria()).sort();
+        datas.forEach((d, j) => pesagensG.push({ id: `gw${i}_${k}_${j}`, animalId: aid,
+          date: d, weight: dec(150, 700, 1), jejum: rnd() < 0.15 }));
+      }
+      animals = animaisG; weighings = pesagensG;
+      const gm = gmdPorMes();
+      // O quilo que entrou na conta tem de ser o mesmo que saiu dos intervalos,
+      // nem um grama a mais. Repartir não pode criar nem sumir com ganho.
+      let kgEsperado = 0, diasEsperado = 0;
+      animaisG.forEach(a => {
+        const ws = wOf(a.id);
+        for (let j = 1; j < ws.length; j++) {
+          const d = daysBetween(ws[j - 1].date, ws[j].date);
+          if (!(d > 0) || !mesmaCondicao(ws[j - 1], ws[j])) continue;
+          kgEsperado += ws[j].weight - ws[j - 1].weight;
+          diasEsperado += d;
+        }
+      });
+      const kgNaConta = gm.meses.reduce((x, m) => x + m.kg, 0);
+      const diasNaConta = gm.meses.reduce((x, m) => x + m.dias, 0);
+      regra('GMD mês: o quilo repartido é o mesmo quilo dos intervalos',
+        Math.abs(kgNaConta - kgEsperado) < 1e-6, `${kgNaConta} vs ${kgEsperado}`);
+      regra('GMD mês: os dias repartidos são os mesmos dias dos intervalos',
+        diasNaConta === diasEsperado, `${diasNaConta} vs ${diasEsperado}`);
+      regra('GMD mês: o GMD de cada mês é o quilo dele sobre o dia dele',
+        gm.meses.every(m => Math.abs(m.gmd - m.kg / m.dias) < 1e-9), '');
+      regra('GMD mês: nenhum mês sem dia, nenhum número quebrado',
+        gm.meses.every(m => m.dias > 0 && Number.isFinite(m.gmd)
+          && Number.isFinite(m.kg) && m.animais > 0), '');
+      regra('GMD mês: os meses saem do mais novo para o mais velho',
+        gm.meses.every((m, k) => k === 0 || gm.meses[k - 1].mes > m.mes),
+        gm.meses.map(m => m.mes).join(','));
+      regra('GMD mês: quem entrou mais quem ficou de fora são os intervalos',
+        gm.misturados <= gm.intervalos, `${gm.misturados} de ${gm.intervalos}`);
+      // Animal vendido não pode sumir de um mês já fechado.
+      const semVenda = gmdPorMes(animaisG.map(a => Object.assign({}, a, { sold: false })));
+      regra('GMD mês: vender o animal depois não muda o mês que já passou',
+        Math.abs(semVenda.meses.reduce((x, m) => x + m.kg, 0) - kgNaConta) < 1e-6, '');
+
       // --- preço da arroba na venda ---
       // A armadilha é a média: média de razões não é razão de médias, e com
       // animais de pesos diferentes a segunda dá um número que nunca existiu.
