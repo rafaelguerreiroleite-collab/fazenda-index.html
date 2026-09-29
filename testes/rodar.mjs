@@ -14,8 +14,9 @@ import auditoria from './auditoria.mjs';
 import periodo from './periodo.mjs';
 import calendario from './calendario.mjs';
 import busca from './busca.mjs';
+import arroba from './arroba.mjs';
 
-const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Auditoria', auditoria], ['Período', periodo], ['Calendário', calendario], ['Busca', busca], ['Varredura', varredura]];
+const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Auditoria', auditoria], ['Período', periodo], ['Calendário', calendario], ['Busca', busca], ['Arroba na venda', arroba], ['Varredura', varredura]];
 let total = 0;
 
 for (const [nome, rodar] of baterias) {

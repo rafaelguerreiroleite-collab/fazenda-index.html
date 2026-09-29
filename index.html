@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=61" />
+<link rel="stylesheet" href="style.css?v=62" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -116,7 +116,8 @@
   </div>
 
   <div class="subview" id="bov-vendidas">
-    <div class="stats-row two" id="vendidas-stats"></div>
+    <div class="stats-row" id="vendidas-stats"></div>
+    <p class="est-nota mono" id="vendidas-nota" hidden></p>
     <div class="list" id="vendidas-list"></div>
     <div class="empty" id="vendidas-empty" hidden>
       <p class="eyebrow mono">Nenhum animal vendido ainda</p>
@@ -164,6 +165,7 @@
       <div class="cr-label mono">Custo da arroba produzida</div>
       <div class="cr-value" id="cst-arroba">—</div>
       <div class="cr-hint mono" id="cst-hint">Preencha o GMD e ao menos um custo</div>
+      <div class="cr-venda mono" id="cst-venda" hidden></div>
     </div>
     <div class="stats-row two" id="cst-stats"></div>
     <div class="category-breakdown" id="cst-breakdown"></div>
@@ -804,6 +806,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=61"></script>
+<script src="app.js?v=62"></script>
 </body>
 </html>

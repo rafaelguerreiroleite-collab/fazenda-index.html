@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 61;
+const VERSAO = 62;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -912,12 +912,62 @@ function renderMortes() {
   $('mortes-empty').hidden = mortos.length > 0;
 }
 
+// ===== Preço da arroba na venda =====
+// O custo da arroba já era calculado; o preço RECEBIDO por ela não existia em
+// lugar nenhum. Sem os dois lados, "a arroba me custa R$ 280" é meia conta —
+// a que decide é a diferença, e ela ficava na cabeça.
+//
+// O rendimento usado é o DA VENDA, que pode ser diferente do da compra nos
+// parâmetros de custo: é carcaça vendida que se está medindo.
+const rendDaVenda = () => rendimentosDe(custoParams, settings.yield).rendVenda;
+const vendidoDeVerdade = a => a.sold && !a.dead;
+// Só entra na conta a venda que tem PESO e PREÇO. Sem o peso não há arroba;
+// sem o preço não há valor. Quantas ficaram de fora é dito na tela, senão a
+// média pareceria valer para todas.
+const temPrecoEPeso = a => Number.isFinite(a.soldPrice) && a.soldPrice > 0
+  && Number.isFinite(a.soldWeight) && a.soldWeight > 0;
+function arrobaDoAnimal(a, rend) {
+  if (!temPrecoEPeso(a)) return null;
+  const arr = arrobasDe(a.soldWeight, rend == null ? rendDaVenda() : rend);
+  return arr > 0 ? a.soldPrice / arr : null;
+}
+function precoArrobaVenda(lista) {
+  const rend = rendDaVenda();
+  const vendidos = (lista || animals).filter(vendidoDeVerdade);
+  const naConta = vendidos.filter(temPrecoEPeso);
+  // A média é o TOTAL recebido dividido pelo TOTAL de arrobas, e não a média
+  // dos preços de cada animal. Média de razões não é razão de médias: com um
+  // boi de 20@ vendido a R$ 300 e um de 10@ a R$ 360, a média simples daria
+  // R$ 330 e o que entrou no bolso foi R$ 320 por arroba. O número errado é o
+  // que parece mais justo, e é por isso que engana.
+  const arrobas = naConta.reduce((s, a) => s + arrobasDe(a.soldWeight, rend), 0);
+  const total = naConta.reduce((s, a) => s + a.soldPrice, 0);
+  return {
+    rend, n: naConta.length, foraDaConta: vendidos.length - naConta.length,
+    arrobas, total, porArroba: arrobas > 0 ? total / arrobas : null
+  };
+}
 function renderVendidas() {
   const sold = animals.filter(a => a.sold && !a.dead).sort((a, b) => (b.soldDate || '').localeCompare(a.soldDate || ''));
   const totalRevenue = sold.reduce((s, a) => s + (Number.isFinite(a.soldPrice) ? a.soldPrice : 0), 0);
+  const pa = precoArrobaVenda();
   $('vendidas-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${sold.length}</div><div class="stat-label">Vendidos</div></div>
-    <div class="stat-card"><div class="stat-value">${fmtRS(totalRevenue)}</div><div class="stat-label">Total recebido</div></div>`;
+    <div class="stat-card"><div class="stat-value">${fmtRS(totalRevenue)}</div><div class="stat-label">Total recebido</div></div>
+    <div class="stat-card"><div class="stat-value">${pa.porArroba != null ? fmtRS(pa.porArroba) : '—'}</div><div class="stat-label">Por arroba</div></div>
+    <div class="stat-card"><div class="stat-value">${pa.arrobas > 0 ? fmtN(pa.arrobas, 1) + ' @' : '—'}</div><div class="stat-label">Arrobas vendidas</div></div>`;
+  // O que ficou de fora da conta tem de estar escrito: uma média calculada
+  // sobre metade das vendas, anunciada como se fosse de todas, é um número
+  // errado com cara de certo.
+  const nota = $('vendidas-nota');
+  if (nota) {
+    const faltam = pa.foraDaConta;
+    nota.hidden = !sold.length;
+    nota.innerHTML = !sold.length ? '' : pa.porArroba == null
+      ? 'Preencha peso e preço de venda no animal para calcular o preço por arroba.'
+      : `Rendimento de carcaça ${fmtN(pa.rend, 1)}% · ${pa.n} venda(s) na conta`
+        + (faltam ? ` · <b>${faltam} sem peso ou preço ficaram de fora</b>` : '');
+  }
   $('vendidas-list').innerHTML = sold.map(a => {
     const ws = wOf(a.id);
     const w = Number.isFinite(a.soldWeight) ? a.soldWeight : (ws.length ? ws[ws.length - 1].weight : null);
@@ -928,7 +978,8 @@ function renderVendidas() {
       </div>
       <div class="item-side">
         <div class="value">${w != null ? fmtN(w, 0) + ' kg' : '—'}</div>
-        <div class="aux">${Number.isFinite(a.soldPrice) ? fmtRS(a.soldPrice) : ''}</div>
+        <div class="aux">${Number.isFinite(a.soldPrice) ? fmtRS(a.soldPrice) : ''}${
+          arrobaDoAnimal(a) != null ? ' · ' + fmtRS(arrobaDoAnimal(a)) + '/@' : ''}</div>
       </div>
     </div>`;
   }).join('');
@@ -1073,6 +1124,24 @@ function renderCustos() {
       : c.arrobaDia <= 0 ? 'O rendimento da compra está alto demais em relação ao da venda'
       : 'Informe ao menos um custo');
 
+  // O custo da arroba sozinho é meia conta. Ao lado dele, o que ela REALMENTE
+  // rendeu nas vendas já feitas — e a diferença, que é a pergunta que decide
+  // se o negócio está de pé. Só aparece quando existe venda com peso e preço:
+  // inventar uma margem a partir de dado faltando seria pior que não mostrar.
+  const pav = precoArrobaVenda();
+  const elV = $('cst-venda');
+  if (!pav.porArroba) {
+    elV.hidden = true;
+    elV.innerHTML = '';
+  } else {
+    elV.hidden = false;
+    const margem = c.custoArroba != null ? pav.porArroba - c.custoArroba : null;
+    elV.innerHTML = `Vendida a <b>${fmtRS(pav.porArroba)}</b> por @ · ${pav.n} venda(s)`
+      + (margem == null ? ' · informe o GMD e os custos para ver a margem'
+        : ` · <b class="${margem >= 0 ? 'mg-ok' : 'mg-ruim'}">${margem >= 0 ? 'sobra' : 'falta'} `
+          + `${fmtRS(Math.abs(margem))} por @</b>`);
+  }
+
   $('cst-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${c.pesoMedio != null ? fmtN(c.pesoMedio, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
     <div class="stat-card"><div class="stat-value">${c.salKgDia != null ? fmtN(c.salKgDia, 3) + ' kg' : '—'}</div><div class="stat-label">Sal por dia</div></div>
@@ -1153,6 +1222,10 @@ function renderAnimalDetail() {
       </div>
       <div class="meta">${esc(a.cat || 'Sem categoria')}${a.entryDate ? ' · entrada ' + fmtBR(a.entryDate) : ''} · ${ws.length} pesagens${arro != null ? ' · ~' + fmtN(arro, 1) + ' @ (rend. ' + settings.yield + '%)' : ''}</div>
       ${a.manejoData ? `<div class="meta">Manejo sanitário: ${fmtBR(a.manejoData)}${a.manejoMedicamento ? ' — ' + esc(a.manejoMedicamento) : ''}</div>` : ''}
+      ${vendidoDeVerdade(a) ? `<div class="meta">Vendido${a.soldDate ? ' em ' + fmtBR(a.soldDate) : ''}${
+        Number.isFinite(a.soldWeight) ? ' · ' + fmtN(a.soldWeight, 0) + ' kg' : ''}${
+        Number.isFinite(a.soldPrice) ? ' · ' + fmtRS(a.soldPrice) : ''}${
+        arrobaDoAnimal(a) != null ? ' · <b>' + fmtRS(arrobaDoAnimal(a)) + ' por @</b>' : ''}</div>` : ''}
       <div class="metrics">
         <div class="metric"><div class="lbl">Peso atual</div><div class="val">${last ? fmtN(last.weight, 0) + ' kg' : '—'}</div></div>
         <div class="metric"><div class="lbl">GMD total</div><div class="val ${gmdCls(gT)}">${Number.isFinite(gT) ? fmtN(gT, 3) : '—'}</div></div>
@@ -2032,8 +2105,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=61';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=61';
+const PDFJS_JS = 'vendor/pdf.min.js?v=62';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=62';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -3273,7 +3346,7 @@ $('menu-exp-pes').addEventListener('click', () => {
   // partir das pesagens: o arquivo mostrava um rebanho menor do que o real.
   const rows = ['identificacao;categoria;data;peso_kg;arrobas;gmd_kg_dia;dias_desde_anterior;'
     + 'jejum;situacao;data_entrada;peso_entrada;manejo_data;manejo_medicamento;'
-    + 'data_saida;peso_venda;preco_venda;causa_morte;observacoes;obs_animal'];
+    + 'data_saida;peso_venda;preco_venda;preco_arroba_venda;causa_morte;observacoes;obs_animal'];
   const situacaoDe = a => !a ? 'desconhecido' : a.dead ? 'morto' : a.sold ? 'vendido' : 'rebanho';
   const saidaDe = a => !a ? '' : a.dead ? (a.deadDate || '') : a.sold ? (a.soldDate || '') : '';
   const linha = (a, w, gmd, dias) => [
@@ -3295,6 +3368,9 @@ $('menu-exp-pes').addEventListener('click', () => {
     saidaDe(a) ? fmtBRfull(saidaDe(a)) : '',
     a && Number.isFinite(a.soldWeight) ? numCsv(a.soldWeight) : '',
     a && Number.isFinite(a.soldPrice) ? fmtN(a.soldPrice, 2) : '',
+    // O preço por arroba já sai calculado: é a conta que o contador e o sócio
+    // refariam na planilha, e refazer conta à mão é onde entra o erro.
+    a && arrobaDoAnimal(a) != null ? fmtN(arrobaDoAnimal(a), 2) : '',
     csv(a && a.deadCause ? a.deadCause : ''),
     csv(w ? w.notes : ''),
     // A observação do cadastro é outra coisa que a da pesagem, e some se as

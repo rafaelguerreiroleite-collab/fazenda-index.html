@@ -633,3 +633,9 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .busca-x { position: absolute; right: 0.15rem; top: 50%; transform: translateY(-50%);
   background: none; border: 0; font-size: 1.5rem; line-height: 1; color: #78716c;
   padding: 0 0.5rem; cursor: pointer; }
+
+/* O que a arroba rendeu, ao lado do que ela custa: a diferença é a conta que
+   decide, e ela precisa de cor para ser lida de relance. */
+.cr-venda { margin-top: 0.5rem; font-size: 0.72rem; color: #d6e4da; line-height: 1.5; }
+.cr-venda .mg-ok { color: #86efac; }
+.cr-venda .mg-ruim { color: #fca5a5; }

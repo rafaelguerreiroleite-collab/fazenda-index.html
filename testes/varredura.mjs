@@ -645,6 +645,57 @@ export default async function () {
       regra('Fazenda: todo período nunca movimenta menos que um filtro estreito',
         largo.movimento >= R.movimento - 1e-6, `${largo.movimento} vs ${R.movimento}`);
 
+      // --- preço da arroba na venda ---
+      // A armadilha é a média: média de razões não é razão de médias, e com
+      // animais de pesos diferentes a segunda dá um número que nunca existiu.
+      const rendV = ent(40, 65);
+      settings.yield = rendV;
+      custoParams = Object.assign({}, CUSTO_VAZIO, { rend: rendV, rendVenda: rendV });
+      const vendidosSorteio = [];
+      for (let k = 0; k < ent(0, 6); k++) {
+        const a = { id: `sv${i}_${k}`, ident: String(ent(1, 999)), sold: true,
+          soldDate: dataAleatoria() };
+        if (rnd() < 0.8) a.soldWeight = dec(200, 700, 1);
+        if (rnd() < 0.8) a.soldPrice = dec(500, 20000, 2);
+        if (rnd() < 0.1) { a.dead = true; a.deadDate = dataAleatoria(); }
+        vendidosSorteio.push(a);
+      }
+      animals = vendidosSorteio;
+      const pv = precoArrobaVenda();
+      const naConta = vendidosSorteio.filter(a => a.sold && !a.dead
+        && Number.isFinite(a.soldPrice) && a.soldPrice > 0
+        && Number.isFinite(a.soldWeight) && a.soldWeight > 0);
+      regra('arroba na venda: só entra quem tem peso E preço',
+        pv.n === naConta.length, `${pv.n} vs ${naConta.length}`);
+      regra('arroba na venda: animal morto nunca conta como vendido',
+        !vendidosSorteio.some(a => a.dead && naConta.includes(a)), '');
+      regra('arroba na venda: quem entrou mais quem ficou de fora são os vendidos',
+        pv.n + pv.foraDaConta === vendidosSorteio.filter(a => a.sold && !a.dead).length,
+        `${pv.n} + ${pv.foraDaConta}`);
+      // A identidade que fecha: preço médio × arrobas = dinheiro recebido.
+      regra('arroba na venda: preço por arroba vezes arrobas devolve o total',
+        pv.porArroba == null || Math.abs(pv.porArroba * pv.arrobas - pv.total) < 1e-6,
+        `${pv.porArroba} × ${pv.arrobas} vs ${pv.total}`);
+      regra('arroba na venda: o total é a soma dos preços de quem entrou',
+        Math.abs(pv.total - naConta.reduce((s2, a) => s2 + a.soldPrice, 0)) < 1e-6, '');
+      regra('arroba na venda: as arrobas são a soma das arrobas de quem entrou',
+        Math.abs(pv.arrobas - naConta.reduce((s2, a) => s2 + arrobasDe(a.soldWeight, rendV), 0)) < 1e-6, '');
+      // O preço médio tem de ficar ENTRE o menor e o maior preço individual:
+      // fora desse intervalo, a média está errada por construção.
+      const individuais = naConta.map(a => arrobaDoAnimal(a, rendV)).filter(Number.isFinite);
+      regra('arroba na venda: a média fica entre o menor e o maior preço',
+        pv.porArroba == null || !individuais.length
+          || (pv.porArroba >= Math.min(...individuais) - 1e-6
+            && pv.porArroba <= Math.max(...individuais) + 1e-6),
+        `${pv.porArroba} fora de [${Math.min(...individuais)}, ${Math.max(...individuais)}]`);
+      regra('arroba na venda: nada de NaN nem negativo',
+        (pv.porArroba == null || (Number.isFinite(pv.porArroba) && pv.porArroba > 0))
+          && Number.isFinite(pv.arrobas) && Number.isFinite(pv.total)
+          && pv.arrobas >= 0 && pv.total >= 0,
+        JSON.stringify({ p: pv.porArroba, a: pv.arrobas, t: pv.total }));
+      regra('arroba na venda: sem venda que sirva, não inventa preço',
+        naConta.length > 0 || pv.porArroba === null, String(pv.porArroba));
+
       // --- custo da arroba e simulação ---
       custoParams = Object.assign({}, CUSTO_VAZIO, {
         gmd: dec(0.1, 2, 3), salPct: dec(0, 1, 2), salPreco: dec(0.5, 20, 2),
