@@ -17,8 +17,9 @@ import busca from './busca.mjs';
 import arroba from './arroba.mjs';
 import gmdmes from './gmdmes.mjs';
 import layout from './layout.mjs';
+import legibilidade from './legibilidade.mjs';
 
-const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Auditoria', auditoria], ['Período', periodo], ['Calendário', calendario], ['Busca', busca], ['Arroba na venda', arroba], ['GMD mês a mês', gmdmes], ['Layout', layout], ['Varredura', varredura]];
+const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Auditoria', auditoria], ['Período', periodo], ['Calendário', calendario], ['Busca', busca], ['Arroba na venda', arroba], ['GMD mês a mês', gmdmes], ['Layout', layout], ['Legibilidade', legibilidade], ['Varredura', varredura]];
 let total = 0;
 
 for (const [nome, rodar] of baterias) {

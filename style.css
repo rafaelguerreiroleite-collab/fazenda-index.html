@@ -25,9 +25,14 @@ button { cursor: pointer; font-family: inherit; }
 .brand-logo { height: 2.6rem; width: auto; flex-shrink: 0; }
 .brand-text { min-width: 0; }
 .brand-mark { background: #225437; color: #fafaf9; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.85rem; }
-.brand-tagline { margin: 0.1rem 0 0; font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.16em; color: #6f8f7c; }
+.brand-tagline { margin: 0.1rem 0 0; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.16em; color: #4f7460; }
 .app-header h1 { margin: 0; font-size: 1.4rem; font-weight: 800; line-height: 1; }
-.icon-btn { background: transparent; border: none; font-size: 1.5rem; color: #225437; padding: 0.25rem 0.5rem; line-height: 1; }
+/* 44px de altura mesmo com o desenho pequeno: o dedo acerta a área, não o
+   glifo. O que cresce é a zona de toque, não o tamanho aparente do botão. */
+.icon-btn { background: transparent; border: none; font-size: 1.5rem; color: #225437;
+  padding: 0.25rem 0.5rem; line-height: 1;
+  min-height: 44px; min-width: 44px; display: inline-flex;
+  align-items: center; justify-content: center; }
 
 /* TABS */
 .tabs {
@@ -47,10 +52,13 @@ button { cursor: pointer; font-family: inherit; }
 .seg-row { display: flex; gap: 0.4rem; margin-bottom: 1rem; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 .seg-row::-webkit-scrollbar { display: none; }
 .seg {
-  flex: 1 0 auto; padding: 0.5rem 0.7rem;
+  flex: 1 0 auto; padding: 0.5rem 0.85rem;
   border: 1px solid #d6d3d1; background: white; border-radius: 999px;
   font-family: 'DM Mono', monospace; font-size: 0.72rem;
   text-transform: uppercase; letter-spacing: 0.05em; color: #57534e;
+  /* Trocar de tela é o gesto mais repetido do dia, muitas vezes de pé no
+     curral: 40px de altura em vez de 32 para o dedo não escorregar. */
+  min-height: 40px; display: inline-flex; align-items: center; justify-content: center;
 }
 .seg.active { background: #225437; color: #fafaf9; border-color: #225437; }
 
@@ -66,7 +74,7 @@ main { padding: 1rem 1.25rem 0; max-width: 30rem; margin: 0 auto; }
 .stat-card .stat-value { font-size: 1.2rem; font-weight: 800; line-height: 1; }
 /* Vermelho claro: o vermelho escuro do GMD fica ilegível sobre o cartão verde */
 .stat-card .stat-value.neg { color: #fca5a5; }
-.stat-card .stat-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: #9dbcaa; margin-top: 0.3rem; font-family: 'DM Mono', monospace; }
+.stat-card .stat-label { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.08em; color: #cce2d5; margin-top: 0.3rem; font-family: 'DM Mono', monospace; }
 /* Cartão de estimativa: mesmo formato, borda tracejada e fundo mais claro.
    Não é peso medido — é projeção de um GMD informado à mão, e confundir os
    dois num cartão igual seria pior do que não mostrar. */
@@ -74,7 +82,7 @@ main { padding: 1rem 1.25rem 0; max-width: 30rem; margin: 0 auto; }
 .est-geral { margin-bottom: 0.75rem; }
 .est-geral label { display: block; font-size: 0.66rem; text-transform: uppercase;
   letter-spacing: 0.06em; color: #78716c; margin-bottom: 0.3rem; }
-.est-geral input { width: 100%; padding: 0.55rem; border: 1px solid #d6d3d1; border-radius: 3px;
+.est-geral input { width: 100%; min-height: 44px; padding: 0.55rem; border: 1px solid #d6d3d1; border-radius: 3px;
   background: white; font-family: 'DM Mono', monospace; font-size: 0.9rem; color: #225437; }
 .est-nota { font-size: 0.64rem; color: #78716c; margin: 0.35rem 0 0; }
 
@@ -132,7 +140,7 @@ main { padding: 1rem 1.25rem 0; max-width: 30rem; margin: 0 auto; }
 /* CHART */
 .chart-wrap { background: white; border: 1px solid #e7e5e4; padding: 0.75rem; border-radius: 3px; margin-bottom: 1rem; }
 .chart-wrap svg { width: 100%; height: 180px; display: block; }
-.chart-empty { text-align: center; color: #9dbcaa; padding: 1.5rem 1rem; font-family: 'DM Mono', monospace; font-size: 0.8rem; }
+.chart-empty { text-align: center; color: #57534e; padding: 1.5rem 1rem; font-family: 'DM Mono', monospace; font-size: 0.8rem; }
 
 /* TABLE */
 .weighings-table { background: white; border: 1px solid #e7e5e4; border-radius: 3px; overflow: hidden; margin-bottom: 1rem; }
@@ -163,17 +171,17 @@ main { padding: 1rem 1.25rem 0; max-width: 30rem; margin: 0 auto; }
    menos do que gastou. */
 .fz-regime-nota { font-size: 0.68rem; color: #57534e; margin: -0.6rem 0 0.9rem; line-height: 1.4; }
 .fz-regime-nota b { color: #92400e; }
-.filter-row select { padding: 0.55rem; border: 1px solid #d6d3d1; border-radius: 3px; background: white; font-family: 'DM Mono', monospace; font-size: 0.85rem; color: #225437; }
+.filter-row select { min-height: 44px; padding: 0.55rem; border: 1px solid #d6d3d1; border-radius: 3px; background: white; font-family: 'DM Mono', monospace; font-size: 0.85rem; color: #225437; }
 
 /* BALANCE */
 .balance-card { background: #225437; color: #fafaf9; padding: 1.25rem; border-radius: 3px; margin-bottom: 1rem; }
-.bc-label { font-family: 'DM Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.2em; color: #9dbcaa; }
+.bc-label { font-family: 'DM Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.2em; color: #cce2d5; }
 .bc-value { font-size: 2rem; font-weight: 800; margin-top: 0.25rem; line-height: 1; }
 .bc-value.negative { color: #fca5a5; }
 .bc-value.positive { color: #a7f3d0; }
 .bc-split { display: flex; justify-content: space-between; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #44403c; }
 .bc-split div:last-child { text-align: right; }
-.bc-split .lbl { font-family: 'DM Mono', monospace; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: #9dbcaa; }
+.bc-split .lbl { font-family: 'DM Mono', monospace; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: #cce2d5; }
 .bc-split .val { font-size: 1rem; font-weight: 600; margin-top: 0.15rem; }
 .bc-split .val.in { color: #a7f3d0; }
 .bc-split .val.out { color: #fca5a5; }
@@ -209,7 +217,9 @@ main { padding: 1rem 1.25rem 0; max-width: 30rem; margin: 0 auto; }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid #e7e5e4; position: sticky; top: 0; background: #fafaf9; z-index: 1; }
 .modal-header h2 { margin: 0; font-size: 1.2rem; font-weight: 700; }
-.close-btn { background: transparent; border: none; font-size: 1.75rem; line-height: 1; color: #57534e; padding: 0 0.25rem; }
+.close-btn { background: transparent; border: none; font-size: 1.75rem; line-height: 1; color: #57534e;
+  padding: 0 0.5rem; min-height: 44px; min-width: 44px;
+  display: inline-flex; align-items: center; justify-content: center; }
 .modal-content form, .import-body, .menu-list { padding: 1rem 1.25rem 1.5rem; }
 .modal-content label { display: block; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: #57534e; margin: 0.75rem 0 0.3rem; font-family: 'DM Mono', monospace; }
 .modal-content label:first-of-type { margin-top: 0; }
@@ -268,9 +278,9 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 
 /* CALCULADORA DE CUSTO DA ARROBA */
 .calc-result { background: #225437; color: #fafaf9; padding: 1.25rem; border-radius: 3px; margin-bottom: 1rem; text-align: center; }
-.cr-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.18em; color: #9dbcaa; }
+.cr-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.18em; color: #cce2d5; }
 .cr-value { font-size: 2.4rem; font-weight: 800; line-height: 1.05; margin-top: 0.35rem; }
-.cr-hint { font-size: 0.64rem; color: #9dbcaa; margin-top: 0.4rem; }
+.cr-hint { font-size: 0.68rem; color: #cce2d5; margin-top: 0.4rem; }
 .cr-value.positive { color: #a7f3d0; }
 .cr-value.negative { color: #fca5a5; }
 .calc-form { background: white; border: 1px solid #e7e5e4; border-radius: 3px; padding: 0.875rem 1rem 1rem; margin-bottom: 1rem; }
@@ -299,7 +309,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .wm-session > div { flex: 1; }
 .wm-jejum-lbl { display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; padding-bottom: 0.7rem; }
 .wm-jejum-lbl input { width: 1.2rem; height: 1.2rem; accent-color: #fafaf9; }
-.weigh-overlay label.mono { display: block; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #9dbcaa; margin: 0.9rem 0 0.3rem; }
+.weigh-overlay label.mono { display: block; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: #cce2d5; margin: 0.9rem 0 0.3rem; }
 .weigh-overlay input[type="text"], .weigh-overlay input[type="number"], .weigh-overlay input[type="date"] {
   width: 100%; padding: 0.85rem; border: 2px solid #44403c; border-radius: 3px;
   background: #292524; color: #fafaf9; font-family: 'Fraunces', serif;
@@ -343,7 +353,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
   padding: 0.65rem 0.85rem; background: rgba(255,255,255,0.1);
   border-bottom: 1px solid rgba(255,255,255,0.18);
 }
-.ws-media .rot { font-family: 'DM Mono', monospace; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; color: #9dbcaa; }
+.ws-media .rot { font-family: 'DM Mono', monospace; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; color: #cce2d5; }
 .ws-media .val { font-family: 'Fraunces', serif; font-weight: 800; font-size: 1.15rem; color: #cfe3d6; }
 .ws-linha {
   display: grid; grid-template-columns: 1fr auto auto; gap: 0.75rem; align-items: baseline;
@@ -356,7 +366,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .g-baixo { color: #fca5a5; } .g-medio { color: #fcd34d; }
 .g-bom { color: #a7f3d0; }   .g-otimo { color: #6ee7b7; }
 /* Sem GMD não é erro: é animal sem pesagem anterior. Fica discreto, e escrito. */
-.g-sem { color: #9dbcaa; font-size: 0.68rem; }
+.g-sem { color: #cce2d5; font-size: 0.68rem; }
 
 /* Prévia mostrada com o animal ainda na balança, antes de salvar */
 .wm-previa {
@@ -370,7 +380,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .wp-gmd.g-baixo { color: #fca5a5; } .wp-gmd.g-medio { color: #fcd34d; }
 .wp-gmd.g-bom { color: #a7f3d0; }   .wp-gmd.g-otimo { color: #6ee7b7; }
 .wp-lado { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: #cfe3d6; text-align: right; line-height: 1.5; }
-.wp-nota { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: #9dbcaa; margin: 0.5rem 0 0; }
+.wp-nota { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: #cce2d5; margin: 0.5rem 0 0; }
 .wp-alerta { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: #fcd34d; margin: 0.35rem 0 0; }
 
 
@@ -387,7 +397,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 }
 .install-banner[hidden] { display: none; }
 .install-banner button { background: #fafaf9; color: #225437; border: none; padding: 0.4rem 0.75rem; border-radius: 2px; font-weight: 600; font-family: 'Fraunces', serif; font-size: 0.85rem; }
-.install-banner .close { background: transparent; color: #9dbcaa; padding: 0.15rem 0.4rem; font-size: 1.15rem; }
+.install-banner .close { background: transparent; color: #cce2d5; padding: 0.15rem 0.4rem; font-size: 1.15rem; }
 .toast {
   position: fixed; bottom: calc(85px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
   background: #225437; color: #fafaf9; padding: 0.75rem 1.25rem; border-radius: 3px;
@@ -508,7 +518,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 /* ===== Contas a pagar e lembrete de vencimento ===== */
 #bfin-apagar, #av-apagar { margin-bottom: 1rem; }
 .ap-cabeca { display: flex; justify-content: space-between; align-items: baseline; padding: 0.6rem 0.75rem; background: #225437; color: #fafaf9; border-radius: 3px 3px 0 0; }
-.ap-titulo { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: #9dbcaa; }
+.ap-titulo { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: #cce2d5; }
 .ap-total { font-weight: 800; font-size: 1.1rem; }
 .ap-vencidas { background: #fee2e2; color: #991b1b; font-size: 0.7rem; padding: 0.4rem 0.75rem; border-left: 1px solid #e7e5e4; border-right: 1px solid #e7e5e4; }
 .ap-linha { display: grid; grid-template-columns: 1fr auto auto; gap: 0.5rem; align-items: center; padding: 0.55rem 0.75rem; background: white; border: 1px solid #e7e5e4; border-top: none; }
@@ -521,7 +531,12 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .ap-linha.venceu { border-left: 3px solid #991b1b; }
 .ap-linha.hoje, .ap-linha.perto { border-left: 3px solid #b45309; }
 .ap-valor { font-weight: 700; font-size: 0.9rem; white-space: nowrap; }
-.ap-pagar { background: #225437; color: #fafaf9; border: none; border-radius: 3px; padding: 0.35rem 0.6rem; font-family: 'DM Mono', monospace; font-size: 0.68rem; }
+/* Botão de dar baixa: é o toque que mexe em dinheiro e o mais errado de errar.
+   44×44 no mínimo, mesmo que a palavra dentro dele seja curta. */
+.ap-pagar { background: #225437; color: #fafaf9; border: none; border-radius: 3px;
+  padding: 0.35rem 0.9rem; font-family: 'DM Mono', monospace; font-size: 0.72rem;
+  min-height: 44px; min-width: 64px; display: inline-flex;
+  align-items: center; justify-content: center; }
 .ap-pagar:active { opacity: 0.85; }
 
 .lembrete { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 1.25rem; background: #fef3c7; border-bottom: 1px solid #fcd34d; }
@@ -591,7 +606,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .ax-lupa-btn:active { background: #e7e5e4; }
 .ax-cabe { font-size: 0.72rem; min-width: 0; }
 .ax-nivel { min-width: 3.2rem; text-align: center; font-size: 0.78rem; color: #57534e; }
-.ax-dica { font-size: 0.66rem; color: #a8a29e; margin-top: 0.35rem; }
+.ax-dica { font-size: 0.66rem; color: #78716c; margin-top: 0.35rem; }
 .ax-baixar { display: inline-block; text-decoration: none; text-align: center; }
 
 /* Aviso de versão nova: o app avisa sozinho, em vez de exigir fechar e abrir */
@@ -601,7 +616,9 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .at-texto { flex: 1; font-size: 0.85rem; }
 .at-btn { background: #fafaf9; color: #225437; border: none; border-radius: 3px;
   padding: 0.4rem 0.85rem; font-family: 'DM Mono', monospace; font-size: 0.72rem; font-weight: 500; flex-shrink: 0; }
-.at-depois { background: transparent; border: none; color: #9dbcaa; font-size: 1.3rem; padding: 0 0.25rem; line-height: 1; flex-shrink: 0; }
+.at-depois { background: transparent; border: none; color: #cce2d5; font-size: 1.3rem;
+  padding: 0 0.5rem; line-height: 1; flex-shrink: 0; min-height: 44px; min-width: 44px;
+  display: inline-flex; align-items: center; justify-content: center; }
 
 /* Instrução da agenda no calendário: é passo a passo, e passo a passo se lê
    melhor numerado e com respiro do que num parágrafo corrido. */
@@ -619,7 +636,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .ag-texto summary { cursor: pointer; color: #57534e; }
 .ag-texto textarea { width: 100%; font-size: 0.7rem; font-family: inherit; margin-top: 0.5rem; }
 .link-btn { background: none; border: 0; padding: 0; color: #225437; text-decoration: underline; font: inherit; cursor: pointer; }
-.mf-versao { display: block; margin-top: 0.35rem; font-size: 0.62rem; color: #a8a29e; }
+.mf-versao { display: block; margin-top: 0.35rem; font-size: 0.62rem; color: #78716c; }
 .ag-diag-caixa { margin-top: 0.9rem; padding-top: 0.7rem; border-top: 1px solid #e7e5e4; }
 .ag-diag { font-size: 0.6rem; color: #57534e; word-break: break-all; background: #f5f5f4;
   padding: 0.4rem 0.5rem; border-radius: 6px; margin: 0.4rem 0; }
@@ -629,10 +646,19 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
    que se digita nele é livre — categoria, valor, data — e caber é o que
    importa num celular. */
 .busca-row { position: relative; margin: -0.4rem 0 0.7rem; }
-.busca { width: 100%; padding-right: 2.2rem; }
+/* O campo tinha ficado sem moldura nenhuma: 21px de altura, sem borda, sem
+   fundo — parecia que não havia campo. Agora tem o mesmo corpo dos outros
+   controles da linha de filtros e 44px de altura para o dedo. */
+.busca { width: 100%; min-height: 44px; padding: 0.6rem 2.6rem 0.6rem 0.7rem;
+  border: 1px solid #d6d3d1; border-radius: 3px; background: white;
+  font-family: 'DM Mono', monospace; font-size: 0.85rem; color: #225437;
+  -webkit-appearance: none; appearance: none; }
+.busca::-webkit-search-cancel-button { display: none; }
+.busca:focus { outline: 2px solid #225437; outline-offset: -2px; }
 .busca-x { position: absolute; right: 0.15rem; top: 50%; transform: translateY(-50%);
-  background: none; border: 0; font-size: 1.5rem; line-height: 1; color: #78716c;
-  padding: 0 0.5rem; cursor: pointer; }
+  background: none; border: 0; font-size: 1.5rem; line-height: 1; color: #57534e;
+  padding: 0 0.6rem; cursor: pointer; min-height: 44px; min-width: 44px;
+  display: inline-flex; align-items: center; justify-content: center; }
 
 /* O que a arroba rendeu, ao lado do que ela custa: a diferença é a conta que
    decide, e ela precisa de cor para ser lida de relance. */
@@ -658,15 +684,15 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .gm-barra i.gm-neg { background: #991b1b; }
 .gm-val { font-family: 'DM Mono', monospace; font-size: 0.74rem; text-align: right; }
 .gm-val.gm-neg-txt { color: #b91c1c; }
-.gm-n { font-family: 'DM Mono', monospace; font-size: 0.62rem; color: #a8a29e; text-align: right; }
+.gm-n { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: #78716c; text-align: right; }
 .gm-geral { text-align: center; padding: 0.3rem 0 0.7rem; border-bottom: 1px solid #f5f5f4;
   margin-bottom: 0.5rem; }
-.gg-rot { font-size: 0.62rem; color: #78716c; }
+.gg-rot { font-size: 0.68rem; color: #78716c; }
 .gg-val { font-size: 1.9rem; font-weight: 600; line-height: 1.15; }
 .gg-val.gmd-low { color: #dc2626; } .gg-val.gmd-mid { color: #b45309; }
 .gg-val.gmd-good { color: #16a34a; } .gg-val.gmd-great { color: #15803d; }
-.gg-det { font-size: 0.6rem; color: #a8a29e; }
-.gm-linha-pes .gm-mes { font-size: 0.62rem; }
+.gg-det { font-size: 0.68rem; color: #78716c; }
+.gm-linha-pes .gm-mes { font-size: 0.66rem; }
 .gm-linha-pes { grid-template-columns: 5.4rem 1fr 3.2rem 1.6rem; }
 
 /* Blocos que abrem e fecham. Fechado, o cabeçalho ainda carrega o número que
@@ -675,16 +701,16 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
   margin-bottom: 0.45rem; overflow: hidden; }
 .dobra-cab { display: grid; grid-template-columns: 1fr auto 1.1rem;
   grid-template-areas: "tit num seta" "sub num seta"; align-items: center;
-  gap: 0 0.5rem; padding: 0.45rem 0.75rem; cursor: pointer; list-style: none;
-  min-height: 2.4rem; }
+  gap: 0 0.5rem; padding: 0.5rem 0.75rem; cursor: pointer; list-style: none;
+  min-height: 44px; }
 .dobra-cab::-webkit-details-marker { display: none; }
 .dc-tit { grid-area: tit; font-size: 0.68rem; color: #57534e; }
-.dc-sub { grid-area: sub; font-size: 0.62rem; color: #a8a29e; }
+.dc-sub { grid-area: sub; font-size: 0.68rem; color: #78716c; }
 .dc-num { grid-area: num; font-size: 1.05rem; font-weight: 600; color: #1c1917;
   text-align: right; white-space: nowrap; }
 .dc-num.dc-alerta { color: #b91c1c; }
 .dobra-seta { grid-area: seta; width: 0.5rem; height: 0.5rem; justify-self: end;
-  border-right: 2px solid #a8a29e; border-bottom: 2px solid #a8a29e;
+  border-right: 2px solid #78716c; border-bottom: 2px solid #78716c;
   transform: rotate(45deg); transition: transform .15s; }
 .dobra[open] .dobra-seta { transform: rotate(-135deg); }
 .dobra-corpo { padding: 0 0.8rem 0.7rem; border-top: 1px solid #f5f5f4; }
