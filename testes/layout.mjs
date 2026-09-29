@@ -202,6 +202,57 @@ export default async function () {
   // recriado a cada desenho e perderia o foco no meio da conta.
   t.conferir('o campo de GMD sobrevive aos redesenhos', tudo.campoGmd === true);
 
+  // ---------- a linha de segmentos não cabe, e isso precisa aparecer ----------
+  // Seis segmentos não cabem em 390 px: "Financeiro" e "Custos" ficavam fora da
+  // tela sem nenhuma pista de que existiam, e quem nunca arrastou aquela linha
+  // não sabia que as duas telas existiam.
+  t.secao('a linha de segmentos avisa que continua');
+  const seg = await pagina.evaluate(`(function () {
+    animals = [{ id: 'a1', ident: 'BR01' }]; weighings = [];
+    bovT = []; avT = []; gerT = []; items = []; moves = [];
+    const f = $('bov-segs'), env = $('bov-segs-wrap');
+    const dentro = () => {
+      const a = f.querySelector('.seg.active');
+      return a.offsetLeft >= f.scrollLeft - 1
+        && a.offsetLeft + a.offsetWidth <= f.scrollLeft + f.clientWidth + 1;
+    };
+    const out = {};
+    tab = 'bovinos'; seg = 'rebanho'; render();
+    out.naoCabe = f.scrollWidth > f.clientWidth;
+    out.sombraNoInicio = env.classList.contains('tem-mais');
+    out.primeiroVisivel = dentro();
+    // escolher o último segmento traz ele para a tela
+    seg = 'custos'; render();
+    out.ultimoVisivel = dentro();
+    out.rolou = f.scrollLeft > 0;
+    out.sombraNoFim = env.classList.contains('tem-mais');
+    // e voltar ao primeiro traz de volta
+    seg = 'rebanho'; render();
+    out.voltouVisivel = dentro();
+    out.sombraDeVolta = env.classList.contains('tem-mais');
+    // arrastar à mão e redesenhar não pode puxar a linha de volta
+    seg = 'rebanho'; render();
+    f.scrollLeft = 80;
+    render();
+    out.respeitaArrasto = f.scrollLeft === 80;
+    return out;
+  })()`);
+  t.conferir('seis segmentos não cabem na largura do celular', seg.naoCabe === true);
+  t.conferir('e a sombra avisa que há mais para o lado', seg.sombraNoInicio === true);
+  t.conferir('o primeiro segmento começa visível', seg.primeiroVisivel === true);
+  // Sem isto, tocar em Custos deixava a tela trocar sem nenhum segmento aceso
+  // à vista — parecia que o toque não tinha funcionado.
+  t.conferir('escolher o último traz ele para a tela',
+    seg.ultimoVisivel === true && seg.rolou === true);
+  t.conferir('e no fim da linha a sombra some, em vez de prometer o que não há',
+    seg.sombraNoFim === false);
+  t.conferir('voltar ao primeiro traz a linha de volta', seg.voltouVisivel === true);
+  t.conferir('e a sombra volta com ela', seg.sombraDeVolta === true);
+  // Rolar a cada desenho brigaria com quem acabou de arrastar a linha para
+  // olhar o que tem adiante.
+  t.conferir('redesenhar não puxa a linha da mão de quem a arrastou',
+    seg.respeitaArrasto === true);
+
   const falhas = t.fim(errosJS);
   await navegador.close();
   await s.fechar();

@@ -698,3 +698,11 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 /* Caixa que só carrega um bloco dobrável não precisa de moldura própria:
    moldura dentro de moldura vira ruído numa tela de celular. */
 .so-dobra { background: none !important; border: 0 !important; padding: 0 !important; }
+
+/* Sombra que avisa que a linha de segmentos continua para o lado. Some no fim
+   da rolagem: mantida ali, viraria uma mancha prometendo o que não existe. */
+.seg-wrap { position: relative; }
+.seg-wrap::after { content: ''; position: absolute; right: 0; top: 0; bottom: 1rem;
+  width: 2.2rem; pointer-events: none; opacity: 0; transition: opacity .15s;
+  background: linear-gradient(to left, #fafaf9 35%, rgba(250,250,249,0)); }
+.seg-wrap.tem-mais::after { opacity: 1; }

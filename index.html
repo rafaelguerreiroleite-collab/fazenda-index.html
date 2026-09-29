@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="style.css?v=66" />
+<link rel="stylesheet" href="style.css?v=67" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -78,6 +78,10 @@
 
 <section class="view active" id="view-bovinos">
 
+  <!-- A linha de segmentos rola de lado e não cabia inteira: "Financeiro" e
+       "Custos" ficavam fora da tela sem nenhuma pista de que existiam. O
+       invólucro segura a sombra que avisa que há mais coisa para o lado. -->
+  <div class="seg-wrap" id="bov-segs-wrap">
   <div class="seg-row" id="bov-segs">
     <button class="seg active" data-seg="rebanho">Rebanho</button>
     <button class="seg" data-seg="vendidas">Vendidas</button>
@@ -85,6 +89,7 @@
     <button class="seg" data-seg="estoque">Estoque</button>
     <button class="seg" data-seg="financeiro">Financeiro</button>
     <button class="seg" data-seg="custos">Custos</button>
+  </div>
   </div>
 
   <div class="subview active" id="bov-rebanho">
@@ -821,6 +826,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=66"></script>
+<script src="app.js?v=67"></script>
 </body>
 </html>

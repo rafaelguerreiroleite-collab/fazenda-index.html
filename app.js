@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 66;
+const VERSAO = 67;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -931,6 +931,36 @@ function restaurarPeriodos() {
 let tab = 'bovinos', seg = 'rebanho', detailAnimal = null, detailItem = null;
 let bovSort = LS.g('fjs-sort-rebanho', 'ident-asc');
 
+// A linha de segmentos rola de lado e não cabe inteira num celular. Duas
+// coisas faltavam: o segmento escolhido podia ficar fora da tela — sem nenhum
+// sinal de qual está ativo —, e não havia pista de que existisse mais coisa à
+// direita. Quem nunca rolou aquela linha não sabia que Financeiro e Custos
+// existiam.
+let segRolado = null;
+function mostrarSegAtivo() {
+  const fila = $('bov-segs'), env = $('bov-segs-wrap');
+  if (!fila || !env) return;
+  const ativo = fila.querySelector('.seg.active');
+  // Só quando o segmento MUDA. A cada desenho, a rolagem brigaria com quem
+  // acabou de arrastar a linha para olhar o que tem adiante.
+  if (ativo && ativo.offsetParent !== null && segRolado !== seg) {
+    segRolado = seg;
+    const e = ativo.offsetLeft, d = e + ativo.offsetWidth;
+    if (e < fila.scrollLeft) fila.scrollLeft = Math.max(0, e - 12);
+    else if (d > fila.scrollLeft + fila.clientWidth) fila.scrollLeft = d - fila.clientWidth + 12;
+  }
+  atualizarSombraSeg();
+}
+// A sombra só existe enquanto há o que ver adiante: mantida no fim da rolagem,
+// ela viraria uma mancha permanente prometendo algo que não está lá.
+function atualizarSombraSeg() {
+  const fila = $('bov-segs'), env = $('bov-segs-wrap');
+  if (!fila || !env) return;
+  const temMais = fila.scrollWidth - fila.clientWidth - fila.scrollLeft > 4;
+  env.classList.toggle('tem-mais', temMais);
+}
+(() => { const f = $('bov-segs'); if (f) f.addEventListener('scroll', atualizarSombraSeg); })();
+
 function render() {
   sincronizarBusca();
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === tab));
@@ -939,6 +969,7 @@ function render() {
   $('view-fazenda').classList.toggle('active', tab === 'fazenda');
   if (tab === 'bovinos') {
     document.querySelectorAll('#bov-segs .seg').forEach(s => s.classList.toggle('active', s.dataset.seg === seg));
+    mostrarSegAtivo();
     ['bov-rebanho', 'bov-detail', 'bov-vendidas', 'bov-mortes', 'bov-estoque', 'stock-detail', 'bov-fin', 'bov-custos'].forEach(id => $(id).classList.remove('active'));
     if (seg === 'rebanho') { $(detailAnimal ? 'bov-detail' : 'bov-rebanho').classList.add('active'); detailAnimal ? renderAnimalDetail() : renderRebanho(); }
     if (seg === 'vendidas') { $('bov-vendidas').classList.add('active'); renderVendidas(); }
@@ -2383,8 +2414,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=66';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=66';
+const PDFJS_JS = 'vendor/pdf.min.js?v=67';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=67';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
