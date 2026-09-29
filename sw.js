@@ -1,5 +1,5 @@
-const CACHE = 'fazendajs-v67';
-const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './logo.png', './icon-192.png', './icon-512.png'];
+const CACHE = 'fazendajs-v68';
+const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './logo.png', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 // O leitor de PDF é do próprio aplicativo e fica guardado desde a instalação:
 // nota fiscal em PDF precisa abrir no curral, onde não há sinal.
 const LEITOR_PDF = ['./vendor/pdf.min.js', './vendor/pdf.worker.min.js'];
