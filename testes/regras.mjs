@@ -18,7 +18,7 @@
 // finge que conferiu.
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { placar } from './apoio.mjs';
+import { placar } from './placar.mjs';
 
 const RAIZ = resolve(import.meta.dirname, '..');
 
