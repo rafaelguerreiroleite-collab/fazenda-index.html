@@ -791,3 +791,10 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .car-quando { font-size: 0.68rem; color: #b91c1c; text-align: right; }
 .car-aviso { color: #b91c1c; font-size: 0.72rem; margin-top: 0.3rem; line-height: 1.45; }
 .car-ok { color: #4d7c0f; font-size: 0.72rem; margin-top: 0.3rem; }
+
+/* Peso projetado na linha do animal. Tracejado e em verde de estimativa, a
+   mesma linguagem do cartão pontilhado lá em cima: é projeção de um GMD
+   informado à mão, não peso medido, e confundir os dois é pior do que não
+   mostrar. */
+.item-side .aux.est-linha { color: #2f6b46; border-top: 1px dashed #b9cfc0;
+  margin-top: 0.2rem; padding-top: 0.15rem; }

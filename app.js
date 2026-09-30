@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 77;
+const VERSAO = 78;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -639,6 +639,24 @@ function gmdTotal(ws) { return ws.length >= 2 ? gmdBetween(ws[0], ws[ws.length -
 function gmdRecent(ws) { return ws.length >= 2 ? gmdBetween(ws[ws.length - 2], ws[ws.length - 1]) : null; }
 const gmdCls = g => !Number.isFinite(g) ? '' : g < 0.4 ? 'gmd-low' : g < 0.8 ? 'gmd-mid' : g < 1.2 ? 'gmd-good' : 'gmd-great';
 
+// Projeção de peso a partir de um GMD informado à mão. Vive aqui, sozinha,
+// porque o cartão do rebanho e a linha de cada animal mostram o MESMO número
+// em dois lugares da mesma tela: duas cópias da conta é como um deles passa a
+// mentir sem ninguém descobrir qual.
+// Projeta da última balança DE CADA ANIMAL, não do peso médio, porque cada um
+// foi pesado num dia diferente.
+function projetar(a, gmdSim, hoje) {
+  if (!Number.isFinite(gmdSim)) return null;
+  const ws = wOf(a.id);
+  if (!ws.length) return null;
+  const ultima = ws[ws.length - 1];
+  // Pesagem com data no futuro (digitação errada) não projeta para trás.
+  const dias = Math.max(0, daysBetween(ultima.date, hoje || todayISO()));
+  const peso = ultima.weight + gmdSim * dias;
+  if (!Number.isFinite(peso) || peso <= 0) return null;
+  return { peso, dias, base: ultima.weight, ganho: peso - ultima.weight };
+}
+
 // ===== Carência de medicamento =====
 // O cadastro do item guarda a carência em dias. O cadastro do animal guarda a
 // data do último manejo e o produto usado. Os dois existiam desde sempre e
@@ -1221,14 +1239,8 @@ function renderRebanho() {
   // um — não do peso médio —, porque cada um foi pesado num dia diferente.
   const hoje = todayISO();
   const gmdSim = parseNum($('bov-gmd-sim').value);
-  const pesosEst = activeAnimals.map(a => {
-    const ws = wOf(a.id);
-    if (!ws.length) return null;
-    const ultima = ws[ws.length - 1];
-    // Pesagem com data no futuro (digitação errada) não projeta para trás.
-    const dias = Math.max(0, daysBetween(ultima.date, hoje));
-    return ultima.weight + gmdSim * dias;
-  }).filter(p => Number.isFinite(p) && p > 0);
+  const pesosEst = activeAnimals.map(a => projetar(a, gmdSim, hoje))
+    .filter(Boolean).map(x => x.peso);
   const temEst = Number.isFinite(gmdSim) && pesosEst.length > 0;
   const totalEst = pesosEst.reduce((s, p) => s + p, 0);
   const diasDesde = lastDates.length ? Math.max(0, daysBetween(lastDates[lastDates.length - 1], hoje)) : 0;
@@ -1381,6 +1393,8 @@ function renderRebanho() {
       <div class="item-side">
         <div class="value">${last ? fmtN(last.weight, 0) + ' kg' : '—'}</div>
         <div class="aux ${gmdCls(g)}">${Number.isFinite(g) ? 'GMD ' + fmtN(g, 2) : ''}</div>
+        ${(() => { const e = projetar(a, gmdSim, hoje); return e
+          ? `<div class="aux est-linha">~${fmtN(e.peso, 0)} kg hoje</div>` : ''; })()}
       </div>
     </div>`;
   }).join('');
@@ -2670,8 +2684,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=77';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=77';
+const PDFJS_JS = 'vendor/pdf.min.js?v=78';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=78';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
