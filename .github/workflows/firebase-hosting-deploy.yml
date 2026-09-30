@@ -28,6 +28,27 @@ jobs:
           CENARIOS: '20000'
           VARREDURA: '20000'
 
+  # As regras do Firestore rodam DENTRO do emulador: é a única forma de
+  # executar de verdade o que elas fazem. Sem isso, um comentário mentindo
+  # sobre o que a regra protege passa batido — foi exatamente o que aconteceu.
+  regras-teste:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # package.json não é versionado neste repositório (está no .gitignore),
+      # então as dependências entram na mão, como no job de cima.
+      - name: Instalar o emulador do Firestore
+        run: npm install --no-save --no-audit --no-fund firebase-tools@13 @firebase/rules-unit-testing@3 firebase@10
+      - name: Rodar as regras dentro do emulador
+        run: npx firebase-tools@13 emulators:exec --only firestore --project regras-fazenda "node testes/regras-solo.mjs"
+
   deploy:
     needs: testes
     if: github.event_name != 'pull_request'
@@ -46,7 +67,7 @@ jobs:
   # estivesse colado no console. Foi assim que uma regra que se descrevia como
   # protegida ficou aberta sem ninguém ver. Agora sai junto com o resto.
   regras:
-    needs: testes
+    needs: [testes, regras-teste]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:

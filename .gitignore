@@ -1,3 +1,6 @@
 node_modules/
 package-lock.json
 package.json
+
+firestore-debug.log
+firebase-debug.log

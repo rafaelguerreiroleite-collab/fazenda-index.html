@@ -17,3 +17,22 @@ Não existe login por usuário — o acesso aos dados de uma fazenda é controla
 As regras do Firestore (`firestore.rules`) apenas exigem que o usuário esteja autenticado (autenticação anônima já conta) — a proteção real vem de manter o código da fazenda em segredo.
 
 Para usar o mesmo código em outro aparelho, repita o passo 5 colando o mesmo `firebaseConfig` e o mesmo código da fazenda.
+
+## Testes
+
+```
+npm install --no-save playwright && npx playwright install chromium
+node testes/rodar.mjs
+```
+
+As regras do Firestore são executadas de verdade, dentro do emulador (precisa
+de Java):
+
+```
+npm install --no-save firebase-tools@13 @firebase/rules-unit-testing@3 firebase@10
+npx firebase-tools@13 emulators:exec --only firestore --project regras-fazenda \
+  "node testes/regras-solo.mjs"
+```
+
+A bateria principal PULA as regras quando o emulador não está de pé, e diz
+isso em voz alta — regra que ninguém executa é comentário, não proteção.
