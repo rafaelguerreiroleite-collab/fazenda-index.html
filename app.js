@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 75;
+const VERSAO = 76;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -931,7 +931,8 @@ function atualizarOpcoesPeriodo(id, lista, regime) {
 // ao fechamento deixaria o aplicativo abrindo com metade dos lançamentos
 // escondidos, e quem não lembra de ter digitado nada concluiria que perdeu
 // dado. Período fica guardado porque é uma postura; busca é um gesto.
-const termoBusca = { 'bfin-busca': '', 'av-busca': '', 'fz-busca': '' };
+const termoBusca = { 'bfin-busca': '', 'av-busca': '', 'fz-busca': '',
+  'bov-busca': '', 'vend-busca': '', 'mort-busca': '', 'est-busca': '' };
 // Sem acento e sem maiúscula dos dois lados: quem digita no curral escreve
 // "racao", e "Ração" tem de aparecer. O NFD separa a letra do acento, e o
 // intervalo apagado é exatamente o dos acentos.
@@ -983,6 +984,49 @@ function casaBusca(t, termo, livro) {
   if (partes.every(p => barato.includes(p))) return true;
   const alvo = textoDoLancamento(t, livro);
   return partes.every(p => alvo.includes(p));
+}
+// Achar UM animal numa lista de sessenta era rolar com o dedo até ver o
+// brinco. No curral, com o bicho no tronco, isso é o gesto mais repetido e o
+// mais lento do aplicativo. Entra tudo o que a linha mostra e mais o que ela
+// esconde — raça, categoria, medicamento do último manejo, causa da morte.
+function textoDoAnimal(a) {
+  const ws = wOf(a.id);
+  const ultima = ws.length ? ws[ws.length - 1] : null;
+  return semAcento([
+    a.ident, a.cat, a.raca, a.notes,
+    a.manejoMedicamento, a.manejoData ? fmtBRfull(a.manejoData) : '',
+    ultima ? fmtBRfull(ultima.date) : 'nunca pesado',
+    ultima ? fmtN(ultima.weight, 0) : '',
+    a.dead ? 'morto ' + (a.deadCause || '') + ' ' + (a.deadDate ? fmtBRfull(a.deadDate) : '') : '',
+    vendidoDeVerdade(a) ? 'vendido ' + (a.soldDate ? fmtBRfull(a.soldDate) : '') : ''
+  ].filter(Boolean).join(' '));
+}
+function casaAnimal(a, termo) {
+  const partes = termo ? partesDaBusca(termo) : [];
+  if (!partes.length) return true;
+  // O brinco é o que se digita em nove de cada dez buscas: conferir ele
+  // sozinho primeiro evita montar o texto inteiro do animal por linha.
+  const barato = semAcento(a.ident || '');
+  if (partes.every(p => barato.includes(p))) return true;
+  return partes.every(p => textoDoAnimal(a).includes(p));
+}
+function casaItem(it, termo) {
+  const partes = termo ? partesDaBusca(termo) : [];
+  if (!partes.length) return true;
+  const alvo = semAcento([it.name, it.unit, it.notes,
+    it.carencia ? 'carencia ' + it.carencia : ''].filter(Boolean).join(' '));
+  return partes.every(p => alvo.includes(p));
+}
+// Quando a busca esconde linhas, o número do que sobrou tem de estar escrito:
+// uma lista mais curta sem explicação parece dado perdido.
+// O plural vem escrito, não montado com "+s": em português isso produz
+// "animals" e "items", que é exatamente o que apareceu na primeira versão.
+function avisoDaBuscaLista(escondidos, id, singular, plural) {
+  if (!escondidos) return '';
+  return `<button type="button" class="fora-periodo" data-limpar-busca="${id}">
+    <span class="fp-texto mono">+ ${escondidos} ${escondidos > 1 ? plural : singular} fora da busca</span>
+    <span class="fp-acao mono">Limpar busca</span>
+  </button>`;
 }
 const buscaDe = id => (termoBusca[id] || '').trim();
 // O rótulo do saldo responde de uma vez "está filtrado" e "achou quantos" —
@@ -1235,7 +1279,12 @@ function renderRebanho() {
       <div class="stat-card est"><div class="stat-value ${ganho < 0 ? 'neg' : ''}">${ganho >= 0 ? '+' : ''}${fmtN(ganho, 1)} @</div><div class="stat-label">Ganho em ${diasDesde} dias</div></div>`;
   } else $('bov-stats-est').innerHTML = '';
   const byIdent = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true });
-  const sorted = [...activeAnimals].sort((a, b) => {
+  // A busca filtra a LISTA, e não os cartões: eles respondem "como está o
+  // rebanho", que é um fato da fazenda e não muda porque alguém digitou um
+  // brinco. Mudá-los faria o total de animais oscilar a cada letra.
+  const termoBov = buscaDe('bov-busca');
+  const naBuscaBov = activeAnimals.filter(a2 => casaAnimal(a2, termoBov));
+  const sorted = [...naBuscaBov].sort((a, b) => {
     if (bovSort === 'peso-desc' || bovSort === 'peso-asc') {
       const wa = weightById.get(a.id), wb = weightById.get(b.id);
       if (wa == null && wb == null) return byIdent(a, b);
@@ -1284,7 +1333,14 @@ function renderRebanho() {
       </div>
     </div>`;
   }).join('');
+  $('bov-busca-aviso').innerHTML =
+    avisoDaBuscaLista(activeAnimals.length - naBuscaBov.length, 'bov-busca', 'animal', 'animais');
   $('bov-empty').hidden = n > 0;
+  // "Nenhum animal cadastrado" seria mentira quando existem sessenta e a
+  // busca escondeu todos: manda a pessoa cadastrar o que ela já tem.
+  if (n > 0 && !sorted.length && termoBov) {
+    $('animal-list').innerHTML = `<p class="busca-vazia mono">Nenhum animal com "${esc(termoBov)}" entre os ${n} do rebanho.</p>`;
+  }
 }
 
 // Mortalidade. O peso perdido é o último peso conhecido de cada animal morto:
@@ -1307,7 +1363,9 @@ function renderMortes() {
   $('mortes-stats2').innerHTML = `
     <div class="stat-card"><div class="stat-value">${pesos.length ? fmtN(kgPerdidos, 0) + ' kg' : '—'}</div><div class="stat-label">Peso perdido</div></div>
     <div class="stat-card"><div class="stat-value">${pesos.length ? fmtN(arrobasPerdidas, 1) + ' @' : '—'}</div><div class="stat-label">Arrobas perdidas</div></div>`;
-  $('mortes-list').innerHTML = mortos.map(a => {
+  const termoMort = buscaDe('mort-busca');
+  const naBuscaMort = mortos.filter(a2 => casaAnimal(a2, termoMort));
+  $('mortes-list').innerHTML = naBuscaMort.map(a => {
     const peso = pesoDe(a);
     return `<div class="list-item" data-animal-edit="${a.id}">
       <div class="item-main">
@@ -1321,7 +1379,12 @@ function renderMortes() {
       </div>
     </div>`;
   }).join('');
+  $('mort-busca-aviso').innerHTML =
+    avisoDaBuscaLista(mortos.length - naBuscaMort.length, 'mort-busca', 'registro', 'registros');
   $('mortes-empty').hidden = mortos.length > 0;
+  if (mortos.length && !naBuscaMort.length && termoMort) {
+    $('mortes-list').innerHTML = `<p class="busca-vazia mono">Nenhum registro com "${esc(termoMort)}".</p>`;
+  }
 }
 
 // ===== Preço da arroba na venda =====
@@ -1380,7 +1443,9 @@ function renderVendidas() {
       : `Rendimento de carcaça ${fmtN(pa.rend, 1)}% · ${pa.n} venda(s) na conta`
         + (faltam ? ` · <b>${faltam} sem peso ou preço ficaram de fora</b>` : '');
   }
-  $('vendidas-list').innerHTML = sold.map(a => {
+  const termoVend = buscaDe('vend-busca');
+  const naBuscaVend = sold.filter(a2 => casaAnimal(a2, termoVend));
+  $('vendidas-list').innerHTML = naBuscaVend.map(a => {
     const ws = wOf(a.id);
     const w = Number.isFinite(a.soldWeight) ? a.soldWeight : (ws.length ? ws[ws.length - 1].weight : null);
     return `<div class="list-item" data-animal-edit="${a.id}">
@@ -1395,7 +1460,12 @@ function renderVendidas() {
       </div>
     </div>`;
   }).join('');
+  $('vend-busca-aviso').innerHTML =
+    avisoDaBuscaLista(sold.length - naBuscaVend.length, 'vend-busca', 'venda', 'vendas');
   $('vendidas-empty').hidden = sold.length > 0;
+  if (sold.length && !naBuscaVend.length && termoVend) {
+    $('vendidas-list').innerHTML = `<p class="busca-vazia mono">Nenhuma venda com "${esc(termoVend)}".</p>`;
+  }
 }
 
 // Custo de produzir uma arroba: gasto diário por animal ÷ arrobas ganhas por dia.
@@ -1682,7 +1752,9 @@ function renderChart(ws) {
 }
 
 function renderEstoque() {
-  const sorted = [...items].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const termoEst = buscaDe('est-busca');
+  const naBuscaEst = items.filter(it => casaItem(it, termoEst));
+  const sorted = [...naBuscaEst].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   $('stock-list').innerHTML = sorted.map(it => {
     const q = qtyOf(it.id); const ac = avgCostOf(it.id);
     const low = Number.isFinite(it.minQty) && it.minQty > 0 && q <= it.minQty;
@@ -1692,12 +1764,18 @@ function renderEstoque() {
         <div class="item-subtitle">${ac != null ? 'custo médio ' + fmtRS(ac) + '/' + esc(it.unit) : 'sem custo registrado'}${it.carencia ? ' · carência ' + esc(it.carencia) + 'd' : ''}</div>
       </div>
       <div class="item-side">
-        <div class="value">${fmtN(q, q % 1 ? 2 : 0)} ${esc(it.unit)}</div>
-        ${low ? '<div class="aux warn-low">⚠ estoque baixo</div>' : ''}
+        <div class="value${q < 0 ? ' qtd-neg' : ''}">${fmtN(q, q % 1 ? 2 : 0)} ${esc(it.unit)}</div>
+        ${q < 0 ? '<div class="aux estoque-erro">⚠ saiu mais do que entrou</div>'
+          : low ? '<div class="aux warn-low">⚠ estoque baixo</div>' : ''}
       </div>
     </div>`;
   }).join('');
+  $('est-busca-aviso').innerHTML =
+    avisoDaBuscaLista(items.length - naBuscaEst.length, 'est-busca', 'item', 'itens');
   $('stock-empty').hidden = items.length > 0;
+  if (items.length && !sorted.length && termoEst) {
+    $('stock-list').innerHTML = `<p class="busca-vazia mono">Nenhum item com "${esc(termoEst)}" entre os ${items.length} do estoque.</p>`;
+  }
 }
 
 function renderStockDetail() {
@@ -2527,8 +2605,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=75';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=75';
+const PDFJS_JS = 'vendor/pdf.min.js?v=76';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=76';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;

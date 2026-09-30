@@ -761,3 +761,20 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .at-botoes { display: flex; gap: 0.35rem; flex-shrink: 0; }
 .at-botoes .btn-small { min-height: 40px; padding: 0.4rem 0.7rem; }
 #at-criar { width: 100%; margin-top: 0.6rem; }
+
+/* A cor do GMD na lista de animais era calculada e NUNCA aparecia: ".item-side
+   .aux" tem duas classes de especificidade e ".gmd-low" tem uma, então o cinza
+   ganhava sempre. Toda a escala de cor existia no código, era escrita no HTML
+   e morria aqui. Quem olhava a lista via sessenta números do mesmo cinza. */
+.item-side .aux.gmd-low { color: #b91c1c; }
+.item-side .aux.gmd-mid { color: #b45309; }
+.item-side .aux.gmd-good { color: #4d7c0f; }
+.item-side .aux.gmd-great { color: #047857; }
+
+/* Estoque negativo é impossível no mundo real: é erro de lançamento, e estava
+   sendo mostrado com a mesma cara de um número normal. */
+.item-side .value.qtd-neg { color: #b91c1c; }
+.item-side .aux.estoque-erro { color: #b91c1c; }
+
+.busca-vazia { padding: 1.2rem 0.5rem; text-align: center; color: #57534e;
+  font-size: 0.8rem; line-height: 1.5; }

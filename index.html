@@ -18,8 +18,8 @@
      que ele nunca viu não tem como ser confundido com nada que já tenha. -->
 <link rel="apple-touch-icon" sizes="180x180" href="icone-fazenda-js.png" />
 <link rel="apple-touch-icon" href="icone-fazenda-js.png" />
-<link rel="icon" type="image/png" href="icon-192.png?v=75" />
-<link rel="stylesheet" href="style.css?v=75" />
+<link rel="icon" type="image/png" href="icon-192.png?v=76" />
+<link rel="stylesheet" href="style.css?v=76" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -146,6 +146,12 @@
         <option value="data-asc">Ordem: sem pesar há mais tempo</option>
       </select>
     </div>
+    <div class="busca-row">
+      <input type="search" id="bov-busca" class="busca" inputmode="search"
+             placeholder="Achar animal — brinco, raça, categoria" autocapitalize="off" autocomplete="off" />
+      <button type="button" class="busca-x" data-limpar-busca="bov-busca" hidden aria-label="Limpar busca">×</button>
+    </div>
+    <div id="bov-busca-aviso"></div>
     <div class="list" id="animal-list"></div>
     <div class="empty" id="bov-empty" hidden>
       <p class="eyebrow mono">Nenhum animal cadastrado</p>
@@ -156,6 +162,12 @@
   <div class="subview" id="bov-vendidas">
     <div class="stats-row" id="vendidas-stats"></div>
     <p class="est-nota mono" id="vendidas-nota" hidden></p>
+    <div class="busca-row">
+      <input type="search" id="vend-busca" class="busca" inputmode="search"
+             placeholder="Achar vendido — brinco, raça, data" autocapitalize="off" autocomplete="off" />
+      <button type="button" class="busca-x" data-limpar-busca="vend-busca" hidden aria-label="Limpar busca">×</button>
+    </div>
+    <div id="vend-busca-aviso"></div>
     <div class="list" id="vendidas-list"></div>
     <div class="empty" id="vendidas-empty" hidden>
       <p class="eyebrow mono">Nenhum animal vendido ainda</p>
@@ -166,6 +178,12 @@
   <div class="subview" id="bov-mortes">
     <div class="stats-row" id="mortes-stats"></div>
     <div class="stats-row two" id="mortes-stats2"></div>
+    <div class="busca-row">
+      <input type="search" id="mort-busca" class="busca" inputmode="search"
+             placeholder="Achar — brinco, raça, causa" autocapitalize="off" autocomplete="off" />
+      <button type="button" class="busca-x" data-limpar-busca="mort-busca" hidden aria-label="Limpar busca">×</button>
+    </div>
+    <div id="mort-busca-aviso"></div>
     <div class="list" id="mortes-list"></div>
     <div class="empty" id="mortes-empty" hidden>
       <p class="eyebrow mono">Nenhuma morte registrada</p>
@@ -181,6 +199,12 @@
   </div>
 
   <div class="subview" id="bov-estoque">
+    <div class="busca-row">
+      <input type="search" id="est-busca" class="busca" inputmode="search"
+             placeholder="Achar item do estoque" autocapitalize="off" autocomplete="off" />
+      <button type="button" class="busca-x" data-limpar-busca="est-busca" hidden aria-label="Limpar busca">×</button>
+    </div>
+    <div id="est-busca-aviso"></div>
     <div class="list" id="stock-list"></div>
     <div class="empty" id="stock-empty" hidden>
       <p class="eyebrow mono">Estoque vazio</p>
@@ -920,6 +944,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=75"></script>
+<script src="app.js?v=76"></script>
 </body>
 </html>
