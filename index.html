@@ -18,8 +18,8 @@
      que ele nunca viu não tem como ser confundido com nada que já tenha. -->
 <link rel="apple-touch-icon" sizes="180x180" href="icone-fazenda-js.png" />
 <link rel="apple-touch-icon" href="icone-fazenda-js.png" />
-<link rel="icon" type="image/png" href="icon-192.png?v=74" />
-<link rel="stylesheet" href="style.css?v=74" />
+<link rel="icon" type="image/png" href="icon-192.png?v=75" />
+<link rel="stylesheet" href="style.css?v=75" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -540,6 +540,12 @@
         <option>Frete</option><option>Comissão de leilão</option><option>Impostos/Funrural</option>
         <option>Equipamentos</option><option>Benfeitorias</option><option>Outros</option>
       </datalist>
+      <datalist id="cats-geral">
+        <option>Mão de obra</option><option>Combustível</option><option>Manutenção</option>
+        <option>Energia elétrica</option><option>Frete</option><option>Arrendamento</option>
+        <option>Contador/serviços</option><option>Impostos/Funrural</option>
+        <option>Equipamentos</option><option>Benfeitorias</option><option>Outros</option>
+      </datalist>
       <datalist id="cats-av">
         <option>Pagamento Seara</option><option>Venda de cama</option>
         <option>Energia elétrica</option><option>Gás</option>
@@ -835,6 +841,7 @@ BR002,15/01/2025,340</pre>
       <button class="menu-item" id="menu-migrate" hidden><span>☁️</span> Enviar dados locais antigos p/ nuvem</button>
       <button class="menu-item" id="menu-atualizar"><span>🔄</span> Buscar atualização do aplicativo</button>
       <button class="menu-item" id="menu-icone"><span>🏠</span> Arrumar o ícone da tela de início</button>
+      <button class="menu-item" id="menu-atividades"><span>🌱</span> Atividades da fazenda</button>
       <button class="menu-item" id="menu-limpeza"><span>🧹</span> Limpeza: manter só os pesados num dia</button>
       <button class="menu-item" id="menu-backup"><span>💾</span> Backup completo (baixar tudo)</button>
       <button class="menu-item" id="menu-restore"><span>♻️</span> Restaurar backup</button>
@@ -842,6 +849,25 @@ BR002,15/01/2025,340</pre>
       <hr />
       <button class="menu-item" id="menu-leave"><span>🚪</span> Trocar fazenda / reconfigurar</button>
       <button class="menu-item danger" id="menu-clear"><span>🗑️</span> Apagar todos os dados</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-atividades" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2>Atividades da fazenda</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <div class="import-body">
+      <p class="small">Bovinos, Aviários e Geral são fixos. Além deles você cria as suas —
+        soja, leite, maquinário — e cada uma vira um livro de contas próprio, que aparece
+        na hora do lançamento e no resumo da aba Fazenda.</p>
+      <div id="at-lista"></div>
+      <label class="mono">Nova atividade</label>
+      <input type="text" id="at-nome" placeholder="Ex: Soja" maxlength="40" autocapitalize="sentences" />
+      <button type="button" class="btn-primary" id="at-criar">Criar atividade</button>
+      <p class="setup-error mono" id="at-erro" hidden></p>
     </div>
   </div>
 </div>
@@ -894,6 +920,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=74"></script>
+<script src="app.js?v=75"></script>
 </body>
 </html>

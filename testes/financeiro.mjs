@@ -782,7 +782,7 @@ export default async function () {
   t.secao('categorias sugeridas no lançamento');
   const cats = await pagina.evaluate(() => {
     const ler = id => [...document.querySelectorAll('#' + id + ' option')].map(o => o.textContent);
-    const bov = ler('cats-bov'), av = ler('cats-av');
+    const bov = ler('cats-bov'), av = ler('cats-av'), ger = ler('cats-geral');
     // Trocar a atividade tem de trocar a lista de sugestões.
     $('t-livro').value = 'av'; sincronizarLivroTrans();
     const listaAv = $('t-category').getAttribute('list');
@@ -790,10 +790,16 @@ export default async function () {
     const listaBov = $('t-category').getAttribute('list');
     $('t-livro').value = 'ger'; sincronizarLivroTrans();
     const listaGer = $('t-category').getAttribute('list');
-    return { bov, av, listaAv, listaBov, listaGer,
-      semClassif: [...new Set([...bov, ...av])].filter(c => !CLASSIF[c]),
+    return { bov, av, ger, listaAv, listaBov, listaGer,
+      semClassif: [...new Set([...bov, ...av, ...ger])].filter(c => !CLASSIF[c]),
       comissao: classOf('Comissão de leilão', 'saida'),
-      combustivel: classOf('Combustível', 'saida') };
+      combustivel: classOf('Combustível', 'saida'),
+      // O sentido do dinheiro manda na natureza. Categoria de despesa numa
+      // ENTRADA não pode transformar receita em custo no livro-caixa.
+      entradaOutros: classOf('Outros', 'entrada'),
+      entradaRacao: classOf('Ração/insumos', 'entrada'),
+      saidaVenda: classOf('Venda de gado', 'saida'),
+      investimento: classOf('Equipamentos', 'saida') };
   });
   t.conferir('Combustível está nas duas atividades',
     cats.bov.includes('Combustível') && cats.av.includes('Combustível'));
@@ -804,8 +810,15 @@ export default async function () {
   t.conferir('toda categoria sugerida tem classificação no LCDPR',
     cats.semClassif.length === 0, cats.semClassif.join(' · '));
   t.conferir('a lista acompanha a atividade escolhida',
-    cats.listaAv === 'cats-av' && cats.listaBov === 'cats-bov' && cats.listaGer === 'cats-bov',
+    cats.listaAv === 'cats-av' && cats.listaBov === 'cats-bov' && cats.listaGer === 'cats-geral',
     `av ${cats.listaAv} · bov ${cats.listaBov} · ger ${cats.listaGer}`);
+  t.conferir('dinheiro que ENTRA é sempre receita, qualquer que seja a categoria',
+    cats.entradaOutros === 'Receita' && cats.entradaRacao === 'Receita',
+    `Outros ${cats.entradaOutros} · Ração ${cats.entradaRacao}`);
+  t.conferir('dinheiro que SAI nunca é receita',
+    cats.saidaVenda === 'Custeio', cats.saidaVenda);
+  t.conferir('e o que vira patrimônio continua sendo investimento',
+    cats.investimento === 'Investimento', cats.investimento);
   t.conferir('nenhuma categoria repetida na mesma lista',
     new Set(cats.bov).size === cats.bov.length && new Set(cats.av).size === cats.av.length);
 

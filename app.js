@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 74;
+const VERSAO = 75;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -48,12 +48,39 @@ let animals = [], weighings = [], bovT = [], avT = [], gerT = [], items = [], mo
 // de cada uma; deixar de fora esconderia despesa real da fazenda.
 // Tudo que percorre livro passa por estes apelidos, e não por "if" espalhado:
 // esquecer um lugar é um lançamento sumindo de um total sem ninguém notar.
-const LIVROS = ['bov', 'av', 'ger'];
+// Bovinos, Aviários e Geral são fixos: os dois primeiros têm tela própria
+// (rebanho, pesagem, estoque) e o Geral é o custo que não é de nenhum dos dois.
+// Além deles, a pessoa cria as atividades dela — soja, leite, maquinário. Uma
+// atividade criada é um LIVRO DE DINHEIRO e só isso: entra no lançamento, nos
+// filtros, no resumo da Fazenda e no backup, mas não ganha rebanho nem
+// pesagem, que são coisas de boi e de frango.
+const LIVROS_FIXOS = ['bov', 'av', 'ger'];
+const NOME_FIXO = { bov: 'Bovinos', av: 'Aviários', ger: 'Geral' };
 const COL_LIVRO = { bov: 'bovtrans', av: 'avtrans', ger: 'gertrans' };
-const NOME_LIVRO = { bov: 'Bovinos', av: 'Aviários', ger: 'Geral' };
-const arrLivro = b => b === 'av' ? avT : b === 'ger' ? gerT : bovT;
-const colLivro = b => COL_LIVRO[b] || 'bovtrans';
-function setLivro(b, v) { if (b === 'av') avT = v; else if (b === 'ger') gerT = v; else bovT = v; }
+let atividades = [];    // [{ id, nome }] — as criadas pela pessoa
+let extraT = {};        // { id: [lançamentos] }
+let LIVROS = LIVROS_FIXOS.slice();
+let NOME_LIVRO = Object.assign({}, NOME_FIXO);
+const ehExtra = b => Object.prototype.hasOwnProperty.call(extraT, b);
+function recomputarLivros() {
+  LIVROS = LIVROS_FIXOS.concat(atividades.map(a => a.id));
+  NOME_LIVRO = Object.assign({}, NOME_FIXO);
+  atividades.forEach(a => {
+    NOME_LIVRO[a.id] = a.nome;
+    if (!extraT[a.id]) extraT[a.id] = [];
+  });
+}
+// A queda para bovT quando o livro é desconhecido é de propósito e vem de
+// antes: livro em branco tem de cair em ALGUM lugar de verdade, e devolver um
+// array novo faria o lançamento sumir sem erro nenhum.
+const arrLivro = b => b === 'av' ? avT : b === 'ger' ? gerT : ehExtra(b) ? extraT[b] : bovT;
+const colLivro = b => COL_LIVRO[b] || (ehExtra(b) ? 'at_' + b : 'bovtrans');
+function setLivro(b, v) {
+  if (b === 'av') avT = v;
+  else if (b === 'ger') gerT = v;
+  else if (ehExtra(b)) extraT[b] = v;
+  else bovT = v;
+}
 let settings = { yield: 52 };
 // Parâmetros da calculadora de custo da arroba (independentes das outras abas)
 const CUSTO_VAZIO = {
@@ -82,7 +109,8 @@ let espelhoTimer = null, espelhoFalhou = false;
 function salvarEspelho(agora) {
   clearTimeout(espelhoTimer);
   const gravar = () => {
-    const ok = LS.s(ESPELHO, { farm, animals, weighings, bovT, avT, gerT, items, moves, settings, custo: custoParams });
+    const ok = LS.s(ESPELHO, { farm, animals, weighings, bovT, avT, gerT, items, moves,
+      atividades, extraT, settings, custo: custoParams });
     // Falhar aqui significa que o aparelho não está guardando nada — o pior
     // cenário possível no campo. Precisa ser gritado, não engolido.
     if (!ok && !espelhoFalhou) {
@@ -100,6 +128,11 @@ function carregarEspelho(codigo) {
   if (!e || e.farm !== codigo) return false;
   animals = e.animals || []; weighings = e.weighings || []; bovT = e.bovT || [];
   avT = e.avT || []; gerT = e.gerT || []; items = e.items || []; moves = e.moves || [];
+  // As atividades vêm antes dos lançamentos delas: sem a lista, extraT não
+  // tem dono e arrLivro devolveria Bovinos para todos.
+  extraT = {};
+  aplicarAtividades(e.atividades);
+  Object.keys(e.extraT || {}).forEach(id => { if (ehExtra(id)) extraT[id] = e.extraT[id] || []; });
   if (e.settings && Number.isFinite(e.settings.yield)) settings.yield = e.settings.yield;
   if (e.custo) custoParams = Object.assign({}, CUSTO_VAZIO, e.custo);
   return true;
@@ -366,8 +399,21 @@ let firstAnimalsSnap = true;
 const listaDaColecao = { animals: () => animals, weighings: () => weighings,
   bovtrans: () => bovT, avtrans: () => avT, gertrans: () => gerT,
   items: () => items, moves: () => moves };
+// As coleções das atividades criadas não cabem num mapa fixo: o nome delas só
+// existe depois que a pessoa cria a atividade.
+const colDeAtividade = name => name.indexOf('at_') === 0 ? name.slice(3) : null;
+const lerColecao = name => {
+  const id = colDeAtividade(name);
+  if (id) return extraT[id] || [];
+  return listaDaColecao[name] ? listaDaColecao[name]() : [];
+};
+const gravarColecao = (name, lista) => {
+  const id = colDeAtividade(name);
+  if (id) { extraT[id] = lista; return; }
+  if (COLS[name]) COLS[name](lista);
+};
 function aplicarSnapshot(name, docs, metadata) {
-  const tinha = (listaDaColecao[name] ? listaDaColecao[name]() : []).length;
+  const tinha = lerColecao(name).length;
   if (!docs.length && tinha && metadata && metadata.fromCache) {
     console.warn(name + ': snapshot vazio do cache ignorado — mantendo o que está no aparelho');
     return;
@@ -384,7 +430,7 @@ function aplicarSnapshot(name, docs, metadata) {
     if (p.del) mapa.delete(p.id);
     else if (p.obj) mapa.set(p.id, p.obj);
   });
-  COLS[name]([...mapa.values()]);
+  gravarColecao(name, [...mapa.values()]);
   salvarEspelho();
   if (name === 'animals' && firstAnimalsSnap && metadata && !metadata.fromCache) {
     firstAnimalsSnap = false;
@@ -402,14 +448,43 @@ function aplicarFazenda(d) {
   const naFila = pendentes.find(p => p.col === '_fazenda');
   if (naFila && naFila.obj) d = Object.assign({}, d, naFila.obj);
   settings.yield = Number.isFinite(d.yield) ? d.yield : 52;
+  // A lista de atividades vem junto com os ajustes da fazenda, e por isso
+  // acompanha todos os aparelhos. Mudou a lista? Há coleção nova para ouvir —
+  // mas só assina de novo quando o CONJUNTO muda, senão cada snapshot
+  // derrubaria a própria escuta que o entregou.
+  if (aplicarAtividades(d.atividades) && db && farm) subscribe();
   salvarEspelho();
   // Não sobrescreve o que está sendo digitado neste instante
   const digitando = document.activeElement && document.activeElement.closest && document.activeElement.closest('.calc-form');
   if (!digitando) custoParams = Object.assign({}, CUSTO_VAZIO, d.custo || {});
   render();
 }
+// Devolve true quando o CONJUNTO de atividades mudou — é o que decide se vale
+// assinar as coleções de novo.
+function aplicarAtividades(lista) {
+  const limpa = (Array.isArray(lista) ? lista : [])
+    .filter(a => a && typeof a.id === 'string' && a.id && typeof a.nome === 'string')
+    // Uma atividade com o id de um livro fixo sequestraria os lançamentos de
+    // Bovinos, Aviários ou Geral. Não entra.
+    .filter(a => LIVROS_FIXOS.indexOf(a.id) < 0)
+    .map(a => ({ id: a.id, nome: a.nome }));
+  const antes = atividades.map(a => a.id + '|' + a.nome).join(',');
+  const depois = limpa.map(a => a.id + '|' + a.nome).join(',');
+  if (antes === depois) return false;
+  const idsAntes = atividades.map(a => a.id).sort().join(',');
+  atividades = limpa;
+  recomputarLivros();
+  return idsAntes !== limpa.map(a => a.id).sort().join(',');
+}
+
 function subscribe() {
   unsubs.forEach(u => u()); unsubs = [];
+  atividades.forEach(a => {
+    const nome = colLivro(a.id);
+    unsubs.push(colRef(nome).onSnapshot(snap => {
+      aplicarSnapshot(nome, snap.docs.map(d => d.data()), snap.metadata);
+    }, err => { console.warn(nome, err); }));
+  });
   Object.keys(COLS).forEach(name => {
     unsubs.push(colRef(name).onSnapshot(snap => {
       aplicarSnapshot(name, snap.docs.map(d => d.data()), snap.metadata);
@@ -463,10 +538,22 @@ const CLASSIF = {
   'Gás': 'Custeio', 'Frete': 'Custeio', 'Impostos/Funrural': 'Custeio',
   // Comissão de leilão é despesa da VENDA, não investimento: entra como
   // custeio no livro-caixa, ao lado do frete do caminhão que levou o boi.
-  'Comissão de leilão': 'Custeio',
+  'Comissão de leilão': 'Custeio', 'Arrendamento': 'Custeio', 'Contador/serviços': 'Custeio',
   'Equipamentos': 'Investimento', 'Benfeitorias': 'Investimento', 'Outros': 'Custeio'
 };
-const classOf = (cat, type) => CLASSIF[cat] || (type === 'entrada' ? 'Receita' : 'Custeio');
+// Quem manda é o SENTIDO do dinheiro, não a categoria escrita. Antes a
+// categoria vencia, e o resultado aparecia na tela: uma ENTRADA de R$ 7.300,00
+// com categoria "Outros" era somada como Custeio, porque CLASSIF['Outros'] é
+// 'Custeio' e o tipo nem era consultado. No livro-caixa isso é receita virando
+// despesa — inflava o custo e escondia o faturamento, e as três somas
+// continuavam fechando com o movimento, então nada na tela denunciava.
+// Dinheiro que entra é sempre Receita. Dinheiro que sai é Custeio ou
+// Investimento, nunca Receita.
+const classOf = (cat, type) => {
+  if (type === 'entrada') return 'Receita';
+  const c = CLASSIF[cat];
+  return c === 'Investimento' ? 'Investimento' : 'Custeio';
+};
 
 // ===== Prevenção de duplicidade =====
 // Avisa, sem bloquear: duplicatas legítimas existem (dois abastecimentos no
@@ -2440,8 +2527,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=74';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=74';
+const PDFJS_JS = 'vendor/pdf.min.js?v=75';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=75';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2865,6 +2952,7 @@ function openTrans(book, t) {
   $('t-id').value = t ? t.id : '';
   $('t-book').value = efetivo;
   $('t-livro-wrap').style.display = perguntar ? '' : 'none';
+  preencherSeletorAtividade();
   // Lançando pela aba Fazenda, começa em Geral — é a natureza da aba. Quem
   // quiser jogar em Bovinos ou Aviários troca no seletor, que está no topo.
   $('t-livro').value = perguntar && tab === 'fazenda' ? 'ger' : efetivo;
@@ -2897,10 +2985,24 @@ function openTrans(book, t) {
 }
 // Trocar a atividade no formulário troca o livro de destino e a lista de
 // categorias sugeridas — cada atividade tem as suas.
+// O seletor é montado a cada abertura porque a lista de atividades pode ter
+// mudado noutro aparelho enquanto este formulário estava fechado.
+function preencherSeletorAtividade() {
+  const sel = $('t-livro');
+  const atual = sel.value;
+  sel.innerHTML = '<option value="bov">Bovinos</option>'
+    + '<option value="av">Aviários</option>'
+    + '<option value="ger">Geral (fazenda toda)</option>'
+    + atividades.map(a => `<option value="${esc(a.id)}">${esc(a.nome)}</option>`).join('');
+  if (atual && LIVROS.indexOf(atual) >= 0) sel.value = atual;
+}
 function sincronizarLivroTrans() {
   const livro = $('t-livro').value;
   $('t-book').value = livro;
-  $('t-category').setAttribute('list', livro === 'av' ? 'cats-av' : 'cats-bov');
+  // Atividade criada pela pessoa (soja, leite) recebe a lista genérica: propor
+  // "Venda de gado" numa lavoura seria sugestão errada em cima de sugestão.
+  $('t-category').setAttribute('list',
+    livro === 'av' ? 'cats-av' : livro === 'bov' ? 'cats-bov' : 'cats-geral');
 }
 $('t-livro').addEventListener('change', sincronizarLivroTrans);
 $('form-transaction').addEventListener('submit', e => {
@@ -4399,8 +4501,9 @@ $('menu-backup').addEventListener('click', async () => {
   // backup na mão e sem conseguir entrar. O arquivo já continha a fazenda
   // inteira, então ele sempre foi tão secreto quanto o código — e agora
   // também serve para voltar.
-  const data = { app: 'fazendajs', v: 7, exportedAt: new Date().toISOString(), farm,
-    animals, weighings, bovT, avT, gerT, items, moves, anexos, settings, custo: custoParams };
+  const data = { app: 'fazendajs', v: 8, exportedAt: new Date().toISOString(), farm,
+    animals, weighings, bovT, avT, gerT, items, moves, atividades, extraT,
+    anexos, settings, custo: custoParams };
   const corpo = JSON.stringify(data, null, 1);
   download(`backup-fazendajs-${todayISO()}.json`, corpo, 'application/json');
   // O tamanho importa: com as notas dentro, o arquivo passa de alguns KB para
@@ -4430,6 +4533,9 @@ $('restore-input').addEventListener('change', e => {
         ...bovT.map(x => ({ col: 'bovtrans', del: x.id })),
         ...avT.map(x => ({ col: 'avtrans', del: x.id })),
         ...gerT.map(x => ({ col: 'gertrans', del: x.id })),
+        // Os lançamentos das atividades criadas saem também: sem isto, a
+        // fazenda restaurada ficaria com o financeiro antigo delas por baixo.
+        ...atividades.flatMap(a => arrLivro(a.id).map(x => ({ col: colLivro(a.id), del: x.id }))),
         // As notas do que está sendo substituído saem junto: senão ficariam na
         // nuvem para sempre, sem lançamento que as alcance.
         ...anexosDeTudo().map(id => ({ col: 'anexos', del: id })),
@@ -4443,6 +4549,8 @@ $('restore-input').addEventListener('change', e => {
         ...(d.bovT || []).map(x => ({ col: 'bovtrans', obj: x })),
         ...(d.avT || []).map(x => ({ col: 'avtrans', obj: x })),
         ...(d.gerT || []).map(x => ({ col: 'gertrans', obj: x })),
+        ...(d.atividades || []).flatMap(a => ((d.extraT || {})[a.id] || [])
+          .map(x => ({ col: 'at_' + a.id, obj: x }))),
         ...(d.items || []).map(x => ({ col: 'items', obj: x })),
         ...(d.moves || []).map(x => ({ col: 'moves', obj: x })),
         // As notas fiscais do backup voltam para a coleção delas. Sem isto, os
@@ -4457,6 +4565,11 @@ $('restore-input').addEventListener('change', e => {
       animals = d.animals || []; weighings = d.weighings || [];
       bovT = d.bovT || []; avT = d.avT || []; gerT = d.gerT || [];
       items = d.items || []; moves = d.moves || [];
+      // A lista de atividades entra antes dos lançamentos delas, pelo mesmo
+      // motivo do espelho: sem dono, extraT não é lido por ninguém.
+      extraT = {};
+      aplicarAtividades(d.atividades);
+      Object.keys(d.extraT || {}).forEach(id => { if (ehExtra(id)) extraT[id] = d.extraT[id] || []; });
       if (d.settings && Number.isFinite(d.settings.yield)) settings.yield = d.settings.yield;
       if (d.custo) custoParams = Object.assign({}, CUSTO_VAZIO, d.custo);
       detailAnimal = null; detailItem = null; closeAllM();
@@ -4466,6 +4579,7 @@ $('restore-input').addEventListener('change', e => {
       const farmDoc = {};
       if (d.settings && Number.isFinite(d.settings.yield)) farmDoc.yield = d.settings.yield;
       if (d.custo) farmDoc.custo = Object.assign({}, CUSTO_VAZIO, d.custo);
+      farmDoc.atividades = atividades;
       // salvarFazenda em vez da nuvem direta: sem internet os ajustes entram na
       // fila em vez de derrubar a restauração inteira num "arquivo inválido".
       if (Object.keys(farmDoc).length) salvarFazenda(farmDoc);
@@ -4854,6 +4968,105 @@ $('install-btn').addEventListener('click', async () => {
   $('install-banner').hidden = true; deferredPrompt = null;
 });
 $('close-banner').addEventListener('click', () => { $('install-banner').hidden = true; localStorage.setItem('fjs-install-dismissed', '1'); });
+
+// ===== Atividades da fazenda =====
+// A lista mora no documento da fazenda, junto dos outros ajustes, e por isso
+// chega sozinha em todos os aparelhos. Cada atividade guarda os lançamentos
+// dela numa coleção própria — o nome dela sai do id, nunca do nome escrito,
+// senão renomear "Soja" perderia todo o financeiro da soja.
+const chaveNome = n => semAcento(String(n || '').trim()).replace(/\s+/g, ' ');
+function erroAtividade(msg) {
+  const e = $('at-erro');
+  if (!msg) { e.hidden = true; return; }
+  e.hidden = false; e.textContent = msg;
+}
+function nomeAtividadeValido(nome, idIgnorar) {
+  const limpo = String(nome || '').trim();
+  if (!limpo) return 'Escreva o nome da atividade.';
+  if (limpo.length > 40) return 'Nome muito comprido — use até 40 caracteres.';
+  const k = chaveNome(limpo);
+  if (LIVROS_FIXOS.some(b => chaveNome(NOME_FIXO[b]) === k)) {
+    return `"${limpo}" já é uma das atividades fixas.`;
+  }
+  if (atividades.some(a => a.id !== idIgnorar && chaveNome(a.nome) === k)) {
+    return `Já existe uma atividade chamada "${limpo}".`;
+  }
+  return '';
+}
+function guardarAtividades() {
+  recomputarLivros();
+  salvarFazenda({ atividades: atividades.map(a => ({ id: a.id, nome: a.nome })) });
+  salvarEspelho(true);
+  if (db && farm) subscribe();
+  renderAtividades();
+  render();
+}
+function renderAtividades() {
+  const box = $('at-lista');
+  if (!box) return;
+  const linha = (nome, quantos, botoes) =>
+    `<div class="at-linha"><div class="at-info"><b>${esc(nome)}</b>`
+    + `<span class="at-n mono">${quantos} lançamento(s)</span></div>${botoes}</div>`;
+  box.innerHTML = LIVROS_FIXOS.map(b =>
+      linha(NOME_FIXO[b], arrLivro(b).length, '<span class="at-fixa mono">fixa</span>'))
+    .concat(atividades.map(a => linha(a.nome, arrLivro(a.id).length,
+      `<div class="at-botoes"><button type="button" class="btn-small" data-at-renomear="${esc(a.id)}">Renomear</button>`
+      + `<button type="button" class="btn-small out" data-at-apagar="${esc(a.id)}">Apagar</button></div>`)))
+    .join('');
+}
+$('menu-atividades').addEventListener('click', () => {
+  closeAllM(); erroAtividade(''); $('at-nome').value = '';
+  renderAtividades(); openM('modal-atividades');
+});
+$('at-criar').addEventListener('click', () => {
+  const nome = $('at-nome').value.trim();
+  const erro = nomeAtividadeValido(nome, null);
+  if (erro) { erroAtividade(erro); return; }
+  erroAtividade('');
+  atividades = atividades.concat([{ id: 'at' + uid(), nome }]);
+  $('at-nome').value = '';
+  guardarAtividades();
+  toast(`Atividade "${nome}" criada`);
+});
+document.addEventListener('click', async e => {
+  const ren = e.target.closest && e.target.closest('[data-at-renomear]');
+  if (ren) {
+    const a = atividades.find(x => x.id === ren.dataset.atRenomear);
+    if (!a) return;
+    const novo = prompt('Novo nome da atividade:', a.nome);
+    if (novo == null) return;
+    const erro = nomeAtividadeValido(novo, a.id);
+    if (erro) { alert(erro); return; }
+    // Só o nome muda. O id fica, e com ele todo o financeiro da atividade.
+    atividades = atividades.map(x => x.id === a.id ? { id: x.id, nome: novo.trim() } : x);
+    guardarAtividades();
+    toast('Atividade renomeada');
+    return;
+  }
+  const del = e.target.closest && e.target.closest('[data-at-apagar]');
+  if (!del) return;
+  const a = atividades.find(x => x.id === del.dataset.atApagar);
+  if (!a) return;
+  const lancs = arrLivro(a.id).slice();
+  // Apagar a atividade apaga o dinheiro dela. Isso precisa estar escrito com o
+  // número na frente, antes do toque — depois não há como voltar.
+  const aviso = lancs.length
+    ? `Apagar a atividade "${a.nome}" e os ${lancs.length} lançamento(s) dela?\n\n`
+      + 'Isto NÃO pode ser desfeito e vale para todos os aparelhos.\n\n'
+      + 'Se quiser guardar esses lançamentos, cancele e baixe um backup antes.'
+    : `Apagar a atividade "${a.nome}"?`;
+  if (!confirm(aviso)) return;
+  const col = colLivro(a.id);
+  // As contas a prazo dela saem do calendário junto: lembrete de uma atividade
+  // que não existe mais não teria como ser rastreado até a origem.
+  agendarMudanca([], a.id, lancs.filter(emAberto).map(x => x.id));
+  atividades = atividades.filter(x => x.id !== a.id);
+  delete extraT[a.id];
+  guardarAtividades();
+  try { await batchWrite(lancs.map(x => ({ col, del: x.id }))); }
+  catch (err) { toast('A atividade saiu daqui — os lançamentos somem da nuvem quando houver sinal'); }
+  toast(`Atividade "${a.nome}" apagada`);
+});
 
 // ===== Ícone da tela de início =====
 // O logo da fazenda mudou, mas o atalho já instalado continua com o desenho
