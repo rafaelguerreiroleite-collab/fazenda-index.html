@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 76;
+const VERSAO = 77;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -639,6 +639,53 @@ function gmdTotal(ws) { return ws.length >= 2 ? gmdBetween(ws[0], ws[ws.length -
 function gmdRecent(ws) { return ws.length >= 2 ? gmdBetween(ws[ws.length - 2], ws[ws.length - 1]) : null; }
 const gmdCls = g => !Number.isFinite(g) ? '' : g < 0.4 ? 'gmd-low' : g < 0.8 ? 'gmd-mid' : g < 1.2 ? 'gmd-good' : 'gmd-great';
 
+// ===== Carência de medicamento =====
+// O cadastro do item guarda a carência em dias. O cadastro do animal guarda a
+// data do último manejo e o produto usado. Os dois existiam desde sempre e
+// NINGUÉM cruzava os dois — então o aplicativo não sabia responder a única
+// pergunta que importa antes de mandar boi para o abate: este animal já pode
+// sair? Errar isso é resíduo de medicamento na carne, e é a pessoa que
+// responde por isso, não o aplicativo.
+const somarDias = (iso, n) => {
+  const d = new Date(iso + 'T12:00');
+  if (isNaN(d)) return null;
+  d.setDate(d.getDate() + n);
+  const p = x => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+// Casar o que foi DIGITADO no manejo com um item do estoque. Igualdade primeiro;
+// depois o item cujo nome contém o texto digitado como palavra inteira, que é o
+// caso de "Ivermectina" digitado e "Vermífugo (Ivermectina)" cadastrado.
+// Pedaço solto não serve: "sal" não pode casar com "Salmonela".
+function itemDoMedicamento(texto) {
+  const alvo = semAcento(texto).trim();
+  if (alvo.length < 3) return null;
+  const comCarencia = items.filter(it => Number.isFinite(it.carencia) && it.carencia > 0);
+  const exato = comCarencia.find(it => semAcento(it.name).trim() === alvo);
+  if (exato) return exato;
+  const palavras = n => semAcento(n).split(/[^a-z0-9]+/).filter(Boolean);
+  return comCarencia.find(it => {
+    const ps = palavras(it.name);
+    return palavras(alvo).every(p => ps.includes(p));
+  }) || null;
+}
+// null quando não há como saber (sem manejo, sem produto, produto fora do
+// estoque, item sem carência cadastrada). Não inventar é parte do trabalho:
+// um "liberado" falso é pior do que um "não sei".
+function carenciaDoAnimal(a, hoje) {
+  if (!a || !a.manejoData || !a.manejoMedicamento) return null;
+  const it = itemDoMedicamento(a.manejoMedicamento);
+  if (!it) return null;
+  const liberadoEm = somarDias(a.manejoData, it.carencia);
+  if (!liberadoEm) return null;
+  const faltam = daysBetween(hoje || todayISO(), liberadoEm);
+  return { item: it, dias: it.carencia, liberadoEm, faltam, bloqueado: faltam > 0 };
+}
+const animaisEmCarencia = hoje => animals.filter(noRebanho)
+  .map(a => ({ a, c: carenciaDoAnimal(a, hoje) }))
+  .filter(x => x.c && x.c.bloqueado)
+  .sort((x, y) => y.c.faltam - x.c.faltam);
+
 // ===== GMD mês a mês =====
 // O GMD de uma pesagem para a outra continua onde estava — é o que serve no
 // curral, com o animal na balança. Este aqui responde outra coisa: em que MÊS
@@ -995,6 +1042,8 @@ function textoDoAnimal(a) {
   return semAcento([
     a.ident, a.cat, a.raca, a.notes,
     a.manejoMedicamento, a.manejoData ? fmtBRfull(a.manejoData) : '',
+    (() => { const c = carenciaDoAnimal(a); return c && c.bloqueado
+      ? 'carencia bloqueado nao pode abate ' + fmtBRfull(c.liberadoEm) : ''; })(),
     ultima ? fmtBRfull(ultima.date) : 'nunca pesado',
     ultima ? fmtN(ultima.weight, 0) : '',
     a.dead ? 'morto ' + (a.deadCause || '') + ' ' + (a.deadDate ? fmtBRfull(a.deadDate) : '') : '',
@@ -1325,6 +1374,8 @@ function renderRebanho() {
       <div class="item-main">
         <div class="item-title">${esc(a.ident)}</div>
         <div class="item-subtitle">${esc(catERaca(a))} · ${ws.length} pesag.${a.manejoData ? ' · manejo ' + fmtBR(a.manejoData) : ''}</div>
+        ${(() => { const c = carenciaDoAnimal(a); return c && c.bloqueado
+          ? `<div class="car-tarja mono">⚠ carência até ${fmtBR(c.liberadoEm)} · faltam ${c.faltam} dia${c.faltam > 1 ? 's' : ''}</div>` : ''; })()}
         <div class="item-quando mono">${last ? 'última ' + fmtBR(last.date) : 'nunca pesado'}</div>
       </div>
       <div class="item-side">
@@ -1333,6 +1384,16 @@ function renderRebanho() {
       </div>
     </div>`;
   }).join('');
+  const emCar = animaisEmCarencia();
+  $('bov-carencia').innerHTML = !emCar.length ? '' : dobravel('carencia',
+    cabecaDobra('Em carência de medicamento', String(emCar.length),
+      'não podem ir para o abate', true),
+    emCar.map(({ a, c }) => `<div class="car-linha">
+      <span class="car-brinco">${esc(a.ident)}</span>
+      <span class="car-med mono">${esc(c.item.name)} · ${c.dias}d</span>
+      <span class="car-quando mono">libera ${fmtBR(c.liberadoEm)}</span>
+    </div>`).join(''));
+  $('bov-carencia').hidden = !emCar.length;
   $('bov-busca-aviso').innerHTML =
     avisoDaBuscaLista(activeAnimals.length - naBuscaBov.length, 'bov-busca', 'animal', 'animais');
   $('bov-empty').hidden = n > 0;
@@ -1704,6 +1765,10 @@ function renderAnimalDetail() {
       </div>
       <div class="meta">${esc(catERaca(a))}${a.entryDate ? ' · entrada ' + fmtBR(a.entryDate) : ''} · ${ws.length} pesagens${arro != null ? ' · ~' + fmtN(arro, 1) + ' @ (rend. ' + settings.yield + '%)' : ''}</div>
       ${a.manejoData ? `<div class="meta">Manejo sanitário: ${fmtBR(a.manejoData)}${a.manejoMedicamento ? ' — ' + esc(a.manejoMedicamento) : ''}</div>` : ''}
+      ${(() => { const c = carenciaDoAnimal(a); if (!c) return '';
+        return c.bloqueado
+          ? `<div class="car-aviso mono">⚠ EM CARÊNCIA — ${esc(c.item.name)}, ${c.dias} dias. Libera em ${fmtBR(c.liberadoEm)} (faltam ${c.faltam}).</div>`
+          : `<div class="car-ok mono">✓ Carência de ${esc(c.item.name)} cumprida em ${fmtBR(c.liberadoEm)}.</div>`; })()}
       ${vendidoDeVerdade(a) ? `<div class="meta">Vendido${a.soldDate ? ' em ' + fmtBR(a.soldDate) : ''}${
         Number.isFinite(a.soldWeight) ? ' · ' + fmtN(a.soldWeight, 0) + ' kg' : ''}${
         Number.isFinite(a.soldPrice) ? ' · ' + fmtRS(a.soldPrice) : ''}${
@@ -2605,8 +2670,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=76';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=76';
+const PDFJS_JS = 'vendor/pdf.min.js?v=77';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=77';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -2839,6 +2904,33 @@ function closeAllM() {
 }
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeAllM));
 
+// Os fixos continuam na lista para quem ainda não cadastrou nada no estoque;
+// os do estoque vêm na frente, e os que têm carência trazem o prazo escrito.
+const MEDICAMENTOS_FIXOS = ['Vacina aftosa', 'Vacina brucelose', 'Vermífugo (Ivermectina)',
+  'Antibiótico', 'Carrapaticida', 'Suplemento mineral'];
+function preencherMedicamentos() {
+  const dl = $('medicamentos-manejo');
+  if (!dl) return;
+  const doEstoque = items.slice()
+    .sort((x, y) => (Number.isFinite(y.carencia) ? 1 : 0) - (Number.isFinite(x.carencia) ? 1 : 0)
+      || x.name.localeCompare(y.name, 'pt-BR'));
+  const vistos = new Set();
+  const linhas = [];
+  doEstoque.forEach(it => {
+    const k = semAcento(it.name);
+    if (vistos.has(k)) return;
+    vistos.add(k);
+    const rot = Number.isFinite(it.carencia) && it.carencia > 0
+      ? `carência ${it.carencia} dias` : 'do estoque';
+    linhas.push(`<option value="${esc(it.name)}">${rot}</option>`);
+  });
+  MEDICAMENTOS_FIXOS.forEach(n => {
+    if (vistos.has(semAcento(n))) return;
+    vistos.add(semAcento(n));
+    linhas.push(`<option value="${esc(n)}"></option>`);
+  });
+  dl.innerHTML = linhas.join('');
+}
 function openAnimal(a) {
   $('animal-modal-title').textContent = a ? 'Editar animal' : 'Novo animal';
   $('an-id').value = a ? a.id : '';
@@ -2849,6 +2941,11 @@ function openAnimal(a) {
   $('an-entry-weight').value = a ? numParaCampo(a.entryWeight) : '';
   $('an-manejo-data').value = a ? (a.manejoData || '') : '';
   $('an-manejo-medicamento').value = a ? (a.manejoMedicamento || '') : '';
+  // Os medicamentos DO ESTOQUE entram na sugestão, os com carência primeiro.
+  // Sem isto o nome era digitado à mão e quase nunca casava com o item — e a
+  // carência, que depende desse encontro, nunca disparava. Sugerir o nome
+  // exato é o que faz o cruzamento acontecer.
+  preencherMedicamentos();
   $('an-notes').value = a ? (a.notes || '') : '';
   $('an-sold').checked = a ? !!a.sold : false;
   $('an-sold-date').value = a && a.soldDate ? a.soldDate : todayISO();
@@ -2911,6 +3008,21 @@ $('form-animal').addEventListener('submit', e => {
   // se OUTRO animal ativo já usa a identificação — e só quando este ficará ativo.
   const dupe = ativo && animals.find(x => noRebanho(x) && chaveBrinco(x.ident) === chaveBrinco(ident) && x.id !== id);
   if (dupe) { toast('Já existe animal ativo com essa identificação'); return; }
+  // Marcar como vendido é o momento em que a carência deixa de ser aviso e
+  // passa a ser consequência. A conta é feita com a DATA DA VENDA, não com
+  // hoje: vender daqui a um mês pode estar liberado, vender agora não.
+  if (sold) {
+    const dataVenda = $('an-sold-date').value || todayISO();
+    const prov = { manejoData: $('an-manejo-data').value || null,
+      manejoMedicamento: $('an-manejo-medicamento').value.trim() || null };
+    const c = carenciaDoAnimal(prov, dataVenda);
+    if (c && c.bloqueado && !confirm(
+        `⚠️ ESTE ANIMAL ESTÁ EM CARÊNCIA\n\n`
+        + `${c.item.name} — carência de ${c.dias} dias, aplicada em ${fmtBR(prov.manejoData)}.\n`
+        + `Só libera em ${fmtBR(c.liberadoEm)} — faltam ${c.faltam} dia(s) para a data da venda.\n\n`
+        + 'Abater antes disso deixa resíduo de medicamento na carne, e quem responde é você.\n\n'
+        + 'Registrar a venda mesmo assim?')) return;
+  }
   const soldPriceRaw = parseNum($('an-sold-price').value);
   const data = {
     ident, cat: $('an-cat').value.trim(),

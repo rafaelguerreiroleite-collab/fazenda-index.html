@@ -21,9 +21,10 @@ import legibilidade from './legibilidade.mjs';
 import icones from './icones.mjs';
 import atividades from './atividades.mjs';
 import buscanolista from './buscanolista.mjs';
+import carencia from './carencia.mjs';
 import regras from './regras.mjs';
 
-const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Auditoria', auditoria], ['Período', periodo], ['Calendário', calendario], ['Busca', busca], ['Arroba na venda', arroba], ['GMD mês a mês', gmdmes], ['Layout', layout], ['Legibilidade', legibilidade], ['Ícones', icones], ['Atividades', atividades], ['Busca nas listas', buscanolista], ['Regras', regras], ['Varredura', varredura]];
+const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Auditoria', auditoria], ['Período', periodo], ['Calendário', calendario], ['Busca', busca], ['Arroba na venda', arroba], ['GMD mês a mês', gmdmes], ['Layout', layout], ['Legibilidade', legibilidade], ['Ícones', icones], ['Atividades', atividades], ['Busca nas listas', buscanolista], ['Carência', carencia], ['Regras', regras], ['Varredura', varredura]];
 let total = 0;
 
 for (const [nome, rodar] of baterias) {

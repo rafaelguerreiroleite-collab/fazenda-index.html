@@ -18,8 +18,8 @@
      que ele nunca viu não tem como ser confundido com nada que já tenha. -->
 <link rel="apple-touch-icon" sizes="180x180" href="icone-fazenda-js.png" />
 <link rel="apple-touch-icon" href="icone-fazenda-js.png" />
-<link rel="icon" type="image/png" href="icon-192.png?v=76" />
-<link rel="stylesheet" href="style.css?v=76" />
+<link rel="icon" type="image/png" href="icon-192.png?v=77" />
+<link rel="stylesheet" href="style.css?v=77" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -113,6 +113,9 @@
   <div class="subview active" id="bov-rebanho">
     <button class="btn-weigh" id="btn-weigh-mode">⚖️ Modo pesagem</button>
     <div class="stats-row" id="bov-stats"></div>
+    <!-- Aviso legal fica ACIMA de tudo o que dobra: "este boi não pode ir
+         para o abate" não pode depender de rolar a tela nem de abrir bloco. -->
+    <div id="bov-carencia" hidden></div>
     <!-- Dobrável em HTML, e não montado pelo JS: aqui dentro há um campo de
          digitação, e recriá-lo a cada desenho tiraria o foco no meio da conta. -->
     <details class="dobra" id="bov-est-dobra" data-dobra="est">
@@ -944,6 +947,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=76"></script>
+<script src="app.js?v=77"></script>
 </body>
 </html>
