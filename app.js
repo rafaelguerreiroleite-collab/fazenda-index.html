@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 71;
+const VERSAO = 72;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -271,6 +271,25 @@ async function batchWrite(ops) {
     throw e;
   }
 }
+
+// Configuração do Firebase que o aplicativo já usa. Ela NÃO é segredo: o
+// próprio Firebase Hosting a publica em /__/firebase/init.json, de onde
+// qualquer um que abra o site pode lê-la, e ela vai dentro de todo aplicativo
+// web que usa Firebase. Quem protege os dados é a REGRA do Firestore mais o
+// código da fazenda — nunca este bloco.
+//
+// Estava sendo exigida na mão, e isso trancou o dono do aplicativo do lado de
+// fora quando os dados do site foram limpos do celular: para voltar a ver o
+// próprio rebanho ele teria de achar um bloco de configuração no console do
+// Google, de pé, no celular. Agora vem embutida, e a tela pede só o código.
+const CONFIG_PADRAO = {
+  apiKey: 'AIzaSyDFdvoEP6eklxgWLH5jKO1D741LLaKS3kA',
+  authDomain: 'fazenda-e3652.firebaseapp.com',
+  projectId: 'fazenda-e3652',
+  storageBucket: 'fazenda-e3652.firebasestorage.app',
+  messagingSenderId: '893414271627',
+  appId: '1:893414271627:web:1c8f93bb26fa0b9761c28e'
+};
 
 function parseConfig(text) {
   const s = text.indexOf('{'), e = text.lastIndexOf('}');
@@ -2418,8 +2437,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=71';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=71';
+const PDFJS_JS = 'vendor/pdf.min.js?v=72';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=72';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -4753,20 +4772,33 @@ $('fab').addEventListener('click', () => {
 // ===== Setup =====
 $('su-connect').addEventListener('click', () => {
   const err = $('su-error'); err.hidden = true;
-  const cfg = parseConfig($('su-config').value);
+  const colado = $('su-config').value.trim();
+  // Em branco usa a configuração de sempre. Colado, TEM de ser válido: aceitar
+  // um texto quebrado caindo no padrão ligaria a pessoa, calada, num projeto
+  // que não é o dela — e ela só descobriria pela fazenda vazia.
+  const cfg = colado ? parseConfig(colado) : CONFIG_PADRAO;
   const farmCode = $('su-farm').value.trim().toLowerCase().replace(/\s+/g, '-');
-  if (!cfg) { err.hidden = false; err.textContent = 'Configuração inválida. Cole o bloco firebaseConfig completo, com apiKey e projectId.'; return; }
+  if (!cfg) { err.hidden = false; err.textContent = 'Configuração inválida. Cole o bloco firebaseConfig completo, com apiKey e projectId — ou deixe em branco para usar a de sempre.'; return; }
+  if (!farmCode) {
+    err.hidden = false;
+    err.textContent = 'Escreva o código da fazenda — é ele que encontra os seus dados.';
+    return;
+  }
   // Login anônimo é aberto a qualquer um, e as regras liberam LEITURA E ESCRITA
   // dentro de farms/{código} para qualquer autenticado. Não há identidade e não
   // há como limitar tentativas: quem adivinha o código lê tudo e APAGA tudo. O
   // comprimento do código é literalmente a única barreira que existe.
-  if (!farmCode || farmCode.length < 12) {
-    err.hidden = false;
-    err.textContent = 'O código da fazenda é a SENHA dos seus dados: quem o adivinhar '
-      + 'lê e apaga tudo. Use pelo menos 12 caracteres, com algo que ninguém '
-      + 'associe à fazenda (ex.: js-boi-2026-x7k9m2).';
-    return;
-  }
+  //
+  // Mas isto AVISA, não barra. Barrar código curto trancava do lado de fora
+  // quem já tinha uma fazenda criada com um código curto — quem mais precisa
+  // desta tela é justamente quem está voltando, e recusar o código certo dele
+  // seria o pior defeito possível aqui.
+  if (farmCode.length < 12 && !confirm(
+      'Esse código tem menos de 12 caracteres.\n\n'
+      + 'O código é a SENHA dos seus dados: quem adivinhar lê e apaga tudo.\n\n'
+      + 'Se é o código de uma fazenda que você JÁ tem, siga em frente. '
+      + 'Se está criando agora, volte e use algo mais longo '
+      + '(ex.: js-boi-2026-x7k9m2).\n\nContinuar assim mesmo?')) return;
   LS.s('fjs-fbconfig', cfg); LS.s('fjs-farm', farmCode);
   $('setup-screen').hidden = true;
   connect(cfg, farmCode);
@@ -4883,9 +4915,13 @@ $('menu-atualizar').addEventListener('click', () => { closeAllM(); procurarAtual
 // ===== Início =====
 (function init() {
   render();
-  const cfg = LS.g('fjs-fbconfig', null);
+  // Sem configuração guardada, usa a embutida: o que decide se o aplicativo
+  // abre ou pede tela de entrada é ter o CÓDIGO DA FAZENDA, que é o que
+  // realmente encontra os dados. Antes, perder a configuração sozinha já
+  // mandava para a tela de entrada mesmo com o código na mão.
+  const cfg = LS.g('fjs-fbconfig', null) || CONFIG_PADRAO;
   const savedFarm = LS.g('fjs-farm', null);
-  if (cfg && savedFarm) {
+  if (savedFarm) {
     farm = savedFarm;
     if (carregarEspelho(savedFarm)) render();   // dados do aparelho já na tela
     atualizarPendentes();

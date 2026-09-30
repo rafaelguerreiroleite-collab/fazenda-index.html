@@ -18,8 +18,8 @@
      que ele nunca viu não tem como ser confundido com nada que já tenha. -->
 <link rel="apple-touch-icon" sizes="180x180" href="icone-fazenda-js.png" />
 <link rel="apple-touch-icon" href="icone-fazenda-js.png" />
-<link rel="icon" type="image/png" href="icon-192.png?v=71" />
-<link rel="stylesheet" href="style.css?v=71" />
+<link rel="icon" type="image/png" href="icon-192.png?v=72" />
+<link rel="stylesheet" href="style.css?v=72" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -31,25 +31,32 @@
     <h2>Fazenda <span class="italic">J.S</span></h2>
     <p class="setup-sub">Sincronização entre aparelhos</p>
 
-    <label class="mono">1 · Cole a configuração do Firebase</label>
-    <textarea id="su-config" rows="6" placeholder="Cole aqui o bloco firebaseConfig copiado do site do Firebase"></textarea>
-
-    <label class="mono">2 · Código da fazenda</label>
-    <input type="text" id="su-farm" placeholder="Ex: fazendajs-2026" autocapitalize="off" autocomplete="off" />
+    <label class="mono">Código da fazenda</label>
+    <input type="text" id="su-farm" placeholder="o mesmo código dos outros aparelhos"
+           autocapitalize="off" autocomplete="off" />
     <p class="small">Use o MESMO código em todos os aparelhos. Quem tem o código acessa os dados — trate como senha.</p>
 
     <button class="btn-primary setup-btn" id="su-connect">Conectar</button>
     <p class="setup-error mono" id="su-error" hidden></p>
 
     <details>
-      <summary>Como obter a configuração (resumo)</summary>
+      <summary>Esqueci o código da fazenda</summary>
       <ol class="setup-steps">
-        <li>console.firebase.google.com → criar projeto</li>
-        <li>Firestore Database → criar (São Paulo) → colar regras</li>
-        <li>Authentication → ativar login Anônimo</li>
-        <li>Configurações do projeto → Adicionar app Web → copiar o firebaseConfig</li>
+        <li>Em outro aparelho onde o aplicativo já funciona: <b>Menu (⋯)</b> — o código
+          aparece na primeira linha, e tocar nele copia.</li>
+        <li>Sem outro aparelho: <b>console.firebase.google.com</b> → seu projeto →
+          <b>Firestore Database</b> → coleção <b>farms</b>. Os nomes que aparecem ali
+          são os códigos.</li>
       </ol>
-      <p class="small">O passo a passo completo está na conversa do Claude.</p>
+      <p class="small">Seus dados continuam guardados na nuvem debaixo desse código —
+        não se perdem por causa deste aparelho.</p>
+    </details>
+
+    <details>
+      <summary>Usar outro projeto do Firebase</summary>
+      <p class="small">Só serve para quem vai guardar os dados numa conta diferente
+        da que este aplicativo já usa. Em branco, ele usa a de sempre.</p>
+      <textarea id="su-config" rows="5" placeholder="Cole aqui o bloco firebaseConfig do outro projeto"></textarea>
     </details>
   </div>
 </div>
@@ -884,6 +891,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=71"></script>
+<script src="app.js?v=72"></script>
 </body>
 </html>

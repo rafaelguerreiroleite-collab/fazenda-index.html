@@ -138,25 +138,90 @@ export default async function () {
   // Login anônimo é aberto ao mundo; as regras liberam LEITURA E ESCRITA para
   // qualquer autenticado dentro de farms/{código}. Quem adivinha o código
   // apaga a fazenda inteira. O comprimento do código É a segurança.
+  //
+  // Mas código curto AVISA e não barra, e a diferença aqui foi paga com dor:
+  // barrando, quem já tinha fazenda criada com código curto ficava trancado do
+  // lado de fora do próprio rebanho — e quem mais precisa desta tela é
+  // exatamente quem está voltando. Então o que se cobra é: avisar com todas as
+  // letras, obedecer o "não" de quem avisou, e deixar passar o "sim".
   t.secao('força do código da fazenda');
   const codigo = await pagina.evaluate(() => {
-    const testar = valor => {
-      $('su-config').value = JSON.stringify({ apiKey: 'a', projectId: 'p' });
+    const original = window.confirm;
+    let visto = '';
+    const testar = (valor, resposta) => {
+      visto = '';
+      window.confirm = m => { visto = m; return resposta; };
       $('su-farm').value = valor;
+      $('su-config').value = '';
       $('su-error').hidden = true; $('su-error').textContent = '';
+      localStorage.removeItem('fjs-farm');
       $('su-connect').click();
-      return { recusou: !$('su-error').hidden, motivo: $('su-error').textContent };
+      return { erro: $('su-error').hidden ? '' : $('su-error').textContent,
+        avisou: visto, conectou: !!localStorage.getItem('fjs-farm') };
     };
-    const r = { curto: testar('js26'), medio: testar('fazenda2026'), bom: testar('js-boi-2026-x7k9m2') };
+    const r = {
+      vazio: testar('', true),
+      curtoNao: testar('js26', false),
+      curtoSim: testar('js26', true),
+      medio: testar('fazenda2026', false),
+      bom: testar('js-boi-2026-x7k9m2', true)
+    };
+    window.confirm = original;
     localStorage.setItem('fjs-farm', JSON.stringify('demo'));
     $('setup-screen').hidden = true;
     return r;
   });
-  t.conferir('código curto é recusado', codigo.curto.recusou === true, codigo.curto.motivo);
-  t.conferir('e a recusa explica que o código é a senha dos dados',
-    /senha|apaga|adivinh|proteg/i.test(codigo.curto.motivo), codigo.curto.motivo);
-  t.conferir('código adivinhável ainda é recusado', codigo.medio.recusou === true, codigo.medio.motivo);
-  t.conferir('código forte passa', codigo.bom.recusou === false, codigo.bom.motivo);
+  t.conferir('código vazio é recusado', !!codigo.vazio.erro && !codigo.vazio.conectou,
+    codigo.vazio.erro);
+  t.conferir('código curto avisa antes de seguir', !!codigo.curtoNao.avisou,
+    (codigo.curtoNao.avisou || 'não avisou').split('\n')[0]);
+  t.conferir('e o aviso explica que o código é a senha dos dados',
+    /senha|apaga|adivinh|proteg/i.test(codigo.curtoNao.avisou), codigo.curtoNao.avisou.slice(0, 60));
+  t.conferir('quem responde "não" não é conectado', codigo.curtoNao.conectou === false);
+  // O caso que importa para quem está voltando: o código curto é o DELE, e
+  // confirmando ele entra.
+  t.conferir('quem responde "sim" entra com o código que já tinha',
+    codigo.curtoSim.conectou === true && !codigo.curtoSim.erro, codigo.curtoSim.erro);
+  t.conferir('código adivinhável também avisa', !!codigo.medio.avisou);
+  t.conferir('código forte passa sem incomodar',
+    codigo.bom.conectou === true && !codigo.bom.avisou && !codigo.bom.erro, codigo.bom.erro);
+
+  // ---------- a configuração do Firebase não tranca ninguém do lado de fora ----------
+  // Ela não é segredo: o Firebase Hosting publica em /__/firebase/init.json.
+  // Exigir que fosse colada à mão só servia para trancar o dono do aplicativo
+  // fora do próprio rebanho quando os dados do site sumiam do celular.
+  t.secao('configuração embutida');
+  const emb = await pagina.evaluate(() => ({
+    temPadrao: !!(CONFIG_PADRAO && CONFIG_PADRAO.apiKey && CONFIG_PADRAO.projectId),
+    campoEscondido: !!$('su-config').closest('details'),
+    guardou: (() => {
+      const original = window.confirm; window.confirm = () => true;
+      localStorage.removeItem('fjs-fbconfig'); localStorage.removeItem('fjs-farm');
+      $('su-config').value = ''; $('su-farm').value = 'js-boi-2026-x7k9m2';
+      $('su-connect').click();
+      window.confirm = original;
+      const g = LS.g('fjs-fbconfig', null);
+      return g && g.projectId;
+    })(),
+    // Texto quebrado NÃO pode cair no padrão calado: ligaria a pessoa a um
+    // projeto que não é o dela, e ela só descobriria pela fazenda vazia.
+    recusaColadoInvalido: (() => {
+      $('su-error').hidden = true;
+      $('su-config').value = 'isto não é configuração nenhuma';
+      $('su-farm').value = 'js-boi-2026-x7k9m2';
+      $('su-connect').click();
+      return !$('su-error').hidden;
+    })()
+  }));
+  t.conferir('o aplicativo traz a configuração embutida', emb.temPadrao);
+  t.conferir('e o campo de colar saiu da frente', emb.campoEscondido);
+  t.conferir('em branco, conecta com a configuração de sempre',
+    emb.guardou === 'fazenda-e3652', String(emb.guardou));
+  t.conferir('texto inválido colado é recusado, não ignorado', emb.recusaColadoInvalido);
+  await pagina.evaluate(() => {
+    localStorage.setItem('fjs-farm', JSON.stringify('demo'));
+    $('su-config').value = ''; $('su-error').hidden = true; $('setup-screen').hidden = true;
+  });
 
   // ---------- escrita sem sinal COM o SDK carregado ----------
   // A bateria "Sem sinal" cobre o caso em que o SDK nem carregou (db === null).
