@@ -40,3 +40,22 @@ jobs:
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 }}'
           channelId: live
           projectId: fazenda-e3652
+
+  # As regras do Firestore NUNCA eram publicadas: o arquivo ficava no
+  # repositório como documentação, e o que valia em produção era o que
+  # estivesse colado no console. Foi assim que uma regra que se descrevia como
+  # protegida ficou aberta sem ninguém ver. Agora sai junto com o resto.
+  regras:
+    needs: testes
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publicar as regras do Firestore
+        env:
+          CONTA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 }}
+        run: |
+          printf '%s' "$CONTA" > "$RUNNER_TEMP/conta.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/conta.json"
+          npx --yes firebase-tools@13 deploy --only firestore:rules \
+            --project fazenda-e3652 --non-interactive
