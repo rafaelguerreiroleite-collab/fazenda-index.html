@@ -213,6 +213,77 @@ export default async function () {
       return !$('su-error').hidden;
     })()
   }));
+  // ---------- não trancar o dono do lado de fora ----------
+  // Perder o código da fazenda é perder o acesso ao próprio rebanho. O
+  // aplicativo tinha o código guardado em DOIS lugares e não olhava em nenhum
+  // dos dois: no espelho local (que sempre gravou o campo `farm` junto com os
+  // dados) e no backup (que guardava a fazenda inteira menos a chave dela).
+  t.secao('recuperar o código da fazenda');
+  // O backup é montado de forma assíncrona (ele busca as notas fiscais antes
+  // de escrever o arquivo): devolver o gancho no mesmo instante do clique
+  // pegaria o download de volta antes de ele acontecer.
+  await pagina.evaluate(() => {
+    window.__backup = null; window.__download = window.download;
+    window.download = (n, c) => { window.__backup = c; };
+    farm = 'js-boi-2026-x7k9m2';
+    $('menu-backup').click();
+  });
+  await pagina.waitForTimeout(500);
+  const doBackup = await pagina.evaluate(() => {
+    window.download = window.__download;
+    return window.__backup;
+  });
+  const dadosBackup = JSON.parse(doBackup);
+  t.conferir('o backup guarda o código da fazenda dentro',
+    dadosBackup.farm === 'js-boi-2026-x7k9m2', String(dadosBackup.farm));
+
+  // O espelho local já gravava o código; o arranque passa a aproveitá-lo.
+  const doEspelho = await pagina.evaluate(() => {
+    localStorage.removeItem('fjs-farm');
+    const e = LS.g(ESPELHO, null) || {};
+    e.farm = 'js-boi-2026-x7k9m2';
+    LS.s(ESPELHO, e);
+    // Repete a decisão do arranque sem recarregar a página.
+    const esp = LS.g(ESPELHO, null);
+    const achado = LS.g('fjs-farm', null) || (esp && esp.farm) || null;
+    return { achado, tinhaChave: !!LS.g('fjs-farm', null) };
+  });
+  t.conferir('sem a chave do código, o espelho local devolve ele',
+    doEspelho.achado === 'js-boi-2026-x7k9m2' && !doEspelho.tinhaChave, String(doEspelho.achado));
+
+  // A tela de entrada lê o código de um arquivo de backup.
+  await pagina.evaluate(() => {
+    localStorage.setItem('fjs-farm', JSON.stringify('demo'));
+    $('setup-screen').hidden = false; $('su-farm').value = ''; $('su-error').hidden = true;
+  });
+  await pagina.setInputFiles('#su-backup-input',
+    { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(doBackup, 'utf-8') });
+  await pagina.waitForTimeout(300);
+  t.conferir('a tela de entrada lê o código de um backup',
+    await pagina.evaluate(() => $('su-farm').value) === 'js-boi-2026-x7k9m2',
+    await pagina.evaluate(() => $('su-farm').value));
+
+  // Backup de versão antiga não tem o campo: precisa dizer isso, e não ficar mudo.
+  await pagina.evaluate(() => { $('su-farm').value = ''; $('su-error').hidden = true; });
+  await pagina.setInputFiles('#su-backup-input',
+    { name: 'velho.json', mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify({ app: 'fazendajs', v: 6, animals: [] }), 'utf-8') });
+  await pagina.waitForTimeout(300);
+  const velho = await pagina.evaluate(() => ({
+    erro: $('su-error').hidden ? '' : $('su-error').textContent, campo: $('su-farm').value }));
+  t.conferir('backup antigo sem o código explica o que houve',
+    /versão|guardava/i.test(velho.erro) && velho.campo === '', velho.erro);
+
+  // Arquivo que não é backup nenhum não pode virar código.
+  await pagina.setInputFiles('#su-backup-input',
+    { name: 'qualquer.json', mimeType: 'application/json', buffer: Buffer.from('nada disso', 'utf-8') });
+  await pagina.waitForTimeout(300);
+  const qualquer = await pagina.evaluate(() => ({
+    erro: $('su-error').hidden ? '' : $('su-error').textContent, campo: $('su-farm').value }));
+  t.conferir('arquivo que não é backup é recusado',
+    /não é um backup/i.test(qualquer.erro) && qualquer.campo === '', qualquer.erro);
+  await pagina.evaluate(() => { $('setup-screen').hidden = true; });
+
   t.conferir('o aplicativo traz a configuração embutida', emb.temPadrao);
   t.conferir('e o campo de colar saiu da frente', emb.campoEscondido);
   t.conferir('em branco, conecta com a configuração de sempre',

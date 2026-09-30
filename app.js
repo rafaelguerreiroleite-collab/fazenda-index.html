@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 72;
+const VERSAO = 73;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2437,8 +2437,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=72';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=72';
+const PDFJS_JS = 'vendor/pdf.min.js?v=73';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=73';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -4391,7 +4391,12 @@ $('menu-backup').addEventListener('click', async () => {
   const metas = LIVROS.flatMap(b => arrLivro(b).flatMap(t => t.anexos || []));
   if (metas.length) toast(`Juntando ${metas.length} nota(s) fiscal(is) ao backup…`);
   const { anexos, faltaram } = await anexosParaBackup();
-  const data = { app: 'fazendajs', v: 6, exportedAt: new Date().toISOString(),
+  // O código da fazenda vai DENTRO do backup. Sem ele, o arquivo guardava
+  // tudo menos a chave que abre a porta: quem perdesse o código ficava com o
+  // backup na mão e sem conseguir entrar. O arquivo já continha a fazenda
+  // inteira, então ele sempre foi tão secreto quanto o código — e agora
+  // também serve para voltar.
+  const data = { app: 'fazendajs', v: 7, exportedAt: new Date().toISOString(), farm,
     animals, weighings, bovT, avT, gerT, items, moves, anexos, settings, custo: custoParams };
   const corpo = JSON.stringify(data, null, 1);
   download(`backup-fazendajs-${todayISO()}.json`, corpo, 'application/json');
@@ -4403,7 +4408,7 @@ $('menu-backup').addEventListener('click', async () => {
       + faltaram.slice(0, 8).join('\n') + (faltaram.length > 8 ? `\n… e mais ${faltaram.length - 8}` : '')
       + '\n\nElas não puderam ser lidas agora (provavelmente sem internet).\n'
       + 'Refaça o backup com sinal para guardar as notas junto.');
-  } else toast(`Backup baixado · ${tam}${anexos.length ? ` · ${anexos.length} nota(s)` : ''}`);
+  } else toast(`Backup baixado · ${tam}${anexos.length ? ` · ${anexos.length} nota(s)` : ''} · guarda o código da fazenda`);
 });
 $('menu-restore').addEventListener('click', () => $('restore-input').click());
 $('restore-input').addEventListener('change', e => {
@@ -4770,6 +4775,36 @@ $('fab').addEventListener('click', () => {
 });
 
 // ===== Setup =====
+// Quem chega aqui sem o código está trancado do lado de fora do próprio
+// rebanho. Antes de mandar a pessoa procurar no console do Google, o
+// aplicativo procura no que ela já tem na mão.
+$('su-do-backup').addEventListener('click', () => $('su-backup-input').click());
+$('su-backup-input').addEventListener('change', e => {
+  const f = e.target.files[0];
+  e.target.value = '';                     // o mesmo arquivo pode ser escolhido de novo
+  if (!f) return;
+  const err = $('su-error');
+  const leitor = new FileReader();
+  leitor.onerror = () => { err.hidden = false; err.textContent = 'Não consegui ler esse arquivo.'; };
+  leitor.onload = () => {
+    let d = null;
+    try { d = JSON.parse(String(leitor.result)); } catch (x) { d = null; }
+    if (!d || d.app !== 'fazendajs') {
+      err.hidden = false; err.textContent = 'Esse arquivo não é um backup do Fazenda J.S.'; return;
+    }
+    if (!d.farm) {
+      // Backups antigos (v6 e anteriores) foram gravados sem o código dentro.
+      err.hidden = false;
+      err.textContent = 'Esse backup é de uma versão que ainda não guardava o código junto. '
+        + 'Ele serve para restaurar os dados, mas não para lembrar o código.';
+      return;
+    }
+    err.hidden = true;
+    $('su-farm').value = d.farm;
+    toast('Código encontrado no backup — confira e toque em Conectar');
+  };
+  leitor.readAsText(f);
+});
 $('su-connect').addEventListener('click', () => {
   const err = $('su-error'); err.hidden = true;
   const colado = $('su-config').value.trim();
@@ -4920,7 +4955,13 @@ $('menu-atualizar').addEventListener('click', () => { closeAllM(); procurarAtual
   // realmente encontra os dados. Antes, perder a configuração sozinha já
   // mandava para a tela de entrada mesmo com o código na mão.
   const cfg = LS.g('fjs-fbconfig', null) || CONFIG_PADRAO;
-  const savedFarm = LS.g('fjs-farm', null);
+  // O espelho local sempre guardou o código junto com os dados, e o aplicativo
+  // ignorava isso: bastava a chave 'fjs-farm' sumir para a tela de entrada
+  // aparecer com o código ali do lado, a um palmo, sem ninguém olhar. Agora
+  // olha — e regrava, para não voltar a perguntar.
+  const espelho = LS.g(ESPELHO, null);
+  const savedFarm = LS.g('fjs-farm', null) || (espelho && espelho.farm) || null;
+  if (savedFarm && !LS.g('fjs-farm', null)) LS.s('fjs-farm', savedFarm);
   if (savedFarm) {
     farm = savedFarm;
     if (carregarEspelho(savedFarm)) render();   // dados do aparelho já na tela
