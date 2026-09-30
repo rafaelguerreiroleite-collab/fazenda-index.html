@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 73;
+const VERSAO = 74;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -461,6 +461,9 @@ const CLASSIF = {
   'Ração/insumos': 'Custeio', 'Sal mineral/suplemento': 'Custeio', 'Medicamentos/vacinas': 'Custeio', 'Medicamentos': 'Custeio',
   'Mão de obra': 'Custeio', 'Combustível': 'Custeio', 'Manutenção': 'Custeio', 'Energia elétrica': 'Custeio',
   'Gás': 'Custeio', 'Frete': 'Custeio', 'Impostos/Funrural': 'Custeio',
+  // Comissão de leilão é despesa da VENDA, não investimento: entra como
+  // custeio no livro-caixa, ao lado do frete do caminhão que levou o boi.
+  'Comissão de leilão': 'Custeio',
   'Equipamentos': 'Investimento', 'Benfeitorias': 'Investimento', 'Outros': 'Custeio'
 };
 const classOf = (cat, type) => CLASSIF[cat] || (type === 'entrada' ? 'Receita' : 'Custeio');
@@ -2437,8 +2440,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=73';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=73';
+const PDFJS_JS = 'vendor/pdf.min.js?v=74';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=74';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;

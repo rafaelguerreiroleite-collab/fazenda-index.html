@@ -774,6 +774,41 @@ export default async function () {
   t.conferir('e por competência também',
     Math.abs(abas.fazendaComp - 2600) < 1e-9, String(abas.fazendaComp));
 
+  // ---------- categorias sugeridas ----------
+  // A lista é só sugestão — o campo aceita qualquer texto. Mas o que está nela
+  // precisa estar TAMBÉM na tabela do LCDPR: categoria sugerida sem
+  // classificação cai no palpite genérico, e aí uma despesa de venda vira
+  // outra coisa no livro-caixa sem ninguém perceber.
+  t.secao('categorias sugeridas no lançamento');
+  const cats = await pagina.evaluate(() => {
+    const ler = id => [...document.querySelectorAll('#' + id + ' option')].map(o => o.textContent);
+    const bov = ler('cats-bov'), av = ler('cats-av');
+    // Trocar a atividade tem de trocar a lista de sugestões.
+    $('t-livro').value = 'av'; sincronizarLivroTrans();
+    const listaAv = $('t-category').getAttribute('list');
+    $('t-livro').value = 'bov'; sincronizarLivroTrans();
+    const listaBov = $('t-category').getAttribute('list');
+    $('t-livro').value = 'ger'; sincronizarLivroTrans();
+    const listaGer = $('t-category').getAttribute('list');
+    return { bov, av, listaAv, listaBov, listaGer,
+      semClassif: [...new Set([...bov, ...av])].filter(c => !CLASSIF[c]),
+      comissao: classOf('Comissão de leilão', 'saida'),
+      combustivel: classOf('Combustível', 'saida') };
+  });
+  t.conferir('Combustível está nas duas atividades',
+    cats.bov.includes('Combustível') && cats.av.includes('Combustível'));
+  t.conferir('Comissão de leilão está nos bovinos', cats.bov.includes('Comissão de leilão'));
+  t.conferir('e é despesa de custeio, não investimento',
+    cats.comissao === 'Custeio' && cats.combustivel === 'Custeio',
+    `comissão ${cats.comissao} · combustível ${cats.combustivel}`);
+  t.conferir('toda categoria sugerida tem classificação no LCDPR',
+    cats.semClassif.length === 0, cats.semClassif.join(' · '));
+  t.conferir('a lista acompanha a atividade escolhida',
+    cats.listaAv === 'cats-av' && cats.listaBov === 'cats-bov' && cats.listaGer === 'cats-bov',
+    `av ${cats.listaAv} · bov ${cats.listaBov} · ger ${cats.listaGer}`);
+  t.conferir('nenhuma categoria repetida na mesma lista',
+    new Set(cats.bov).size === cats.bov.length && new Set(cats.av).size === cats.av.length);
+
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
 
