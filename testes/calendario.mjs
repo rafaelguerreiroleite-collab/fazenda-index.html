@@ -127,10 +127,20 @@ export default async function () {
   const semHifen = iso => iso.replace(/-/g, '');
   t.conferir('começa no dia do vencimento',
     campo(racao, 'DTSTART') === semHifen(r.dia30), campo(racao, 'DTSTART'));
+  // "Dia seguinte" é conta de calendário, não de número: somar 1 ao texto da
+  // data dava 20261032 toda vez que o vencimento caía no último dia do mês, e
+  // o teste passava ou falhava conforme o dia em que fosse rodado. O
+  // aplicativo sempre esteve certo; a conferência é que era ingênua.
+  const diaSeguinte = iso => {
+    const d = new Date(iso + 'T12:00');
+    d.setDate(d.getDate() + 1);
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+  };
   t.conferir('é de dia inteiro e termina no dia seguinte (o fim é exclusivo)',
     racao.some(l => l.startsWith('DTSTART;VALUE=DATE:'))
-      && Number(campo(racao, 'DTEND')) === Number(semHifen(r.dia30)) + 1,
-    campo(racao, 'DTEND'));
+      && campo(racao, 'DTEND') === diaSeguinte(r.dia30),
+    `${campo(racao, 'DTEND')} (esperado ${diaSeguinte(r.dia30)})`);
   t.conferir('o título traz o valor e a categoria',
     /R\$ 1\.234,50/.test(lido(racao, 'SUMMARY')) && /Ração/.test(lido(racao, 'SUMMARY')),
     lido(racao, 'SUMMARY'));

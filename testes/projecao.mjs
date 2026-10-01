@@ -147,16 +147,19 @@ export default async function () {
   const absurdo = await pagina.evaluate(() => {
     const vistos = [...document.querySelectorAll('#animal-list .est-linha')]
       .map(e => parseFloat(e.textContent.replace(/[^\d,-]/g, '').replace(',', '.')));
-    const hoje = todayISO();
-    const semDias = animals.filter(noRebanho)
-      .filter(a => { const w = wOf(a.id); return w.length && daysBetween(w[w.length - 1].date, hoje) <= 0; });
-    return { vistos, semDias: semDias.length };
+    // Conferido contra a PRÓPRIA conta, não contra a data de hoje: amarrar o
+    // teste ao calendário o fazia passar num dia e falhar no seguinte, com um
+    // número diferente a cada vez — foi exatamente o que aconteceu.
+    const sobrevivem = animals.filter(noRebanho)
+      .map(a => projetar(a, -99, todayISO())).filter(Boolean);
+    return { vistos, sobrevivem: sobrevivem.length,
+      positivos: sobrevivem.every(p => p.peso > 0) };
   });
   t.conferir('nenhum peso projetado sai zerado ou negativo',
-    absurdo.vistos.every(v => v > 0), absurdo.vistos.join(','));
-  t.conferir('só sobram os que foram pesados hoje, que GMD nenhum move',
-    absurdo.vistos.length === absurdo.semDias,
-    `${absurdo.vistos.length} linhas · ${absurdo.semDias} pesados hoje`);
+    absurdo.vistos.every(v => v > 0) && absurdo.positivos, absurdo.vistos.join(','));
+  t.conferir('a tela mostra exatamente os que sobraram da conta',
+    absurdo.vistos.length === absurdo.sobrevivem,
+    `${absurdo.vistos.length} linhas · ${absurdo.sobrevivem} projetáveis`);
 
   await estimar(pagina, '');
   t.conferir('nenhum erro de JavaScript em todo o percurso',

@@ -804,6 +804,12 @@ export default async function () {
   t.conferir('Combustível está nas duas atividades',
     cats.bov.includes('Combustível') && cats.av.includes('Combustível'));
   t.conferir('Comissão de leilão está nos bovinos', cats.bov.includes('Comissão de leilão'));
+  // Lavoura entra no Geral, que é o livro da fazenda toda — e fica fora de
+  // Bovinos e Aviários, onde seria sugestão sem sentido.
+  t.conferir('Soja e Trigo estão no Geral',
+    cats.ger.includes('Soja') && cats.ger.includes('Trigo'), cats.ger.join(' · '));
+  t.conferir('e não poluem as listas de Bovinos e Aviários',
+    !cats.bov.includes('Soja') && !cats.av.includes('Trigo'));
   t.conferir('e é despesa de custeio, não investimento',
     cats.comissao === 'Custeio' && cats.combustivel === 'Custeio',
     `comissão ${cats.comissao} · combustível ${cats.combustivel}`);
