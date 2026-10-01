@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 80;
+const VERSAO = 81;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2572,6 +2572,47 @@ function renderAnexosForm() {
       <button type="button" class="ax-tirar" data-tirar="${esc(a.id)}" aria-label="Remover">×</button>
     </div>`).join('');
 }
+// Nota de várias páginas, em PDF, quase nunca cabe no limite de um registro:
+// o PDF sobe INTEIRO, e um documento escaneado de três páginas passa de um
+// megabyte sem esforço. A resposta antiga era recusar e mandar fotografar a
+// nota — o que, numa nota de cinco páginas, é mandar fotografar cinco vezes e
+// torcer para não faltar uma.
+//
+// Agora o próprio aplicativo faz isso: desenha cada página do PDF e guarda uma
+// foto por página, com a mesma compressão das fotos tiradas à mão. O leitor de
+// PDF que faz o desenho já vinha embarcado, para abrir as notas sem sinal.
+//
+// O PDF pequeno continua sendo guardado como PDF, de propósito: ali o texto é
+// desenho vetorial, amplia sem borrar, e trocá-lo por foto só pioraria.
+const ANEXO_PAGINAS_MAX = 20;
+async function paginasDoPdf(file) {
+  const pdfjs = await carregarPdfJs();
+  const buf = await file.arrayBuffer();
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+  const quantas = Math.min(doc.numPages, ANEXO_PAGINAS_MAX);
+  const paginas = [];
+  for (let n = 1; n <= quantas; n++) {
+    const pag = await doc.getPage(n);
+    const base = pag.getViewport({ scale: 1 });
+    // Mesmo lado máximo das fotos: é o que mantém o CNPJ e o valor legíveis.
+    const escala = Math.max(0.1, ANEXO_LADO / Math.max(base.width, base.height));
+    const vp = pag.getViewport({ scale: escala });
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.floor(vp.width));
+    cv.height = Math.max(1, Math.floor(vp.height));
+    const ctx = cv.getContext('2d');
+    // Página de PDF é transparente por baixo; sem o branco, vira foto preta.
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+    await pag.render({ canvasContext: ctx, viewport: vp }).promise;
+    let q = 0.82, saida = cv.toDataURL('image/jpeg', q);
+    while (tamanhoDeDataURL(saida) > ANEXO_ALVO && q > 0.35) {
+      q -= 0.12;
+      saida = cv.toDataURL('image/jpeg', q);
+    }
+    paginas.push(saida);
+  }
+  return { paginas, total: doc.numPages, cortou: doc.numPages > quantas };
+}
 async function adicionarAnexos(files) {
   for (const file of files) {
     try {
@@ -2579,9 +2620,26 @@ async function adicionarAnexos(files) {
       const dados = ehPdf ? await lerArquivo(file) : await comprimirImagem(file);
       const tam = tamanhoDeDataURL(dados);
       if (tam > ANEXO_MAX) {
-        toast(ehPdf
-          ? `${file.name}: PDF de ${kb(tam)} — o limite é ${kb(ANEXO_MAX)}. Tire uma foto da nota.`
-          : `${file.name}: não coube nem reduzida (${kb(tam)})`);
+        if (!ehPdf) { toast(`${file.name}: não coube nem reduzida (${kb(tam)})`); continue; }
+        // Grande demais para subir inteiro: separa em uma foto por página.
+        toast(`${file.name}: ${kb(tam)} — separando em páginas…`);
+        let r;
+        try { r = await paginasDoPdf(file); }
+        catch (e) {
+          toast(`${file.name}: não deu para separar as páginas (${e.message}). Tire uma foto da nota.`);
+          continue;
+        }
+        const base = String(file.name || 'nota fiscal').replace(/\.pdf$/i, '');
+        r.paginas.forEach((dadosPag, i) => {
+          const idPag = uid();
+          anexoCache.set(idPag, dadosPag);
+          anexosForm.push({ id: idPag,
+            nome: `${base} · página ${i + 1} de ${r.total}`,
+            tipo: 'image/jpeg', tamanho: tamanhoDeDataURL(dadosPag), novo: true });
+        });
+        toast(r.cortou
+          ? `${r.paginas.length} primeiras páginas anexadas (de ${r.total})`
+          : `${r.paginas.length} página(s) anexada(s)`);
         continue;
       }
       const id = uid();
@@ -2767,8 +2825,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=80';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=80';
+const PDFJS_JS = 'vendor/pdf.min.js?v=81';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=81';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
