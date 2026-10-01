@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 79;
+const VERSAO = 80;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1022,7 +1022,9 @@ function textoDoLancamento(t, livro) {
     fmtBRfull(t.date), t.venc ? fmtBRfull(t.venc) : '', t.pagoEm ? fmtBRfull(t.pagoEm) : '',
     t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
     t.type === 'entrada' ? 'entrada receita' : 'saida gasto despesa custo',
-    emAberto(t) ? 'a pagar em aberto devendo' : (t.venc ? 'pago quitado' : ''),
+    emAberto(t) ? 'a pagar em aberto devendo' : '',
+    aReceber(t) ? 'a receber em aberto pendente recebimento' : '',
+    (t.venc && t.pago) ? (t.type === 'entrada' ? 'recebido' : 'pago quitado') : '',
     (t.anexos || []).map(x => x.nome).join(' ')
   ].filter(Boolean).join(' '));
 }
@@ -1928,15 +1930,57 @@ function montarParcelas({ base, total, venc, n, grupo }) {
   }));
 }
 const rotuloParcela = t => t.parcelas > 1 ? ` ${t.parcela}/${t.parcelas}` : '';
-const emAberto = t => !!t.venc && !t.pago && t.type === 'saida';
-function contasAPagar(lista) {
+// Três conceitos, e a diferença entre eles importa.
+// pendente  = tem vencimento e ainda não foi liquidado, nos DOIS sentidos.
+//             É o que o regime de caixa precisa saber: dinheiro que ainda não
+//             passou pela conta, seja ele a pagar ou a receber.
+// emAberto  = conta A PAGAR. Nome antigo, significado inalterado de propósito:
+//             o calendário, o bloco "A pagar" e meia dúzia de outros lugares
+//             dependem dele significando exatamente saída devendo.
+// aReceber  = o espelho dele, do lado da receita.
+const pendente = t => !!t.venc && !t.pago;
+const emAberto = t => pendente(t) && t.type === 'saida';
+const aReceber = t => pendente(t) && t.type === 'entrada';
+const comDias = (lista, filtro) => {
   const hoje = todayISO();
-  return lista.filter(emAberto)
+  return lista.filter(filtro)
     .map(t => Object.assign({}, t, { dias: daysBetween(hoje, t.venc) }))
     .sort((a, b) => a.venc.localeCompare(b.venc));
+};
+function contasAPagar(lista) { return comDias(lista, emAberto); }
+function contasAReceber(lista) { return comDias(lista, aReceber); }
+// A receber: o espelho do "A pagar". Mesma forma, outro sentido — quem deve
+// para você. Verde, e sem botão de "pagar": o que se faz com um recebimento é
+// dar baixa quando o dinheiro cai, e isso é o mesmo gesto, com outro nome.
+function renderAReceber(book, el) {
+  if (!el) return;
+  const contas = contasAReceber(arrLivro(book));
+  if (!contas.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = '';
+  const soma = c => c.reduce((s, t) => s + t.amount, 0);
+  const atrasadas = contas.filter(t => t.dias < 0);
+  el.innerHTML = dobravel('areceber-' + book,
+    cabecaDobra('A receber', fmtRS(soma(contas)),
+      `${contas.length} recebimento(s)`
+        + (atrasadas.length ? ` · ${atrasadas.length} atrasado(s) · ${fmtRS(soma(atrasadas))}` : ''),
+      atrasadas.length > 0),
+    contas.map(t => {
+      const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
+      const quando = t.dias < 0 ? `atrasado ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
+        : t.dias === 0 ? 'previsto hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
+      return `<div class="ap-linha ar-linha ${estado}">
+        <div class="ap-quem">
+          <span class="cat">${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
+          <span class="quando mono">${fmtBR(t.venc)} · ${quando}</span>
+        </div>
+        <span class="ap-valor ar-valor">${fmtRS(t.amount)}</span>
+        <button type="button" class="ap-pagar ar-receber" data-pagar="${t.id}" data-livro="${book}">Recebi</button>
+      </div>`;
+    }).join(''));
 }
 function renderAPagar(book) {
   const el = $(book === 'av' ? 'av-apagar' : 'bfin-apagar');
+  renderAReceber(book, $(book === 'av' ? 'av-areceber' : 'bfin-areceber'));
   const contas = contasAPagar(arrLivro(book));
   if (!contas.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = '';
@@ -2004,10 +2048,11 @@ document.addEventListener('click', e => {
   // A data entra no aviso porque ela DECIDE coisa: é a data que o regime de
   // caixa usa. Carimbar hoje em silêncio numa conta paga semana passada joga o
   // gasto no mês errado, e ninguém veria de onde veio.
-  if (!confirm(`Marcar como PAGO em ${fmtBRfull(todayISO())}?\n\n`
+  const ehRec = t.type === 'entrada';
+  if (!confirm(`Marcar como ${ehRec ? 'RECEBIDO' : 'PAGO'} em ${fmtBRfull(todayISO())}?\n\n`
     + `${t.category || 'Lançamento'}${rotuloParcela(t)} · ${fmtRS(t.amount)}\n`
-    + `Vencimento ${fmtBRfull(t.venc)}\n\n`
-    + 'Se pagou em outro dia, abra o lançamento e corrija a data do pagamento.')) return;
+    + `${ehRec ? 'Previsto para' : 'Vencimento'} ${fmtBRfull(t.venc)}\n\n`
+    + `Se ${ehRec ? 'recebeu' : 'pagou'} em outro dia, abra o lançamento e corrija a data.`)) return;
   t.pago = true; t.pagoEm = todayISO();
   // colLivro e não um "se é aviário": com três livros, o ternário mandava a
   // conta do Geral para dentro de Bovinos — a marca de paga se perdia e ainda
@@ -2120,9 +2165,12 @@ function dataDoRegime(t, regime) {
   // não paga". A receita sumia do total, e sumia sem rastro, porque o A pagar
   // só aceita saída e ela não reaparecia em lugar nenhum. Com a chamada, as
   // duas telas não têm como discordar sobre o que ainda está em aberto.
-  if (emAberto(t)) return null;                        // ainda deve: não saiu do caixa
-  if (t.type === 'saida' && t.venc) return t.pagoEm || t.venc;  // pago: vale a data do pagamento
-  return t.date;                                       // à vista, ou entrada: no dia
+  // Vale para os dois sentidos desde que existe recebimento a prazo: boi
+  // vendido para receber em 30 dias não entrou no caixa hoje, e fingir que
+  // entrou mostraria um saldo que não está na conta do banco.
+  if (pendente(t)) return null;                        // ainda não passou pelo caixa
+  if (t.venc) return t.pagoEm || t.venc;               // liquidado: vale o dia em que passou
+  return t.date;                                       // à vista: no dia
 }
 // A busca entra aqui dentro, e não só na lista: saldo, atividades, naturezas e
 // categorias têm de contar a MESMA coisa que as linhas mostram. É por isso que
@@ -2152,6 +2200,10 @@ function resumoFazenda(period, regime, termo) {
   const contas = LIVROS.flatMap(b => contasAPagar(arrLivro(b))
     .map(t => ({ t, livro: NOME_LIVRO[b], book: b })))
     .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
+  // A fazenda recebe de um bolso só, igual ao que paga.
+  const recebimentos = LIVROS.flatMap(b => contasAReceber(arrLivro(b))
+    .map(t => ({ t, livro: NOME_LIVRO[b], book: b })))
+    .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
   const categorias = Object.entries(tudo.reduce((acc, x) => {
     const k = x.t.type + '|' + (x.t.category || 'Sem categoria');
     acc[k] = (acc[k] || 0) + x.t.amount;
@@ -2159,8 +2211,9 @@ function resumoFazenda(period, regime, termo) {
   }, {})).sort((a, b) => b[1] - a[1]);
   return {
     n: tudo.length, receitas, custos, saldo: receitas - custos,
-    atividades, classes, contas, categorias,
+    atividades, classes, contas, categorias, recebimentos,
     aPagarTotal: contas.reduce((s, x) => s + x.t.amount, 0),
+    aReceberTotal: recebimentos.reduce((s, x) => s + x.t.amount, 0),
     movimento: receitas + custos
   };
 }
@@ -2241,6 +2294,33 @@ function renderFazenda() {
         <span class="n">${c}</span><span class="v">${fmtRS(porClasse[c])}</span>
       </div>`).join('')}</div>`);
 
+  const elAr = $('fz-areceber');
+  if (elAr) {
+    const recs = R.recebimentos;
+    if (!recs.length) { elAr.innerHTML = ''; elAr.style.display = 'none'; }
+    else {
+      elAr.style.display = '';
+      const atrasados = recs.filter(x => x.t.dias < 0);
+      elAr.innerHTML = dobravel('areceber-fz',
+        cabecaDobra('A receber · fazenda inteira', fmtRS(R.aReceberTotal),
+          `${recs.length} recebimento(s)`
+            + (atrasados.length ? ` · ${atrasados.length} atrasado(s) · ${fmtRS(atrasados.reduce((s, x) => s + x.t.amount, 0))}` : ''),
+          atrasados.length > 0),
+        recs.map(({ t, livro, book }) => {
+          const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
+          const quando = t.dias < 0 ? `atrasado ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
+            : t.dias === 0 ? 'previsto hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
+          return `<div class="ap-linha ar-linha ${estado}">
+            <div class="ap-quem">
+              <span class="cat">${esc(livro)} · ${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}</span>
+              <span class="quando mono">${fmtBR(t.venc)} · ${quando}</span>
+            </div>
+            <span class="ap-valor ar-valor">${fmtRS(t.amount)}</span>
+            <button type="button" class="ap-pagar ar-receber" data-pagar="${t.id}" data-livro="${book}">Recebi</button>
+          </div>`;
+        }).join(''));
+    }
+  }
   // Contas a pagar dos dois livros juntas: a fazenda paga de um bolso só.
   const contas = R.contas;
   const elAp = $('fz-apagar');
@@ -2687,8 +2767,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=79';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=79';
+const PDFJS_JS = 'vendor/pdf.min.js?v=80';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=80';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -3165,6 +3245,7 @@ function openTrans(book, t) {
   $('t-livro').value = perguntar && tab === 'fazenda' ? 'ger' : efetivo;
   sincronizarLivroTrans();
   document.querySelector(`input[name="t-type"][value="${t ? t.type : 'saida'}"]`).checked = true;
+  sincronizarSentidoTrans();
   $('t-date').value = t ? t.date : todayISO();
   $('t-amount').value = t ? numParaCampo(t.amount) : '';
   $('t-category').value = t ? (t.category || '') : '';
@@ -3203,6 +3284,19 @@ function preencherSeletorAtividade() {
     + atividades.map(a => `<option value="${esc(a.id)}">${esc(a.nome)}</option>`).join('');
   if (atual && LIVROS.indexOf(atual) >= 0) sel.value = atual;
 }
+// Entrada e saída usam os mesmos campos e NÃO são a mesma coisa: "vencimento"
+// de uma venda é previsão de recebimento, e "já foi pago" é "já recebi". Com
+// as palavras erradas, o campo certo é preenchido com a intenção errada.
+function sincronizarSentidoTrans() {
+  const marcado = document.querySelector('input[name="t-type"]:checked');
+  const ehEntrada = !!marcado && marcado.value === 'entrada';
+  $('t-prazo-rot').textContent = ehEntrada ? 'A prazo (receber depois)' : 'A prazo (pagar depois)';
+  $('t-venc-rot').textContent = ehEntrada ? '1ª previsão de recebimento *' : '1º vencimento *';
+  $('t-pago-rot').textContent = ehEntrada ? 'Já recebi' : 'Já foi pago';
+  $('t-pago-em-rot').textContent = ehEntrada ? 'Data do recebimento' : 'Data do pagamento';
+}
+document.querySelectorAll('input[name="t-type"]').forEach(r =>
+  r.addEventListener('change', sincronizarSentidoTrans));
 function sincronizarLivroTrans() {
   const livro = $('t-livro').value;
   $('t-book').value = livro;
@@ -3225,7 +3319,10 @@ $('form-transaction').addEventListener('submit', e => {
     notes: $('t-notes').value.trim()
   };
   const ehSaida = data.type === 'saida';
-  const aPrazo = ehSaida && $('t-prazo').checked;
+  // Entrada a prazo é venda para receber depois — boi entregue hoje, dinheiro
+  // em 30 dias. Antes o formulário simplesmente jogava fora o vencimento de
+  // uma entrada, e a venda virava dinheiro que já estava na conta.
+  const aPrazo = $('t-prazo').checked;
   if (aPrazo && !$('t-venc').value) { toast('Informe o vencimento'); return; }
   const nParc = aPrazo ? Math.min(36, Math.max(1, Math.round(parseNum($('t-parcelas').value) || 1))) : 1;
   data.venc = aPrazo ? $('t-venc').value : null;
@@ -3413,11 +3510,13 @@ function syncPrazoUI() {
   const compra = mEnt && mEnt.value === 'entrada' && $('m-postfin').checked;
   $('m-prazo').closest('.check-lbl').style.display = compra ? '' : 'none';
   $('m-prazo-wrap').style.display = compra && $('m-prazo').checked ? '' : 'none';
-  const tSaida = document.querySelector('input[name="t-type"]:checked');
-  const ehSaida = !tSaida || tSaida.value === 'saida';
-  $('t-prazo-box').style.display = ehSaida ? '' : 'none';
-  $('t-prazo-wrap').style.display = ehSaida && $('t-prazo').checked ? '' : 'none';
-  $('t-pago-em-wrap').style.display = ehSaida && $('t-prazo').checked && $('t-pago').checked ? '' : 'none';
+  // O bloco de prazo vale para os DOIS sentidos: a prazo para pagar e a prazo
+  // para receber. Escondê-lo na entrada era o que impedia registrar uma venda
+  // que só vai ser paga em trinta dias.
+  $('t-prazo-box').style.display = '';
+  $('t-prazo-wrap').style.display = $('t-prazo').checked ? '' : 'none';
+  $('t-pago-em-wrap').style.display = $('t-prazo').checked && $('t-pago').checked ? '' : 'none';
+  sincronizarSentidoTrans();
 }
 // Mostra em quanto fica cada parcela antes de salvar: quem parcela quer saber
 // o valor da prestação, não o total.

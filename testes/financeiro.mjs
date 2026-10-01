@@ -66,7 +66,8 @@ export default async function () {
       // Só saída a prazo gera carnê. Entrada a prazo não existe no app, e o
       // formulário tem de recusar sozinho — não pode depender de o usuário
       // não tentar.
-      const prazoVale = tipo === 'saida' && querPrazo;
+      // Prazo vale nos dois sentidos: a pagar e a receber.
+      const prazoVale = querPrazo;
       const nEsperado = prazoVale ? nPedido : 1;
 
       openTrans(livro);
@@ -147,8 +148,13 @@ export default async function () {
         regra('à vista: não entra em A pagar', contasAPagar(linhas).length === 0, ctx);
         regra('à vista: não vira carnê', linhas.every(x => !x.grupo), ctx);
       }
-      regra('entrada de dinheiro nunca vira a prazo',
-        tipo === 'saida' || linhas.every(x => !x.venc), ctx);
+      // O que era proibido virou recurso: entrada a prazo é venda a receber.
+      // O que NÃO pode é ela ser confundida com dívida.
+      regra('entrada a prazo nunca entra em A pagar',
+        tipo === 'saida' || contasAPagar(linhas).length === 0, ctx);
+      regra('entrada a prazo entra em A receber',
+        tipo === 'saida' || !prazoVale
+          || contasAReceber(linhas).length === linhas.filter(x => !x.pago).length, ctx);
 
       // ---- as telas têm de contar a mesma história
       const emAberto = contasAPagar(linhas);
@@ -194,19 +200,29 @@ export default async function () {
       regra('nenhuma tela da Fazenda escreve NaN',
         !/NaN|Infinity/.test($('view-fazenda').innerText), ctx);
 
-      // ---- pagar uma parcela não pode mexer no total do período
+      // ---- dar baixa numa parcela não pode mexer no total do período
+      // Vale igual nos dois sentidos: pagar uma prestação e receber uma
+      // parcela da venda são o mesmo movimento, em direções opostas. Por
+      // competência o total não se mexe (o fato já aconteceu); o que muda é
+      // quanto ainda falta — e tem de cair exatamente o valor daquela parcela.
       if (prazoVale && linhas.length) {
-        const antesCusto = resumoFazenda('all').custos;
+        const ehSaida = tipo === 'saida';
+        const antes = resumoFazenda('all');
+        const antesTotal = ehSaida ? antes.custos : antes.receitas;
+        const antesPendente = ehSaida ? antes.aPagarTotal : antes.aReceberTotal;
         const alvo = linhas[0];
         alvo.pago = true; alvo.pagoEm = data;
         const depois = resumoFazenda('all');
-        regra('marcar uma parcela como paga não muda o custo do período',
-          Math.abs(centavos(depois.custos) - centavos(antesCusto)) === 0, ctx);
-        regra('marcar como paga tira a parcela de A pagar',
-          !contasAPagar(arrLivro(livro)).some(x => x.id === alvo.id), ctx);
-        regra('e o A pagar cai exatamente o valor daquela parcela',
-          Math.abs(centavos(depois.aPagarTotal + alvo.amount)
-            - centavos(linhas.reduce((s2, x) => s2 + (x.type === 'saida' && x.venc ? x.amount : 0), 0))) <= 1, ctx);
+        const depoisTotal = ehSaida ? depois.custos : depois.receitas;
+        const depoisPendente = ehSaida ? depois.aPagarTotal : depois.aReceberTotal;
+        regra('dar baixa numa parcela não muda o total do período',
+          Math.abs(centavos(depoisTotal) - centavos(antesTotal)) === 0, ctx);
+        regra('dar baixa tira a parcela da lista de pendentes',
+          !(ehSaida ? contasAPagar(arrLivro(livro)) : contasAReceber(arrLivro(livro)))
+            .some(x => x.id === alvo.id), ctx);
+        regra('e o pendente cai exatamente o valor daquela parcela',
+          Math.abs(centavos(antesPendente) - centavos(depoisPendente) - centavos(alvo.amount)) <= 1,
+          `${ctx}: ${antesPendente} → ${depoisPendente}, parcela ${alvo.amount}`);
       }
 
       // ---- o CSV do contador tem de somar igual à tela
@@ -611,21 +627,29 @@ export default async function () {
       caixa: cx.receitas, competencia: cp.receitas,
       dataNoCaixa: dataDoRegime(bovT[0], 'caixa'),
       naoEntrouNoAPagar: cx.contas.length,
+      aReceber: cp.aReceberTotal, nReceber: cp.recebimentos.length,
       // e continua contando como lançamento nos dois
       nCaixa: cx.n, nComp: cp.n
     };
   });
-  t.conferir('entrada com vencimento continua contando no caixa',
-    receitaTeimosa.caixa === 10000, String(receitaTeimosa.caixa));
-  t.conferir('e vale o mesmo por competência',
+  // O medo continua o mesmo — receita que some sem reaparecer —, mas a
+  // resposta mudou: hoje a entrada com vencimento é um RECEBIMENTO A RECEBER.
+  // Ela sai do caixa de propósito (o dinheiro não caiu) e reaparece inteira no
+  // bloco "A receber". Sumir com destino é informação; sumir sem destino é bug.
+  t.conferir('a venda ainda não recebida sai do caixa',
+    receitaTeimosa.caixa === 1000, String(receitaTeimosa.caixa));
+  t.conferir('mas continua inteira por competência',
     receitaTeimosa.competencia === 10000, String(receitaTeimosa.competencia));
-  t.conferir('a entrada usa a data do lançamento, não o vencimento',
-    receitaTeimosa.dataNoCaixa === '2026-03-10', String(receitaTeimosa.dataNoCaixa));
-  t.conferir('e ela não é confundida com conta a pagar',
+  t.conferir('e reaparece, com o valor exato, em A receber',
+    receitaTeimosa.aReceber === 9000 && receitaTeimosa.nReceber === 1,
+    `${receitaTeimosa.nReceber} × ${receitaTeimosa.aReceber}`);
+  t.conferir('o que o caixa deixou de contar é exatamente o que há para receber',
+    receitaTeimosa.competencia - receitaTeimosa.caixa === receitaTeimosa.aReceber,
+    `${receitaTeimosa.competencia - receitaTeimosa.caixa} vs ${receitaTeimosa.aReceber}`);
+  t.conferir('ela não é confundida com conta a pagar',
     receitaTeimosa.naoEntrouNoAPagar === 0, String(receitaTeimosa.naoEntrouNoAPagar));
-  t.conferir('nenhum lançamento é perdido na contagem',
-    receitaTeimosa.nCaixa === 2 && receitaTeimosa.nComp === 2,
-    `${receitaTeimosa.nCaixa}/${receitaTeimosa.nComp}`);
+  t.conferir('por competência nenhum lançamento é perdido na contagem',
+    receitaTeimosa.nComp === 2, String(receitaTeimosa.nComp));
 
   // ---------- as telas não podem discordar ----------
   t.secao('Fazenda por competência bate com os três Financeiros');

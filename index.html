@@ -18,8 +18,8 @@
      que ele nunca viu não tem como ser confundido com nada que já tenha. -->
 <link rel="apple-touch-icon" sizes="180x180" href="icone-fazenda-js.png" />
 <link rel="apple-touch-icon" href="icone-fazenda-js.png" />
-<link rel="icon" type="image/png" href="icon-192.png?v=79" />
-<link rel="stylesheet" href="style.css?v=79" />
+<link rel="icon" type="image/png" href="icon-192.png?v=80" />
+<link rel="stylesheet" href="style.css?v=80" />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400;1,9..144,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </head>
 <body>
@@ -315,6 +315,7 @@
     <p class="fz-regime-nota mono" id="bfin-regime-nota"></p>
     <div class="balance-card" id="bfin-balance"></div>
     <div id="bfin-apagar"></div>
+    <div id="bfin-areceber"></div>
     <div class="category-breakdown" id="bfin-cats"></div>
     <div class="list" id="bfin-list"></div>
   </div>
@@ -344,6 +345,7 @@
     <p class="fz-regime-nota mono" id="av-regime-nota"></p>
     <div class="balance-card" id="av-balance"></div>
     <div id="av-apagar"></div>
+    <div id="av-areceber"></div>
     <div class="category-breakdown" id="av-cats"></div>
     <div class="list" id="av-list"></div>
     <div class="empty" id="av-empty" hidden>
@@ -378,6 +380,7 @@
   <div id="fz-atividades"></div>
   <div id="fz-classes"></div>
   <div id="fz-apagar"></div>
+  <div id="fz-areceber"></div>
   <div class="category-breakdown" id="fz-cats"></div>
   <div class="fz-titulo mono" id="fz-lista-titulo" hidden>Lançamentos do período</div>
   <div class="list" id="fz-lista"></div>
@@ -582,16 +585,16 @@
         <option>Combustível</option><option>Impostos/Funrural</option><option>Outros</option>
       </datalist>
       <div id="t-prazo-box">
-        <label class="check-lbl"><input type="checkbox" id="t-prazo" /> A prazo (pagar depois)</label>
+        <label class="check-lbl"><input type="checkbox" id="t-prazo" /> <span id="t-prazo-rot">A prazo (pagar depois)</span></label>
         <div id="t-prazo-wrap">
-          <label class="mono">1º vencimento *</label>
+          <label class="mono" id="t-venc-rot">1º vencimento *</label>
           <input type="date" id="t-venc" />
           <label class="mono">Em quantas vezes</label>
           <input type="number" inputmode="numeric" min="1" max="36" step="1" id="t-parcelas" value="1" />
           <p class="small" id="t-parcelas-nota"></p>
-          <label class="check-lbl"><input type="checkbox" id="t-pago" /> Já foi pago</label>
+          <label class="check-lbl"><input type="checkbox" id="t-pago" /> <span id="t-pago-rot">Já foi pago</span></label>
           <div id="t-pago-em-wrap">
-            <label class="mono">Data do pagamento</label>
+            <label class="mono" id="t-pago-em-rot">Data do pagamento</label>
             <input type="date" id="t-pago-em" />
             <p class="small">É esta data que o regime de caixa usa, na aba Fazenda.</p>
           </div>
@@ -948,6 +951,6 @@ BR002,15/01/2025,340</pre>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="app.js?v=79"></script>
+<script src="app.js?v=80"></script>
 </body>
 </html>

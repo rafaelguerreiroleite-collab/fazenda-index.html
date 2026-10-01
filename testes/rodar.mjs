@@ -24,9 +24,10 @@ import buscanolista from './buscanolista.mjs';
 import carencia from './carencia.mjs';
 import projecao from './projecao.mjs';
 import parcelado from './parcelado.mjs';
+import contabil from './contabil.mjs';
 import regras from './regras.mjs';
 
-const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Auditoria', auditoria], ['Período', periodo], ['Calendário', calendario], ['Busca', busca], ['Arroba na venda', arroba], ['GMD mês a mês', gmdmes], ['Layout', layout], ['Legibilidade', legibilidade], ['Ícones', icones], ['Atividades', atividades], ['Busca nas listas', buscanolista], ['Carência', carencia], ['Projeção', projecao], ['Parcelado', parcelado], ['Regras', regras], ['Varredura', varredura]];
+const baterias = [['Cálculos', calculos], ['Aplicativo', app], ['Pesagem', pesagem], ['Abas', abas], ['Sem sinal', offline], ['Integridade', integridade], ['Consistência', consistencia], ['Financeiro', financeiro], ['Exportação', exportacao], ['Auditoria', auditoria], ['Período', periodo], ['Calendário', calendario], ['Busca', busca], ['Arroba na venda', arroba], ['GMD mês a mês', gmdmes], ['Layout', layout], ['Legibilidade', legibilidade], ['Ícones', icones], ['Atividades', atividades], ['Busca nas listas', buscanolista], ['Carência', carencia], ['Projeção', projecao], ['Parcelado', parcelado], ['Contábil', contabil], ['Regras', regras], ['Varredura', varredura]];
 let total = 0;
 
 for (const [nome, rodar] of baterias) {

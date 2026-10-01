@@ -798,3 +798,9 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
    mostrar. */
 .item-side .aux.est-linha { color: #2f6b46; border-top: 1px dashed #b9cfc0;
   margin-top: 0.2rem; padding-top: 0.15rem; }
+
+/* A receber: a mesma forma do "A pagar", no sentido contrário. Verde porque é
+   dinheiro entrando — vermelho ali seria ler o próprio crédito como dívida. */
+.ar-linha .ap-valor.ar-valor { color: #15803d; }
+.ar-linha.venceu { border-left-color: #b45309; }
+.ap-pagar.ar-receber { background: #15803d; }

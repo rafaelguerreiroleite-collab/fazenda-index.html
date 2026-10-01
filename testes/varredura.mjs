@@ -389,20 +389,33 @@ export default async function () {
       const Ccx = resumoFazenda('all', 'caixa');
       const Ccp = resumoFazenda('all', 'competencia');
 
-      regra('caixa: nenhum lançamento fica sem data por engano',
-        todosT.every(t => {
-          const d = dataDoRegime(t, 'caixa');
-          // só saída a prazo NÃO PAGA pode ficar de fora do caixa
-          return d !== null || (t.type === 'saida' && !!t.venc && !t.pago);
-        }), 'um lançamento sumiu do caixa sem ser conta em aberto');
-      regra('caixa: receita nunca some — dinheiro que entrou sempre conta',
-        Math.abs(Ccx.receitas - Ccp.receitas) < 1e-6,
-        `caixa ${Ccx.receitas} vs competência ${Ccp.receitas}`);
+      // Desde que existe recebimento a prazo, o caixa deixa de fora os DOIS
+      // sentidos: conta que ainda não foi paga e venda que ainda não foi
+      // recebida. O que não mudou — e é o que estas regras guardam — é que
+      // nada pode sumir SEM MOTIVO, e que o motivo tem de estar visível numa
+      // tela. Dinheiro que some do total sem reaparecer em lugar nenhum é o
+      // erro mais caro e mais silencioso que este aplicativo pode cometer.
+      regra('caixa: só fica de fora o que ainda não passou pela conta',
+        todosT.every(t => dataDoRegime(t, 'caixa') !== null || pendente(t)),
+        'um lançamento sumiu do caixa sem estar pendente');
+      regra('caixa: o que ele deixa de fora aparece em A pagar ou A receber',
+        todosT.filter(t => dataDoRegime(t, 'caixa') === null)
+          .every(t => emAberto(t) || aReceber(t)),
+        'dinheiro invisível: fora do caixa e fora das duas listas');
+      // A identidade do lado da receita, espelhando a da dívida: o que o caixa
+      // não conta de receita é exatamente o que ainda está para receber.
+      regra('caixa: a receita que falta é exatamente a que está para receber',
+        Math.abs((Ccp.receitas - Ccx.receitas) - Ccp.aReceberTotal) < 1e-6,
+        `diferença ${Ccp.receitas - Ccx.receitas} vs a receber ${Ccp.aReceberTotal}`);
+      regra('caixa: nunca conta mais receita que a competência',
+        Ccx.receitas <= Ccp.receitas + 1e-9, `${Ccx.receitas} vs ${Ccp.receitas}`);
       regra('competência: toda linha conta na data do próprio lançamento',
         todosT.every(t => dataDoRegime(t, 'competencia') === t.date), '');
       regra('caixa: à vista conta na mesma data dos dois jeitos',
         todosT.filter(t => !t.venc).every(t => dataDoRegime(t, 'caixa') === t.date), '');
-      regra('caixa: conta paga usa a data do pagamento, não a do vencimento',
+      // Vale para os dois sentidos: a venda recebida com atraso entra no caixa
+      // no dia em que o dinheiro caiu, não no dia da venda.
+      regra('caixa: liquidado usa a data em que o dinheiro passou',
         todosT.filter(t => t.venc && t.pago && t.pagoEm)
           .every(t => dataDoRegime(t, 'caixa') === t.pagoEm), '');
       regra('caixa: conta paga sem data de pagamento cai no vencimento',
