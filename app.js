@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 81;
+const VERSAO = 82;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2825,8 +2825,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=81';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=81';
+const PDFJS_JS = 'vendor/pdf.min.js?v=82';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=82';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -5136,8 +5136,25 @@ $('lm-confirm').addEventListener('click', async () => {
 
 $('menu-migrate').addEventListener('click', () => { closeAllM(); migrateLegacy(); });
 $('menu-leave').addEventListener('click', () => {
-  if (!confirm('Desconectar este aparelho? Os dados na nuvem permanecem. Você precisará colar a configuração e o código da fazenda novamente.')) return;
-  LS.del('fjs-fbconfig'); LS.del('fjs-farm');
+  // Três coisas que este botão precisa limpar, e uma delas quebrou sozinha.
+  //
+  // 1. O ESPELHO. Desde que o arranque passou a recuperar o código de dentro
+  //    do espelho local (para não trancar ninguém fora da própria fazenda),
+  //    apagar só a chave 'fjs-farm' deixou de desconectar: a página recarregava
+  //    e voltava para a MESMA fazenda, como se o botão não existisse.
+  // 2. A FILA. Alteração feita sem sinal fica guardada esperando internet. Se
+  //    ela sobrevivesse à troca, subiria dentro da fazenda SEGUINTE — dado de
+  //    uma fazenda aparecendo na outra, sem nada na tela explicando.
+  // 3. A configuração, que já era.
+  const naFila = pendentes.length;
+  if (!confirm('Desconectar este aparelho?\n\n'
+    + 'Os dados na nuvem permanecem. Para voltar, basta o código da fazenda.'
+    + (naFila
+      ? `\n\n⚠️ ATENÇÃO: ${naFila} alteração(ões) feita(s) sem sinal ainda NÃO subiram`
+        + ' para a nuvem. Desconectando agora, elas se perdem.\n\n'
+        + 'Conecte na internet e espere subir antes de desconectar.'
+      : ''))) return;
+  LS.del('fjs-fbconfig'); LS.del('fjs-farm'); LS.del(ESPELHO); LS.del('fjs-pendentes');
   location.reload();
 });
 
