@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 84;
+const VERSAO = 85;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1210,6 +1210,9 @@ function render() {
   else { renderFazenda(); }
   posicionarResultados();
   renderLembrete();
+  // O selo do ícone acompanha o que a tela acabou de desenhar: quem abre o
+  // aplicativo e paga uma conta vê o número do ícone cair junto.
+  atualizarSelo();
   // Vendidas, Mortalidade e Custos não têm nada para adicionar pelo botão +.
   // A aba Fazenda é só leitura: o lançamento se faz na atividade a que pertence.
   $('fab').hidden = tab === 'bovinos' && ['vendidas', 'mortes', 'custos'].includes(seg);
@@ -2847,8 +2850,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=84';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=84';
+const PDFJS_JS = 'vendor/pdf.min.js?v=85';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=85';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -5231,6 +5234,7 @@ $('btn-menu').addEventListener('click', () => {
   // aparece não há como distinguir "o aplicativo está com defeito" de "este
   // celular ainda está na versão antiga, guardada pelo navegador".
   $('menu-farm-info').innerHTML += `<span class="mf-versao mono">versão ${VERSAO}</span>`;
+  rotuloSelo();
   updateMigrateBtn();
   openM('modal-menu');
 });
@@ -5387,6 +5391,65 @@ $('install-btn').addEventListener('click', async () => {
   $('install-banner').hidden = true; deferredPrompt = null;
 });
 $('close-banner').addEventListener('click', () => { $('install-banner').hidden = true; localStorage.setItem('fjs-install-dismissed', '1'); });
+
+// ===== Selo no ícone do aplicativo =====
+// O pedido era "criar o lembrete sem me fazer confirmar no calendário". No
+// calendário não dá: a Apple exige um toque para qualquer aplicativo pôr ou
+// tirar evento, e web nenhuma passa por cima disso.
+//
+// O que passa é o SELO: aquele número vermelho no canto do ícone. Pede
+// permissão UMA vez e depois atualiza calado, sem toque nenhum, toda vez que o
+// aplicativo abre. Não toca alarme — mas fica na tela de início o dia inteiro
+// dizendo quantas contas estão vencidas ou vencendo, que é o lembrete que não
+// depende de ninguém confirmar nada.
+const SELO = 'fjs-selo';
+const seloLigado = () => LS.g(SELO, false) === true;
+const temSelo = () => typeof navigator !== 'undefined' && 'setAppBadge' in navigator;
+let seloAtual = -1;
+const contasDoSelo = () =>
+  LIVROS.flatMap(b => contasAPagar(arrLivro(b))).filter(c => c.dias <= AVISO_DIAS).length;
+function atualizarSelo() {
+  if (!temSelo()) return;
+  const n = seloLigado() ? contasDoSelo() : 0;
+  // Só mexe quando o número MUDA: render() roda a cada toque na tela, e pedir
+  // ao sistema para repintar o ícone a cada toque é trabalho jogado fora.
+  if (n === seloAtual) return;
+  seloAtual = n;
+  try { n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge(); }
+  catch (e) { /* aparelho recusou o selo: não é motivo para quebrar a tela */ }
+}
+function rotuloSelo() {
+  const el = $('menu-selo-rot');
+  if (el) el.textContent = seloLigado()
+    ? 'Aviso no ícone: LIGADO' : 'Aviso no ícone do aplicativo';
+}
+$('menu-selo').addEventListener('click', async () => {
+  closeAllM();
+  if (seloLigado()) {
+    LS.s(SELO, false); seloAtual = -1; atualizarSelo(); rotuloSelo();
+    toast('Aviso no ícone desligado');
+    return;
+  }
+  if (!temSelo()) { toast('Este aparelho não mostra aviso no ícone do aplicativo'); return; }
+  // No iPhone o selo só existe para o aplicativo INSTALADO na tela de início, e
+  // só depois da permissão de notificação. Dizer isso antes evita o pior
+  // desfecho: ligar, não ver selo nenhum e concluir que está quebrado.
+  if (noIOS() && !instalado()) {
+    toast('Primeiro adicione o aplicativo à tela de início — o selo é do atalho');
+    return;
+  }
+  let permissao = typeof Notification === 'undefined' ? 'granted' : Notification.permission;
+  if (permissao === 'default') {
+    try { permissao = await Notification.requestPermission(); } catch (e) { permissao = 'denied'; }
+  }
+  if (permissao === 'denied') {
+    toast('Permissão negada — ative em Ajustes → Notificações → Fazenda J.S');
+    return;
+  }
+  LS.s(SELO, true); seloAtual = -1; atualizarSelo(); rotuloSelo();
+  const n = contasDoSelo();
+  toast(n ? `Ligado — ${n} conta(s) no ícone` : 'Ligado — o número aparece quando houver conta vencendo');
+});
 
 // ===== Atividades da fazenda =====
 // A lista mora no documento da fazenda, junto dos outros ajustes, e por isso
