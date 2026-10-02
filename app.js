@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 82;
+const VERSAO = 83;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2036,7 +2036,29 @@ $('lembrete').addEventListener('click', e => {
   // quem tinha conta vencida de Aviário ou Geral numa tela onde ela não estava:
   // o aviso dizia "1 conta vencida" e a tela não mostrava conta nenhuma.
   // A Fazenda é a única que lista os três de uma vez.
-  if (e.target.closest('#lb-ver')) { tab = 'fazenda'; $('fz-period').value = 'all'; guardarPeriodo('fz-period'); render(); }
+  if (!e.target.closest('#lb-ver')) return;
+  // "Ver" prometia levar até a conta e não levava. Trocava de aba e de
+  // período, e parava aí — então, para quem JÁ ESTAVA na Fazenda, o botão não
+  // mudava absolutamente nada na tela. E mesmo vindo de outra aba, a conta
+  // continuava escondida: o bloco "A pagar" nasce recolhido, e ninguém rolava
+  // a tela até ele. Três coisas faltavam, e as três estão aqui.
+  tab = 'fazenda';
+  $('fz-period').value = 'all'; guardarPeriodo('fz-period');
+  // 1. o bloco precisa estar ABERTO, senão a conta segue dobrada
+  LS.s('fjs-dobra-apagar-fz', true);
+  render();
+  // 2. e a tela precisa ANDAR até ele. Depois do desenho, senão o elemento
+  //    ainda nem existe para ser alcançado.
+  requestAnimationFrame(() => {
+    const alvo = $('fz-apagar');
+    if (!alvo) return;
+    alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // 3. e piscar, porque entre treze contas a vencida não se acha sozinha.
+    alvo.classList.remove('lb-achei');
+    void alvo.offsetWidth;            // reinicia a animação se clicar de novo
+    alvo.classList.add('lb-achei');
+    setTimeout(() => alvo.classList.remove('lb-achei'), 2000);
+  });
 });
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-pagar]');
@@ -2825,8 +2847,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=82';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=82';
+const PDFJS_JS = 'vendor/pdf.min.js?v=83';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=83';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
