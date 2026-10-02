@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 83;
+const VERSAO = 84;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2847,8 +2847,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=83';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=83';
+const PDFJS_JS = 'vendor/pdf.min.js?v=84';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=84';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -4632,7 +4632,20 @@ function diagnostico() {
 const diagEmTexto = d => `Fazenda J.S v${d.versao} | iOS ${d.ios ? 'sim' : 'nao'}`
   + ` | instalado ${d.instalado ? 'sim' : 'nao'} | compartilhar ${d.temShare ? 'sim' : 'nao'}`
   + ` | compartilhar-arquivo ${d.compArq ? 'sim' : 'nao'} | ${d.ua}`;
-function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico }) {
+// A tela que abre sozinha precisa dizer POR QUE abriu. Ela dizia sempre "você
+// acabou de lançar uma conta a prazo" — inclusive quando tinha aberto por uma
+// conta PAGA. Quem acabou de dar baixa lia aquilo, não reconhecia a própria
+// ação, fechava a tela, e o alarme da conta quitada seguia tocando no celular.
+const MOTIVO_AUTO = {
+  nova: 'Esta tela abriu sozinha porque você acabou de lançar uma conta a prazo. '
+      + 'O iPhone não deixa nenhum aplicativo pôr evento no calendário sem um toque seu — falta só ele.',
+  baixa: 'Esta tela abriu sozinha porque você acabou de dar baixa numa conta. '
+       + 'Este arquivo TIRA o lembrete dela do calendário — sem ele, o alarme de uma conta já paga continua tocando. '
+       + 'O iPhone exige um toque seu para mexer no calendário.',
+  ambas: 'Esta tela abriu sozinha porque você mexeu nas contas: há lembrete novo para pôr '
+       + 'e conta paga para tirar do calendário. O iPhone exige um toque seu para as duas coisas.'
+};
+function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico, motivo }) {
   if (saidaURL) URL.revokeObjectURL(saidaURL);
   saidaURL = URL.createObjectURL(blob);
   $('ag-resumo').textContent = resumo;
@@ -4670,7 +4683,8 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico }) {
   $('ag-share-nao').hidden = d.temShare;
   $('ag-share').textContent = ehAgenda
     ? 'Compartilhar → Calendário' : 'Compartilhar / Salvar';
-  $('ag-abrir').textContent = ehAgenda ? 'Abrir no Calendário' : 'Abrir o arquivo';
+  $('ag-abrir').textContent = !ehAgenda ? 'Abrir o arquivo'
+    : motivo === 'baixa' ? 'Atualizar o Calendário' : 'Abrir no Calendário';
   $('ag-share').onclick = async () => {
     try { await navigator.share({ files: [arquivo], title: nome }); }
     catch (e) {
@@ -4689,6 +4703,7 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico }) {
   // A tela que apareceu sozinha precisa dizer POR QUE apareceu e como fazer
   // parar: tela que surge sem ser chamada e sem saída vira estorvo.
   $('ag-auto').hidden = !automatico;
+  if (automatico) $('ag-auto-motivo').textContent = MOTIVO_AUTO[motivo] || MOTIVO_AUTO.nova;
   $('modal-saida-titulo').textContent = ehAgenda ? 'Agenda pronta' : 'Arquivo pronto';
   $('modal-agenda-saida').hidden = false;
 }
@@ -4754,11 +4769,12 @@ function agendarMudanca(tocadas, book, removidos) {
   const partes = [];
   if (contas.length) partes.push(`${contas.length} conta(s) a prazo`);
   if (cancelar.length) partes.push(`${cancelar.length} paga(s) saem da agenda`);
+  const motivo = contas.length && cancelar.length ? 'ambas' : cancelar.length ? 'baixa' : 'nova';
   mostrarSaida({
     nome: ICS_ARQ,
     blob: new Blob([texto], { type: 'text/calendar;charset=utf-8' }),
     resumo: partes.join(' · '),
-    cru: texto, ehAgenda: true, automatico: true
+    cru: texto, ehAgenda: true, automatico: true, motivo
   });
   return true;
 }
