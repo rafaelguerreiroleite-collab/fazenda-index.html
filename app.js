@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 86;
+const VERSAO = 87;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2885,8 +2885,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=86';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=86';
+const PDFJS_JS = 'vendor/pdf.min.js?v=87';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=87';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -3314,7 +3314,6 @@ function openWeighing(animalId, w) {
   $('w-animal-id').value = animalId;
   $('w-date').value = w ? w.date : todayISO();
   $('w-weight').value = w ? numParaCampo(w.weight) : '';
-  $('w-jejum').checked = w ? !!w.jejum : false;
   $('w-notes').value = w ? (w.notes || '') : '';
   $('btn-delete-weighing').hidden = !w;
   openM('modal-weighing');
@@ -3329,7 +3328,17 @@ $('form-weighing').addEventListener('submit', e => {
     const an = animals.find(x => x.id === animalId);
     if (!askDuplicate(`${an ? an.ident : 'Este animal'} já tem pesagem em ${fmtBRfull(dupW.date)}: ${fmtN(dupW.weight, 1)} kg.\n\nPara corrigir o peso, edite a pesagem existente em vez de criar outra.`)) return;
   }
-  const data = { animalId, date, weight, jejum: $('w-jejum').checked, notes: $('w-notes').value.trim() };
+  // Esta fazenda pesa SEMPRE sem jejum, e a caixa de marcar saiu da tela: era a
+  // última porta por onde um "jejum" entrava sem querer, e um clique errado ali
+  // tirava o animal da média do rebanho e distorcia o GMD dele para sempre.
+  //
+  // Pesagem ANTIGA que já esteja marcada como jejum conserva a marca. Reescrever
+  // para "cheio" só porque alguém abriu a tela mudaria o passado em silêncio — e
+  // o aviso de comparação misturada existe justamente para dar conta desse caso,
+  // venha ele de um registro velho ou de um arquivo importado.
+  const anterior = id ? weighings.find(x => x.id === id) : null;
+  const data = { animalId, date, weight, jejum: anterior ? !!anterior.jejum : false,
+    notes: $('w-notes').value.trim() };
   let w;
   if (id) {
     w = weighings.find(x => x.id === id);

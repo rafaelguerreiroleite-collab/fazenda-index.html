@@ -120,6 +120,54 @@ export default async function () {
   t.conferir('com todos pesados, a ressalva some da tela',
     semNota.escondida && semNota.texto === '', semNota.texto);
 
+  // ---------- nenhuma porta cria jejum por engano ----------
+  // A fazenda pesa SEMPRE sem jejum. Com a caixa de marcar fora da tela, não
+  // sobra caminho pelo qual um clique errado grave a condição errada — e um
+  // clique errado ali tirava o animal da média e distorcia o GMD dele para
+  // sempre. O que PODE existir é registro velho ou importado já marcado, e
+  // esse continua sendo tratado (com o aviso), em vez de reescrito em silêncio.
+  t.secao('nenhuma porta cria jejum por engano');
+  const portas = await pagina.evaluate(() => {
+    animals = [{ id: 'j1', ident: 'J1', cat: 'Boi' }];
+    weighings = []; render();
+    openWeighing('j1');
+    $('w-date').value = '2026-10-01'; $('w-weight').value = '400';
+    $('form-weighing').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    const peloForm = weighings[weighings.length - 1];
+    openAnimal();
+    $('an-ident').value = 'J2'; $('an-entry-date').value = '2026-10-01';
+    $('an-entry-weight').value = '300';
+    $('form-animal').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    const deEntrada = weighings.find(w => w.notes === 'Peso de entrada');
+    return {
+      semCaixa: !document.getElementById('w-jejum'),
+      peloForm: peloForm ? !!peloForm.jejum : null,
+      deEntrada: deEntrada ? !!deEntrada.jejum : null,
+      todas: weighings.every(w => w.jejum === false)
+    };
+  });
+  t.conferir('a caixa de jejum não está na tela', portas.semCaixa);
+  t.conferir('pesagem pelo formulário nasce sem jejum', portas.peloForm === false,
+    String(portas.peloForm));
+  t.conferir('peso de entrada do cadastro nasce sem jejum', portas.deEntrada === false,
+    String(portas.deEntrada));
+  t.conferir('nenhuma pesagem criada hoje está marcada como jejum', portas.todas);
+
+  // Registro antigo marcado como jejum conserva a marca ao ser editado:
+  // reescrever para "cheio" porque alguém abriu a tela mudaria o passado.
+  const velho = await pagina.evaluate(() => {
+    animals = [{ id: 'v', ident: 'V', cat: 'Boi' }];
+    weighings = [{ id: 'vw', animalId: 'v', date: '2026-05-01', weight: 380, jejum: true }];
+    render();
+    openWeighing('v', weighings[0]);
+    $('w-weight').value = '385';
+    $('form-weighing').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    const w = weighings.find(x => x.id === 'vw');
+    return { peso: w.weight, aindaJejum: !!w.jejum };
+  });
+  t.conferir('editar um registro antigo grava o peso novo', velho.peso === 385, String(velho.peso));
+  t.conferir('e NÃO apaga a marca de jejum que ele já tinha', velho.aindaJejum === true);
+
   // ---------- as fronteiras do GMD ----------
   t.secao('fronteiras do cálculo de GMD');
   const bordas = await pagina.evaluate(() => {
