@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 85;
+const VERSAO = 86;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -639,6 +639,18 @@ function gmdBetween(a, b) { const d = daysBetween(a.date, b.date); return d > 0 
 // duas condições distorce o ganho, então isso precisa ficar visível.
 const mesmaCondicao = (a, b) => !!a.jejum === !!b.jejum;
 function gmdTotal(ws) { return ws.length >= 2 ? gmdBetween(ws[0], ws[ws.length - 1]) : null; }
+// O MESMO número, mais a informação que decide se ele pode ser comparado com o
+// do vizinho. Dois animais de 452 kg hoje: um pesado em JEJUM na primeira vez
+// (380 kg) aparece com GMD 0,78; o outro, pesado cheio (400 kg), com 0,57.
+// Trinta e oito por cento de diferença que não existe no pasto — e, numa tela
+// onde se escolhe quem vende, é o bastante para guardar o animal errado.
+// O bloco "GMD do rebanho" já deixava essas comparações de fora; a LISTA e o
+// cartão "GMD médio" não deixavam, e os três números discordavam na mesma tela.
+function gmdInfo(ws) {
+  if (!ws || ws.length < 2) return { gmd: null, misto: false };
+  const pri = ws[0], ult = ws[ws.length - 1];
+  return { gmd: gmdBetween(pri, ult), misto: !mesmaCondicao(pri, ult) };
+}
 function gmdRecent(ws) { return ws.length >= 2 ? gmdBetween(ws[ws.length - 2], ws[ws.length - 1]) : null; }
 const gmdCls = g => !Number.isFinite(g) ? '' : g < 0.4 ? 'gmd-low' : g < 0.8 ? 'gmd-mid' : g < 1.2 ? 'gmd-good' : 'gmd-great';
 
@@ -1222,7 +1234,11 @@ function renderRebanho() {
   const activeAnimals = animals.filter(noRebanho);
   const activeIds = new Set(activeAnimals.map(a => a.id));
   const n = activeAnimals.length;
-  const gmds = activeAnimals.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite);
+  // Média de GMD só pode somar números comparáveis entre si: a comparação
+  // jejum↔cheio fica de fora, igual ao bloco do GMD do rebanho logo abaixo.
+  const gmdsInfo = activeAnimals.map(a => gmdInfo(wOf(a.id)));
+  const gmds = gmdsInfo.filter(x => Number.isFinite(x.gmd) && !x.misto).map(x => x.gmd);
+  const gmdsMistos = gmdsInfo.filter(x => Number.isFinite(x.gmd) && x.misto).length;
   const avg = gmds.length ? gmds.reduce((s, g) => s + g, 0) / gmds.length : null;
   const lastDates = weighings.filter(w => activeIds.has(w.animalId)).map(w => w.date).sort();
   const weightById = new Map(activeAnimals.map(a => { const ws = wOf(a.id); return [a.id, ws.length ? ws[ws.length - 1].weight : null]; }));
@@ -1239,6 +1255,23 @@ function renderRebanho() {
     <div class="stat-card"><div class="stat-value">${avgWeight != null ? fmtN(avgWeight, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
     <div class="stat-card"><div class="stat-value">${avgArroba != null ? fmtN(avgArroba, 1) + ' @' : '—'}</div><div class="stat-label">Média em @</div></div>
     <div class="stat-card"><div class="stat-value">${totalArroba != null ? fmtN(totalArroba, 0) + ' @' : '—'}</div><div class="stat-label">Total do rebanho</div></div>`;
+  // Número que saiu de uma média tem de ser contado em voz alta. Duas coisas
+  // encolhem esses cartões em silêncio, e as duas mudam decisão de venda:
+  //
+  // 1. ANIMAL SEM PESAGEM. "ANIMAIS 10" em cima de "TOTAL DO REBANHO 94 @" lê-se
+  //    como o rebanho inteiro, e o total é só o dos pesados. Com 4 de 10 sem
+  //    balança, o total aparece 40% menor do que o rebanho vale, e nada na tela
+  //    diz de onde veio a diferença.
+  // 2. COMPARAÇÃO JEJUM↔CHEIO, que sai da média do GMD pelo mesmo motivo que já
+  //    saía do bloco do GMD do rebanho.
+  const semPeso = [...weightById.values()].filter(v => !Number.isFinite(v)).length;
+  const ressalvas = [];
+  if (semPeso) ressalvas.push(`${semPeso} ${semPeso > 1 ? 'animais' : 'animal'} sem pesagem `
+    + `${semPeso > 1 ? 'não entram' : 'não entra'} no peso médio nem no total do rebanho.`);
+  if (gmdsMistos) ressalvas.push(`GMD médio: ${gmdsMistos} ${gmdsMistos > 1 ? 'animais ficaram' : 'animal ficou'} `
+    + 'de fora — a primeira e a última pesagem foram em condições diferentes (jejum e cheio).');
+  $('bov-gmd-nota').textContent = ressalvas.join(' ');
+  $('bov-gmd-nota').hidden = !ressalvas.length;
 
   // Estimativa do rebanho inteiro: onde ele estaria HOJE com um GMD informado
   // à mão. Os cartões acima mostram a última balança; entre uma pesagem e a
@@ -1389,7 +1422,7 @@ function renderRebanho() {
     return bovSort === 'ident-desc' ? byIdent(b, a) : byIdent(a, b);
   });
   $('animal-list').innerHTML = sorted.map(a => {
-    const ws = wOf(a.id); const last = ws[ws.length - 1]; const g = gmdTotal(ws);
+    const ws = wOf(a.id); const last = ws[ws.length - 1]; const gi = gmdInfo(ws);
     return `<div class="list-item" data-animal="${a.id}">
       <div class="item-main">
         <div class="item-title">${esc(a.ident)}</div>
@@ -1400,7 +1433,9 @@ function renderRebanho() {
       </div>
       <div class="item-side">
         <div class="value">${last ? fmtN(last.weight, 0) + ' kg' : '—'}</div>
-        <div class="aux ${gmdCls(g)}">${Number.isFinite(g) ? 'GMD ' + fmtN(g, 2) : ''}</div>
+        <div class="aux ${gi.misto ? 'gmd-misto' : gmdCls(gi.gmd)}"${gi.misto
+          ? ' title="A primeira e a última pesagem deste animal foram em condições diferentes (jejum e cheio). O ganho real não é este."'
+          : ''}>${Number.isFinite(gi.gmd) ? 'GMD ' + fmtN(gi.gmd, 2) + (gi.misto ? ' ⚠' : '') : ''}</div>
         ${(() => { const e = projetar(a, gmdSim, hoje); return e
           ? `<div class="aux est-linha">~${fmtN(e.peso, 0)} kg hoje</div>` : ''; })()}
       </div>
@@ -2850,8 +2885,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=85';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=85';
+const PDFJS_JS = 'vendor/pdf.min.js?v=86';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=86';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -3886,6 +3921,9 @@ function atualizarPreviaPesagem() {
       ${aviso}`;
   } else {
     const ganho = peso - anterior.weight;
+    // O curral grava cheio, então a mistura que a prévia pode encontrar é com
+    // uma pesagem ANTERIOR que foi em jejum — e é justamente essa que precisa
+    // ser anunciada com o animal ainda na balança.
     const misturado = !mesmaCondicao(anterior, { jejum: false });
     el.innerHTML = `
       <div class="wp-topo">
@@ -3981,6 +4019,11 @@ $('wm-save').addEventListener('click', () => {
     a = { id: uid(), ident, cat: '', entryDate: date, entryWeight: null, notes: '' };
     animals.push(a); upsert("animals", a); createdNew = true;
   }
+  // Esta fazenda não pesa em jejum: o curral grava sempre peso cheio, e o
+  // controle foi tirado da tela de propósito — uma caixa que ninguém usa é uma
+  // caixa que alguém marca sem querer, e aí o dia inteiro fica com a condição
+  // errada. Pesagem em jejum, quando houver, entra pelo cadastro do animal,
+  // onde a marcação existe e é consciente.
   const jejum = false;
   const ws = wOf(a.id);
   const sameDay = ws.find(w => w.date === date);
