@@ -48,6 +48,23 @@ export default async function () {
     aberta.lista.length === existe.bov.length, `${aberta.lista.length} de ${existe.bov.length}`);
   t.conferir('"Mão de obra" está entre elas, visível', aberta.lista.includes('Mão de obra'));
 
+  // Ordem alfabética do PORTUGUÊS. Ordenar pelo código da letra jogaria tudo
+  // que tem acento para o fim — "Ração" depois de "Venda" —, longe de onde o
+  // olho procura. Numa lista de dezessete, achar é correr o dedo pela letra.
+  t.conferir('a lista sai em ordem alfabética',
+    aberta.lista.join('|') === aberta.lista.slice().sort((x, y) => x.localeCompare(y, 'pt-BR')).join('|'),
+    aberta.lista.slice(0, 5).join(' · '));
+  t.conferir('o acento não manda a categoria para o fim da lista',
+    aberta.lista.indexOf('Mão de obra') < aberta.lista.indexOf('Outros')
+    && aberta.lista.indexOf('Ração/insumos') < aberta.lista.indexOf('Venda de gado'),
+    `Mão de obra em ${aberta.lista.indexOf('Mão de obra') + 1}º de ${aberta.lista.length}`);
+  // A lista do navegador e a nossa precisam contar a mesma história: ordens
+  // diferentes no mesmo campo confundem mais do que ordem nenhuma.
+  const naOrigem = await pagina.evaluate(() =>
+    [...document.getElementById('cats-bov').options].map(o => o.value));
+  t.conferir('e a lista do navegador está na mesma ordem',
+    naOrigem.join('|') === aberta.lista.join('|'), naOrigem.slice(0, 3).join(' · '));
+
   // ---------- acha sem acento ----------
   // É o cerne: quem digita no curral não põe acento.
   t.secao('acha sem acento e sem maiúscula');

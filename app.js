@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 88;
+const VERSAO = 89;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2885,8 +2885,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=88';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=88';
+const PDFJS_JS = 'vendor/pdf.min.js?v=89';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=89';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -3433,7 +3433,11 @@ document.querySelectorAll('input[name="t-type"]').forEach(r =>
 // mesma comparação sem acento do resto do aplicativo.
 function categoriasDoCampo() {
   const dl = document.getElementById($('t-category').getAttribute('list'));
-  return dl ? [...dl.options].map(o => o.value) : [];
+  if (!dl) return [];
+  // Ordem alfabética do PORTUGUÊS: localeCompare com 'pt-BR' põe "Mão de obra"
+  // no M e "Ração/insumos" no R. Ordenar pelo código da letra jogaria tudo que
+  // tem acento para o fim da lista, longe de onde o olho procura.
+  return [...dl.options].map(o => o.value).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
 function desenharListaCategorias() {
   const caixa = $('t-cat-lista');
