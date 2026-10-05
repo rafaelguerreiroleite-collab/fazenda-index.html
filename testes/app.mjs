@@ -10,9 +10,16 @@ export default async function () {
 
   // ---------- números em português ----------
   t.secao('leitura de número digitado em português');
+  // O ponto sozinho é o caso difícil: em "4.50" ele é decimal (teclado
+  // numérico), em "10.000" é de milhar (português escrito). A peneira é grupo
+  // exato de três dígitos com parte inteira que não começa com zero — assim
+  // "0.850" segue sendo dose/GMD e "10.000" volta a ser dez mil, que era lido
+  // como R$ 10,00 no campo de valor.
   for (const [txt, esperado] of [['4,50', 4.5], ['0,850', 0.85], ['415,5', 415.5], ['2500,00', 2500],
     ['1.500,00', 1500], ['1.234.567,89', 1234567.89], ['1500', 1500], ['4.50', 4.5],
-    ['', NaN], ['abc', NaN], ['12,5,7', NaN], ['-', NaN]]) {
+    ['10.000', 10000], ['3.000', 3000], ['1.000.000', 1000000], ['-10.000', -10000],
+    ['0.850', 0.85], ['1.23', 1.23], ['1.2345', 1.2345], ['0.500', 0.5],
+    ['', NaN], ['abc', NaN], ['12,5,7', NaN], ['-', NaN], ['1..2', NaN], ['12.34.567', NaN]]) {
     const obtido = await pagina.evaluate(x => parseNum(x), txt);
     t.conferir(`"${txt}"`, Number.isNaN(esperado) ? Number.isNaN(obtido) : eq(obtido, esperado), '→ ' + obtido);
   }

@@ -559,6 +559,10 @@
       <input type="date" id="t-date" required />
       <label class="mono">Valor (R$) *</label>
       <input type="text" inputmode="decimal" step="0.01" id="t-amount" required />
+      <!-- O valor como o aplicativo entendeu. O ponto em "1.250" quer dizer
+           duas coisas diferentes para quem escreve e para quem lê: aqui ele
+           aparece resolvido, em reais, antes de salvar. -->
+      <p class="small valor-lido" id="t-amount-lido" hidden></p>
       <label class="mono">Categoria</label>
       <!-- A lista do navegador compara COM acento: digitando "mao", "Mão de obra"
            não aparece, e tocando no campo não abre nada. O botão ao lado abre a

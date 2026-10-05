@@ -783,6 +783,13 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .item-side .value.qtd-neg { color: #b91c1c; }
 .item-side .aux.estoque-erro { color: #b91c1c; }
 
+/* O valor lido de volta embaixo do campo. Escuro e em dígitos tabulares: é
+   para ser CONFERIDO de relance, não decorativo. Quando o texto não dá um
+   valor, vira aviso — vermelho, porque salvar ali não ia dar em nada. */
+.valor-lido { margin: 0.25rem 0 0; font-variant-numeric: tabular-nums;
+  font-weight: 600; color: #292524; }
+.valor-lido.valor-erro { font-weight: 500; color: #b91c1c; }
+
 .busca-vazia { padding: 1.2rem 0.5rem; text-align: center; color: #57534e;
   font-size: 0.8rem; line-height: 1.5; }
 

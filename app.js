@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 89;
+const VERSAO = 90;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -22,6 +22,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&am
 const clean = o => JSON.parse(JSON.stringify(o));
 // Lê número digitado em português: aceita vírgula decimal e ponto de milhar.
 // Campos type="number" descartavam a vírgula em silêncio ("4,50" virava 450).
+const MILHAR = /^-?[1-9]\d{0,2}(\.\d{3})+$/;
 function parseNum(txt) {
   if (typeof txt !== 'string') return NaN;
   let s = txt.trim().replace(/\s/g, '');
@@ -33,6 +34,18 @@ function parseNum(txt) {
     s = s.slice(0, dec).replace(/[.,]/g, '') + '.' + s.slice(dec + 1);
   } else if (v > -1) {
     s = s.replace(/\./g, '').replace(',', '.');
+  } else if (MILHAR.test(s)) {
+    // Ponto SEM vírgula nenhuma, em grupos exatos de três: é milhar, não
+    // decimal. "10.000" era lido como R$ 10,00 — erro de mil vezes, calado,
+    // dentro do lançamento; e "1.000.000" era recusado como texto inválido,
+    // porque dois pontos não passavam pela peneira do fim.
+    //
+    // A peneira é estreita de propósito, para não atropelar o decimal de quem
+    // digita no teclado numérico: exige parte inteira que NÃO começa com zero
+    // e exatamente três dígitos por grupo. Assim "4.50" continua 4,50 e
+    // "0.850" continua 0,850 — centavo não tem três casas, e dose e GMD se
+    // escrevem com o zero na frente.
+    s = s.replace(/\./g, '');
   }
   return /^-?\d*\.?\d*$/.test(s) ? parseFloat(s) : NaN;
 }
@@ -3716,6 +3729,25 @@ function previewParcelas() {
       : 'Entra em "A pagar" no Financeiro e avisa quando estiver perto de vencer.';
   }
   desenhar('t-amount', 't-parcelas', 't-venc', 't-parcelas-nota', '');
+  mostrarValorLido();
+}
+// O valor de volta, em português, embaixo do campo — antes de salvar.
+//
+// O ponto é a única coisa no aplicativo que uma pessoa pode escrever querendo
+// dizer duas coisas: "1.250" é mil duzentos e cinquenta para quem escreve, e
+// era um e vinte e cinco para quem lia. A regra de leitura foi acertada, mas
+// regra nenhuma adivinha intenção: o que resolve de verdade é o número
+// aparecer escrito do jeito que vai ser salvo, antes do toque em Salvar.
+function mostrarValorLido() {
+  const el = $('t-amount-lido'); if (!el) return;
+  const bruto = $('t-amount').value.trim();
+  const v = parseNum(bruto);
+  const vale = Number.isFinite(v) && v > 0;
+  el.hidden = !bruto;
+  el.textContent = !bruto ? ''
+    : vale ? '= ' + fmtRS(v)
+    : 'Não entendi este valor — escreva os centavos com vírgula (ex: 1.250,50)';
+  el.classList.toggle('valor-erro', !!bruto && !vale);
 }
 ['m-prazo', 'm-postfin', 't-prazo', 't-pago'].forEach(id => $(id).addEventListener('change', syncPrazoUI));
 ['m-parcelas', 'm-venc', 'm-qty', 'm-cost', 't-parcelas', 't-venc', 't-amount']
