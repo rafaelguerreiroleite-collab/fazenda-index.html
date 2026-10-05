@@ -879,6 +879,27 @@ BR002,15/01/2025,340</pre>
   </div>
 </div>
 
+<!-- Conferência do que JÁ foi lançado. O aplicativo lia "10.000" como R$ 10,00
+     quando o valor vinha com ponto e sem vírgula; a leitura foi acertada, mas
+     o que já estava salvo continua como foi salvo. Esta tela procura o que
+     pode ter caído nessa armadilha — e serve dali para frente como conferência
+     de valor fora de escala, venha ele de onde vier. -->
+<div class="modal" id="modal-conferir" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2>Conferir valores já lançados</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <div class="import-body">
+      <p class="small" id="cv-explica"></p>
+      <div id="cv-resultado"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" data-close>Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="modal-menu" hidden>
   <div class="modal-content">
     <header class="modal-header">
@@ -908,6 +929,7 @@ BR002,15/01/2025,340</pre>
       <button class="menu-item" id="menu-atualizar"><span>🔄</span> Buscar atualização do aplicativo</button>
       <button class="menu-item" id="menu-icone"><span>🏠</span> Arrumar o ícone da tela de início</button>
       <button class="menu-item" id="menu-atividades"><span>🌱</span> Atividades da fazenda</button>
+      <button class="menu-item" id="menu-conferir"><span>🔍</span> <span id="menu-conferir-rot">Conferir valores já lançados</span></button>
       <button class="menu-item" id="menu-limpeza"><span>🧹</span> Limpeza: manter só os pesados num dia</button>
       <button class="menu-item" id="menu-backup"><span>💾</span> Backup completo (baixar tudo)</button>
       <button class="menu-item" id="menu-restore"><span>♻️</span> Restaurar backup</button>

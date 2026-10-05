@@ -783,6 +783,27 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .item-side .value.qtd-neg { color: #b91c1c; }
 .item-side .aux.estoque-erro { color: #b91c1c; }
 
+/* Conferência dos valores já lançados. Cada linha é uma decisão do dono, então
+   o valor é o que salta — e o grave vem com a tarja vermelha na lateral, para
+   separar "isto não existe" de "isto pode ser verdade". */
+.menu-item.cv-tem { font-weight: 700; color: #b45309; }
+.cv-titulo { margin: 1.1rem 0 0.2rem; font-size: 0.82rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.03em; color: #57534e; }
+.cv-titulo.cv-grave-t { color: #b91c1c; }
+.cv-linha { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.2rem;
+  border-bottom: 1px solid #e7e5e4; }
+.cv-linha.cv-grave { border-left: 3px solid #b91c1c; padding-left: 0.55rem; }
+.cv-quem { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.cv-quem b { font-size: 0.85rem; line-height: 1.3; overflow-wrap: anywhere; }
+.cv-quem span { font-size: 0.72rem; color: #57534e; }
+.cv-valor { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 0.9rem;
+  white-space: nowrap; }
+.cv-linha .btn-small { min-height: 40px; white-space: nowrap; }
+.cv-limpo { margin: 0.8rem 0; padding: 0.9rem; border-radius: 10px;
+  background: #f0fdf4; border: 1px solid #bbf7d0; }
+.cv-limpo p { margin: 0 0 0.3rem; }
+.cv-limpo p:last-child { margin: 0; }
+
 /* O valor lido de volta embaixo do campo. Escuro e em dígitos tabulares: é
    para ser CONFERIDO de relance, não decorativo. Quando o texto não dá um
    valor, vira aviso — vermelho, porque salvar ali não ia dar em nada. */

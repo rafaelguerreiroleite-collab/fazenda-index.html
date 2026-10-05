@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 90;
+const VERSAO = 91;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -5364,6 +5364,7 @@ $('btn-menu').addEventListener('click', () => {
   $('menu-farm-info').innerHTML += `<span class="mf-versao mono">versão ${VERSAO}</span>`;
   rotuloSelo();
   updateMigrateBtn();
+  rotuloConferir();
   openM('modal-menu');
 });
 document.addEventListener('click', async e => {
@@ -5676,6 +5677,177 @@ document.addEventListener('click', async e => {
   try { await batchWrite(lancs.map(x => ({ col, del: x.id }))); }
   catch (err) { toast('A atividade saiu daqui — os lançamentos somem da nuvem quando houver sinal'); }
   toast(`Atividade "${a.nome}" apagada`);
+});
+
+// ===== Conferir os valores já lançados =====
+// Uma correção de leitura não corrige o passado.
+//
+// O aplicativo lia "10.000" no campo de valor como R$ 10,00 — mil vezes menos,
+// em silêncio — e recusava "1.000.000". A leitura foi acertada, mas o que foi
+// lançado antes está salvo com o número que foi lido na hora, e nenhum código
+// adivinha agora o que o dedo quis dizer então. Quem sabe é o dono.
+//
+// Então esta tela faz o que dá para fazer com honestidade: procura no que já
+// está salvo os valores que CAIRIAM nessa armadilha, mostra cada um com a data
+// e a descrição, e deixa a correção a um toque — nunca em bloco, nunca sozinha.
+//
+// O que a busca encontra, e por quê:
+//
+//  · centavo com três casas (R$ 12,345) é IMPOSSÍVEL em real: é assinatura
+//    certa do erro, porque "12.345" lido como decimal dá exatamente isso;
+//  · lançamento abaixo de R$ 100 numa fazenda é raro, e é onde todo valor
+//    entre mil e cem mil reais aterrissa quando o ponto é lido como vírgula;
+//  · compra de estoque cujo TOTAL não chega a R$ 100 — o preço unitário
+//    sozinho não diz nada (sal mineral é R$ 3,50/kg mesmo), o total diz;
+//  · venda de animal por menos de R$ 100, que não existe;
+//  · pesagem abaixo de 50 kg, que nenhum bovino tem.
+//
+// Preço unitário e quantidade, isolados, não têm como ser julgados pelo valor:
+// 1,25 pode ser um preço de verdade. Por isso a compra entra pelo total, e a
+// tela diz isso em vez de fingir certeza.
+const CV_DINHEIRO = 100;   // lançamento menor que isto, numa fazenda, é raro
+const CV_PESO = 50;        // nenhum bovino pesa menos que isto
+const casasDe = v => {
+  if (!Number.isFinite(v)) return 0;
+  const s = String(v), p = s.indexOf('.');
+  return p < 0 ? 0 : s.length - p - 1;
+};
+// "× 1.000" com o arredondamento do dinheiro, senão 0,07 × 1000 viraria
+// 70,00000000000001 e o centavo entraria torto na nuvem.
+const vezesMil = v => Math.round(v * 100000) / 100;
+function valoresSuspeitos() {
+  const achados = [];
+  const dinheiro = v => Number.isFinite(v) && v > 0 && (casasDe(v) > 2 || v < CV_DINHEIRO);
+  const grupoVisto = new Set();
+  LIVROS.forEach(b => arrLivro(b).forEach(t => {
+    if (!dinheiro(t.amount)) return;
+    // Lançamento gerado por outra coisa não se conserta aqui: mexer nele
+    // deixaria a compra (ou a venda do animal) contando outra história. A
+    // origem é que aparece na lista, logo abaixo.
+    if (t.lock) return;
+    // Carnê é UM erro, não três. Três linhas iguais na lista fariam o dono
+    // conferir a mesma compra parcela por parcela, e é no meio dessa repetição
+    // que o erro de verdade passa batido.
+    const doGrupo = t.grupo ? arrLivro(b).filter(x => x.grupo === t.grupo) : [t];
+    if (t.grupo) {
+      if (grupoVisto.has(t.grupo)) return;
+      grupoVisto.add(t.grupo);
+    }
+    const soma = doGrupo.reduce((sm, x) => sm + x.amount, 0);
+    achados.push({ o: 'lancamento', grave: doGrupo.some(x => casasDe(x.amount) > 2), livro: b, id: t.id,
+      valor: soma, data: t.date,
+      quem: `${NOME_LIVRO[b]} · ${t.category || 'sem categoria'}`
+        + (doGrupo.length > 1 ? ` · ${doGrupo.length}× de ${fmtRS(t.amount)}` : '')
+        + (t.notes ? ' · ' + t.notes : ''),
+      parcelas: doGrupo.length });
+  }));
+  moves.forEach(m => {
+    if (m.type !== 'entrada') return;
+    const total = (m.qty || 0) * (m.cost || 0);
+    if (!dinheiro(total) && !(Number.isFinite(m.cost) && casasDe(m.cost) > 2)) return;
+    const it = items.find(x => x.id === m.itemId);
+    achados.push({ o: 'move', grave: casasDe(m.cost || 0) > 2, id: m.id, itemId: m.itemId,
+      valor: total, data: m.date,
+      quem: `Compra de estoque · ${it ? it.name : 'item removido'} · ${fmtN(m.qty, 2)} ${it ? it.unit : ''} × ${fmtRS(m.cost || 0)}` });
+  });
+  animals.forEach(a => {
+    if (!a.sold || !dinheiro(a.soldPrice)) return;
+    achados.push({ o: 'animal', grave: casasDe(a.soldPrice) > 2, id: a.id,
+      valor: a.soldPrice, data: a.soldDate,
+      quem: `Venda do animal ${a.ident}` });
+  });
+  weighings.forEach(w => {
+    if (!Number.isFinite(w.weight) || w.weight <= 0 || w.weight >= CV_PESO) return;
+    const a = animals.find(x => x.id === w.animalId);
+    achados.push({ o: 'pesagem', grave: true, id: w.id, animalId: w.animalId,
+      peso: w.weight, data: w.date,
+      quem: `Pesagem de ${a ? a.ident : '?'} · ${fmtN(w.weight, 1)} kg` });
+  });
+  return achados.sort((x, y) => (y.grave - x.grave) || String(y.data).localeCompare(String(x.data)));
+}
+function renderConferir() {
+  const achados = valoresSuspeitos();
+  const quantos = LIVROS.reduce((s, b) => s + arrLivro(b).length, 0);
+  $('cv-explica').innerHTML = 'Até a versão 89, um valor escrito com ponto e sem vírgula — <b>10.000</b> — '
+    + 'era lido como <b>R$ 10,00</b>. Isso foi corrigido, mas o que já estava salvo '
+    + 'continua com o número que foi lido na hora. Esta tela procura o que pode ter caído nisso: '
+    + `centavo com três casas, lançamento abaixo de ${fmtRS(CV_DINHEIRO)}, compra de estoque que não chega a esse total, `
+    + `venda de animal por menos que isso e pesagem abaixo de ${CV_PESO} kg.`;
+  const el = $('cv-resultado');
+  if (!achados.length) {
+    el.innerHTML = `<div class="cv-limpo">
+      <p><b>Nada fora do lugar.</b></p>
+      <p class="small">Conferidos ${quantos} lançamento(s), ${moves.length} movimentação(ões) de estoque, `
+      + `${animals.filter(a => a.sold).length} venda(s) e ${weighings.length} pesagem(ns). `
+      + 'Nenhum valor caiu na armadilha do ponto.</p></div>';
+    return;
+  }
+  const graves = achados.filter(a => a.grave), olhar = achados.filter(a => !a.grave);
+  const linha = a => {
+    const valor = a.o === 'pesagem' ? `${fmtN(a.peso, 1)} kg` : fmtRS(a.valor);
+    const botao = a.o === 'lancamento'
+      ? `<button type="button" class="btn-small cv-mil" data-cv-mil="${esc(a.id)}" data-cv-livro="${esc(a.livro)}">× 1.000${a.parcelas > 1 ? ` (${a.parcelas} parcelas)` : ''}</button>`
+      : `<button type="button" class="btn-small" data-cv-abrir="${a.o}" data-cv-id="${esc(a.id)}">Abrir</button>`;
+    return `<div class="cv-linha${a.grave ? ' cv-grave' : ''}">
+      <div class="cv-quem"><b>${esc(a.quem)}</b><span class="mono">${a.data ? fmtBRfull(a.data) : 'sem data'}</span></div>
+      <span class="cv-valor">${valor}</span>${botao}
+    </div>`;
+  };
+  el.innerHTML = (graves.length ? `<p class="cv-titulo cv-grave-t">Valor impossível — ${graves.length}</p>`
+      + '<p class="small">Centavo com três casas, ou bovino com menos de 50 kg. Nenhum dos dois existe: é erro de leitura, certo.</p>'
+      + graves.map(linha).join('') : '')
+    + (olhar.length ? `<p class="cv-titulo">Vale conferir — ${olhar.length}</p>`
+      + '<p class="small">Pode ser um valor pequeno de verdade. Só você sabe: confira a data e a descrição antes de corrigir.</p>'
+      + olhar.map(linha).join('') : '');
+}
+// O número no próprio item do menu. Uma tela de conferência que não se anuncia
+// só é usada por quem já desconfia de algo — e o erro de mil vezes é exatamente
+// o que NÃO levanta suspeita: o lançamento está lá, com data e categoria, só
+// com o valor errado. Com o número ao lado, a conferência se oferece onde o
+// dono já olha, sem alarme na cara de quem não tem nada a corrigir.
+function rotuloConferir() {
+  const el = $('menu-conferir-rot');
+  if (!el) return;
+  const n = valoresSuspeitos().length;
+  el.textContent = n ? `Conferir valores já lançados (${n})` : 'Conferir valores já lançados';
+  $('menu-conferir').classList.toggle('cv-tem', n > 0);
+}
+$('menu-conferir').addEventListener('click', () => { closeAllM(); renderConferir(); openM('modal-conferir'); });
+document.addEventListener('click', e => {
+  const mil = e.target.closest('[data-cv-mil]');
+  if (mil) {
+    const livro = mil.dataset.cvLivro, arr = arrLivro(livro);
+    const t = arr.find(x => x.id === mil.dataset.cvMil);
+    if (!t) { renderConferir(); return sumiu('Este lançamento foi removido'); }
+    // Carnê se corrige inteiro: deixar uma parcela mil vezes maior que as
+    // outras seria trocar um erro visível por um erro difícil de achar.
+    const alvos = t.grupo ? arr.filter(x => x.grupo === t.grupo) : [t];
+    const de = alvos.reduce((s, x) => s + x.amount, 0);
+    if (!confirm(`Multiplicar por mil?\n\n${t.category || 'Lançamento'} · ${fmtBRfull(t.date)}\n\n`
+      + `${alvos.length > 1 ? `${alvos.length} parcelas, somando ` : ''}${fmtRS(de)}  →  ${fmtRS(vezesMil(de))}\n\n`
+      + 'Vale para todos os aparelhos.')) return;
+    alvos.forEach(x => { x.amount = vezesMil(x.amount); });
+    escreverVarias(colLivro(livro), alvos);
+    // O valor vai no lembrete do calendário: deixá-lo velho ali seria cobrar
+    // a conta antiga depois de corrigir a nova.
+    agendarMudanca(alvos, livro);
+    render(); renderConferir(); toast('Valor corrigido');
+    return;
+  }
+  const abrir = e.target.closest('[data-cv-abrir]');
+  if (!abrir) return;
+  const id = abrir.dataset.cvId;
+  closeAllM();
+  if (abrir.dataset.cvAbrir === 'move') {
+    const m = moves.find(x => x.id === id);
+    if (m) openMove(m.itemId, m.type, m); else sumiu('Esta movimentação foi removida');
+  } else if (abrir.dataset.cvAbrir === 'animal') {
+    const a = animals.find(x => x.id === id);
+    if (a) openAnimal(a); else sumiu('Este animal foi removido');
+  } else if (abrir.dataset.cvAbrir === 'pesagem') {
+    const w = weighings.find(x => x.id === id);
+    if (w) openWeighing(w.animalId, w); else sumiu('Esta pesagem foi removida');
+  }
 });
 
 // ===== Ícone da tela de início =====
