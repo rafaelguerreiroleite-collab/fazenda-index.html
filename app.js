@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 87;
+const VERSAO = 88;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2885,8 +2885,8 @@ async function abrirAnexo(id) {
 // endereços que conhece — e o PDF não abria no curral sem sinal. Sendo do
 // próprio app, entra na mesma regra de tudo o mais: rede primeiro, cache como
 // reserva, e fica guardado desde a instalação.
-const PDFJS_JS = 'vendor/pdf.min.js?v=87';
-const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=87';
+const PDFJS_JS = 'vendor/pdf.min.js?v=88';
+const PDFJS_WORKER = 'vendor/pdf.worker.min.js?v=88';
 let pdfjsPronto = null;
 function carregarPdfJs() {
   if (pdfjsPronto) return pdfjsPronto;
@@ -3367,6 +3367,7 @@ function openTrans(book, t) {
   $('t-book').value = efetivo;
   $('t-livro-wrap').style.display = perguntar ? '' : 'none';
   preencherSeletorAtividade();
+  abrirListaCategorias(false);
   // Lançando pela aba Fazenda, começa em Geral — é a natureza da aba. Quem
   // quiser jogar em Bovinos ou Aviários troca no seletor, que está no topo.
   $('t-livro').value = perguntar && tab === 'fazenda' ? 'ger' : efetivo;
@@ -3424,11 +3425,50 @@ function sincronizarSentidoTrans() {
 }
 document.querySelectorAll('input[name="t-type"]').forEach(r =>
   r.addEventListener('change', sincronizarSentidoTrans));
+// ===== Lista de categorias que abre, e que acha sem acento =====
+// A lista nativa do navegador tem dois defeitos no celular: só aparece depois
+// de digitar, e compara LITERALMENTE — "mao" não encontra "Mão de obra",
+// "racao" não encontra "Ração/insumos". Quem escreve no curral não põe acento,
+// e concluía que a categoria não existia. Esta lista abre com um toque e usa a
+// mesma comparação sem acento do resto do aplicativo.
+function categoriasDoCampo() {
+  const dl = document.getElementById($('t-category').getAttribute('list'));
+  return dl ? [...dl.options].map(o => o.value) : [];
+}
+function desenharListaCategorias() {
+  const caixa = $('t-cat-lista');
+  const termo = semAcento($('t-category').value.trim());
+  const todas = categoriasDoCampo();
+  const achadas = termo ? todas.filter(c => semAcento(c).includes(termo)) : todas;
+  if (!achadas.length) {
+    caixa.innerHTML = `<p class="cat-vazia mono">Nenhuma categoria com "${esc($('t-category').value.trim())}". `
+      + 'O campo aceita qualquer texto — pode escrever a sua.</p>';
+    return;
+  }
+  caixa.innerHTML = achadas.map(c => `<button type="button" class="cat-item" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
+}
+function abrirListaCategorias(abrir) {
+  const caixa = $('t-cat-lista');
+  if (!abrir) { caixa.hidden = true; return; }
+  desenharListaCategorias();
+  caixa.hidden = false;
+}
+$('t-cat-abrir').addEventListener('click', () => abrirListaCategorias($('t-cat-lista').hidden));
+$('t-category').addEventListener('input', () => {
+  if (!$('t-cat-lista').hidden) desenharListaCategorias();
+});
+$('t-cat-lista').addEventListener('click', e => {
+  const b = e.target.closest('[data-cat]');
+  if (!b) return;
+  $('t-category').value = b.dataset.cat;
+  abrirListaCategorias(false);
+});
 function sincronizarLivroTrans() {
   const livro = $('t-livro').value;
   $('t-book').value = livro;
   // Atividade criada pela pessoa (soja, leite) recebe a lista genérica: propor
   // "Venda de gado" numa lavoura seria sugestão errada em cima de sugestão.
+  abrirListaCategorias(false);
   $('t-category').setAttribute('list',
     livro === 'av' ? 'cats-av' : livro === 'bov' ? 'cats-bov' : 'cats-geral');
 }
