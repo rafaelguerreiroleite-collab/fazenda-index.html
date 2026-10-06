@@ -627,6 +627,18 @@
           <input type="date" id="t-venc" />
           <label class="mono">Em quantas vezes</label>
           <input type="number" inputmode="numeric" min="1" max="36" step="1" id="t-parcelas" value="1" />
+          <!-- O ritmo das parcelas. "Todo mês no mesmo dia" é o do boleto; "a
+               cada 30 dias" é o do acerto feito no curral, que anda com o
+               calendário; e quem combinou data a data escolhe uma por uma. -->
+          <div id="t-ritmo-wrap" hidden>
+            <label class="mono">Quando vencem as outras</label>
+            <select id="t-ritmo">
+              <option value="mes">Todo mês, no mesmo dia</option>
+              <option value="30">A cada 30 dias</option>
+              <option value="livre">Escolher cada data</option>
+            </select>
+            <div id="t-datas" hidden></div>
+          </div>
           <p class="small" id="t-parcelas-nota"></p>
           <label class="check-lbl"><input type="checkbox" id="t-pago" /> <span id="t-pago-rot">Já foi pago</span></label>
           <div id="t-pago-em-wrap">
@@ -803,6 +815,15 @@
           <input type="date" id="m-venc" />
           <label class="mono">Em quantas vezes</label>
           <input type="number" inputmode="numeric" min="1" max="36" step="1" id="m-parcelas" value="1" />
+          <div id="m-ritmo-wrap" hidden>
+            <label class="mono">Quando vencem as outras</label>
+            <select id="m-ritmo">
+              <option value="mes">Todo mês, no mesmo dia</option>
+              <option value="30">A cada 30 dias</option>
+              <option value="livre">Escolher cada data</option>
+            </select>
+            <div id="m-datas" hidden></div>
+          </div>
           <p class="small" id="m-parcelas-nota">Entra em "A pagar" no Financeiro e avisa quando estiver perto de vencer.</p>
         </div>
       </div>

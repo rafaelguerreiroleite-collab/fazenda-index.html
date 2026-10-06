@@ -786,6 +786,14 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 /* Conferência dos valores já lançados. Cada linha é uma decisão do dono, então
    o valor é o que salta — e o grave vem com a tarja vermelha na lateral, para
    separar "isto não existe" de "isto pode ser verdade". */
+/* As datas escolhidas uma a uma. Agrupadas numa caixa própria para que a lista
+   não se confunda com os campos do formulário em volta — são a mesma decisão,
+   repartida em várias linhas. */
+#t-datas, #m-datas { margin: 0.1rem 0 0.5rem; padding: 0.5rem 0.65rem 0.7rem;
+  border-radius: 10px; background: #fafaf9; border: 1px solid #e7e5e4; }
+#t-datas label, #m-datas label { margin-top: 0.5rem; }
+#t-datas label:first-child, #m-datas label:first-child { margin-top: 0; }
+
 .menu-item.cv-tem { font-weight: 700; color: #b45309; }
 .cv-titulo { margin: 1.1rem 0 0.2rem; font-size: 0.82rem; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.03em; color: #57534e; }

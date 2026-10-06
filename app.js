@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 91;
+const VERSAO = 92;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1967,18 +1967,59 @@ function vencimentoParcela(iso, k) {
   const p = x => String(x).padStart(2, '0');
   return `${alvo.getFullYear()}-${p(alvo.getMonth() + 1)}-${p(alvo.getDate())}`;
 }
+// O RITMO das parcelas. Eram sempre mês a mês, no mesmo dia — o ritmo do
+// boleto. Mas o acerto do curral quase nunca é assim: "a cada trinta dias"
+// anda com o calendário e descola do dia do mês, e compra de gado combinada no
+// leilão vem com data a data, cada uma onde deu. Impor o dia do mês a esses
+// dois casos obrigava a corrigir parcela por parcela depois de salvar — e quem
+// esquecesse ficava com o aviso do calendário tocando no dia errado.
+//
+//   mes   = mesmo dia do mês seguinte (dia 31 em mês de 30 cai no último dia,
+//           como fazem os boletos)
+//   30    = exatamente 30 dias entre uma e outra
+//   livre = as datas que o dono escolheu, uma por uma
+//
+// A primeira parcela é sempre o "1º vencimento" do formulário, nos três casos:
+// é o campo obrigatório, e é dela que as outras saem.
+function vencimentosDe(venc, n, ritmo, datas) {
+  return Array.from({ length: n }, (_, i) => {
+    if (i === 0) return venc;
+    // Data em branco no modo livre cai no padrão mensal em vez de ficar vazia:
+    // parcela sem vencimento deixaria de ser conta a pagar e sumiria do "A
+    // pagar" e do calendário sem avisar ninguém. O formulário ainda recusa a
+    // data em branco antes de chegar aqui — isto é a última rede.
+    if (ritmo === 'livre') return (datas && datas[i]) || vencimentoParcela(venc, i);
+    if (ritmo === '30') return somarDias(venc, 30 * i);
+    return vencimentoParcela(venc, i);
+  });
+}
 // Monta as parcelas de uma compra. A despesa inteira fica no dia da compra —
 // é o que mantém o custo da arroba certo — e cada parcela carrega só o seu
 // vencimento, para o lembrete avisar uma de cada vez.
-function montarParcelas({ base, total, venc, n, grupo }) {
+function montarParcelas({ base, total, venc, n, grupo, ritmo, datas }) {
   const valores = parcelasDe(total, n);
+  const vencs = vencimentosDe(venc, n, ritmo, datas);
   // pagoEm: null junto com pago: false. Sem isso, a data de pagamento do
   // formulário vazava para parcelas que nascem devendo — e o CSV sairia com
   // "pago_em" preenchido numa conta que ainda não foi paga.
   return valores.map((v, i) => Object.assign({}, base, {
-    id: uid(), amount: v, venc: vencimentoParcela(venc, i), pago: false, pagoEm: null,
+    id: uid(), amount: v, venc: vencs[i], pago: false, pagoEm: null,
     grupo, parcela: i + 1, parcelas: n
   }));
+}
+// Recusa o que não dá para cobrar: parcela sem data, ou parcela que vence antes
+// da anterior. Devolve a frase do aviso, ou vazio quando está tudo de pé.
+function erroDasDatas(venc, n, ritmo, datas) {
+  if (ritmo !== 'livre' || n < 2) return '';
+  const ordinal = i => `${i + 1}ª parcela`;
+  let anterior = venc;
+  for (let i = 1; i < n; i++) {
+    const d = datas && datas[i];
+    if (!d) return `Falta a data da ${ordinal(i)}.`;
+    if (d < anterior) return `A ${ordinal(i)} vence antes da ${ordinal(i - 1)} — confira as datas.`;
+    anterior = d;
+  }
+  return '';
 }
 const rotuloParcela = t => t.parcelas > 1 ? ` ${t.parcela}/${t.parcelas}` : '';
 // Três conceitos, e a diferença entre eles importa.
@@ -3394,6 +3435,11 @@ function openTrans(book, t) {
   $('t-prazo').checked = !!(t && t.venc);
   $('t-venc').value = t && t.venc ? t.venc : '';
   $('t-parcelas').value = 1;
+  // O ritmo volta ao do boleto a cada abertura: ele vale para o carnê que está
+  // sendo criado agora, e carregar a escolha da vez passada para um lançamento
+  // novo seria decidir no lugar de quem está digitando.
+  $('t-ritmo').value = 'mes';
+  limparDatasParcelas('t');
   // Uma parcela já criada não se re-parcela: editar a 2/3 mexe só nela.
   $('t-parcelas').disabled = !!(t && t.parcelas > 1);
   anexosForm = (t && t.anexos ? t.anexos.map(a => Object.assign({}, a)) : []);
@@ -3508,7 +3554,15 @@ $('form-transaction').addEventListener('submit', e => {
   // uma entrada, e a venda virava dinheiro que já estava na conta.
   const aPrazo = $('t-prazo').checked;
   if (aPrazo && !$('t-venc').value) { toast('Informe o vencimento'); return; }
-  const nParc = aPrazo ? Math.min(36, Math.max(1, Math.round(parseNum($('t-parcelas').value) || 1))) : 1;
+  const nParc = aPrazo ? nParcelasDe('t-parcelas') : 1;
+  const ritmoT = ritmoDe('t'), datasT = datasEscolhidas('t');
+  // Data em branco ou fora de ordem para antes de salvar: parcela sem
+  // vencimento sairia do "A pagar" sem avisar, e uma que vence antes da
+  // anterior é erro de digitação que só apareceria na cobrança.
+  if (aPrazo && nParc > 1) {
+    const erro = erroDasDatas($('t-venc').value, nParc, ritmoT, datasT);
+    if (erro) { toast(erro); return; }
+  }
   data.venc = aPrazo ? $('t-venc').value : null;
   data.pago = aPrazo ? $('t-pago').checked : false;
   // Marcou pago e não disse quando: assume hoje, que é o que o botão "Pagar"
@@ -3554,7 +3608,7 @@ $('form-transaction').addEventListener('submit', e => {
     }
     if (virarCarne) {
       const grupo = uid();
-      const partes = montarParcelas({ base: data, total: amount, venc: data.venc, n: nParc, grupo });
+      const partes = montarParcelas({ base: data, total: amount, venc: data.venc, n: nParc, grupo, ritmo: ritmoT, datas: datasT });
       // A parcela 1 continua sendo ESTE registro, com o mesmo id: a nota fiscal
       // anexada e tudo o que aponte para ele seguem valendo.
       Object.assign(t, partes[0], { id });
@@ -3573,7 +3627,7 @@ $('form-transaction').addEventListener('submit', e => {
     // Parcelado: a despesa inteira entra no dia do lançamento e cada parcela
     // carrega só o seu vencimento.
     const grupo = uid();
-    const partes = montarParcelas({ base: data, total: amount, venc: data.venc, n: nParc, grupo });
+    const partes = montarParcelas({ base: data, total: amount, venc: data.venc, n: nParc, grupo, ritmo: ritmoT, datas: datasT });
     partes.forEach(p => arr.push(p));
     // A nota fiscal é da compra inteira: fica na primeira parcela, para não
     // duplicar o arquivo uma vez por prestação.
@@ -3704,32 +3758,102 @@ function syncPrazoUI() {
 }
 // Mostra em quanto fica cada parcela antes de salvar: quem parcela quer saber
 // o valor da prestação, não o total.
-function previewParcelas() {
-  const desenhar = (campoValor, campoN, campoVenc, alvo, prefixo) => {
-    const el = $(alvo); if (!el) return;
-    const total = parseNum($(campoValor).value);
-    const n = Math.min(36, Math.max(1, Math.round(parseNum($(campoN).value) || 1)));
-    const venc = $(campoVenc).value;
-    if (!Number.isFinite(total) || total <= 0 || n < 2 || !venc) { el.textContent = prefixo; return; }
-    const vs = parcelasDe(total, n);
-    const iguais = vs.every(v => v === vs[0]);
-    el.textContent = `${n}× de ${fmtRS(vs[0])}${iguais ? '' : ` (a última de ${fmtRS(vs[vs.length - 1])})`}`
-      + ` · 1º em ${fmtBR(venc)}, último em ${fmtBR(vencimentoParcela(venc, n - 1))}`;
-  };
-  const it = items.find(x => x.id === $('m-item-id').value);
-  const totalCompra = (parseNum($('m-qty').value) || 0) * (parseNum($('m-cost').value) || 0);
+const nParcelasDe = campo => Math.min(36, Math.max(1, Math.round(parseNum($(campo).value) || 1)));
+const ritmoDe = pre => { const el = $(pre + '-ritmo'); return el ? el.value : 'mes'; };
+const limparDatasParcelas = pre => {
+  const b = $(pre + '-datas');
+  if (b) { b.innerHTML = ''; b.hidden = true; b.dataset.forma = ''; }
+};
+// Qual ritmo um carnê que já existe está seguindo. Serve para reabrir uma
+// compra parcelada mostrando o que ela tem, em vez de voltar ao padrão e
+// reescrever as datas na primeira vez que alguém tocar em Salvar.
+function ritmoDetectado(vencs) {
+  if (!vencs || vencs.length < 2 || vencs.some(v => !v)) return 'mes';
+  if (vencs.every((v, i) => v === vencimentoParcela(vencs[0], i))) return 'mes';
+  if (vencs.every((v, i) => v === somarDias(vencs[0], 30 * i))) return '30';
+  return 'livre';
+}
+function preencherDatasParcelas(pre, vencs) {
+  const box = $(pre + '-datas'); if (!box || !vencs || !vencs.length) return;
+  box.querySelectorAll('.pd-data').forEach(el => {
+    const i = Number(el.dataset.parcela);
+    if (vencs[i]) el.value = vencs[i];
+  });
+}
+// O que está digitado nas caixas de data, por número de parcela.
+function datasEscolhidas(pre) {
+  const box = $(pre + '-datas');
+  const r = [];
+  if (box) box.querySelectorAll('.pd-data').forEach(el => { r[Number(el.dataset.parcela)] = el.value; });
+  return r;
+}
+// Uma caixa de data por parcela, da 2ª em diante — a 1ª é o campo "1º
+// vencimento", que já é obrigatório e é de onde as outras saem.
+//
+// Só redesenha quando a FORMA muda (número de parcelas, ritmo, primeira data).
+// Redesenhar a cada tecla do campo de valor apagaria a data que o dedo está
+// digitando ao lado, que é o jeito mais rápido de fazer alguém desistir.
+function desenharDatasParcelas(pre) {
+  const box = $(pre + '-datas'); if (!box) return;
+  const n = nParcelasDe(pre + '-parcelas');
+  const venc = $(pre + '-venc').value;
+  const ritmo = ritmoDe(pre);
+  const mostrar = ritmo === 'livre' && n > 1 && !!venc;
+  box.hidden = !mostrar;
+  const forma = `${n}|${ritmo}|${venc}`;
+  if (!mostrar) { box.innerHTML = ''; box.dataset.forma = ''; return; }
+  if (box.dataset.forma === forma) return;
+  const antigas = datasEscolhidas(pre);
+  const padrao = vencimentosDe(venc, n, 'mes');
+  box.innerHTML = Array.from({ length: n - 1 }, (_, k) => {
+    const i = k + 1;
+    return `<label class="mono">${i + 1}ª parcela</label>`
+      + `<input type="date" class="pd-data" data-parcela="${i}" value="${antigas[i] || padrao[i]}" />`;
+  }).join('');
+  box.dataset.forma = forma;
+}
+// O ritmo só tem sentido com mais de uma parcela, e não tem sentido nenhum ao
+// editar uma parcela que já existe: ali se mexe no vencimento DELA, no campo de
+// cima, e o resto do carnê continua de pé.
+function sincronizarRitmo(pre) {
+  const wrap = $(pre + '-ritmo-wrap'); if (!wrap) return;
+  const campoN = $(pre + '-parcelas');
+  wrap.hidden = campoN.disabled || nParcelasDe(pre + '-parcelas') < 2;
+  if (wrap.hidden) { const b = $(pre + '-datas'); if (b) { b.hidden = true; b.innerHTML = ''; b.dataset.forma = ''; } return; }
+  desenharDatasParcelas(pre);
+}
+function resumoParcelas(total, n, venc, ritmo, datas) {
+  const vs = parcelasDe(total, n);
+  const iguais = vs.every(v => v === vs[0]);
+  const vencs = vencimentosDe(venc, n, ritmo, datas);
+  // Até seis parcelas as datas aparecem TODAS. É o que se quer conferir antes
+  // de salvar — e era justamente o que não se via quando o ritmo era fixo.
+  const quando = n <= 6 ? vencs.map(fmtBR).join(' · ')
+    : `1ª em ${fmtBR(vencs[0])} · última em ${fmtBR(vencs[n - 1])}`;
+  return `${n}× de ${fmtRS(vs[0])}${iguais ? '' : ` (a última de ${fmtRS(vs[vs.length - 1])})`} · ${quando}`;
+}
+// Só os textos, sem redesenhar nada: é isto que roda quando o dedo está dentro
+// de uma das caixas de data.
+function notaParcelas() {
+  const elT = $('t-parcelas-nota');
+  if (elT) {
+    const total = parseNum($('t-amount').value), n = nParcelasDe('t-parcelas'), venc = $('t-venc').value;
+    elT.textContent = (!Number.isFinite(total) || total <= 0 || n < 2 || !venc) ? ''
+      : resumoParcelas(total, n, venc, ritmoDe('t'), datasEscolhidas('t'));
+  }
   const elM = $('m-parcelas-nota');
   if (elM) {
-    const n = Math.min(36, Math.max(1, Math.round(parseNum($('m-parcelas').value) || 1)));
-    const venc = $('m-venc').value;
-    elM.textContent = (n > 1 && totalCompra > 0 && venc)
-      ? (() => { const vs = parcelasDe(totalCompra, n); const iguais = vs.every(v => v === vs[0]);
-          return `${n}× de ${fmtRS(vs[0])}${iguais ? '' : ` (a última de ${fmtRS(vs[vs.length - 1])})`}`
-            + ` · 1º em ${fmtBR(venc)}, último em ${fmtBR(vencimentoParcela(venc, n - 1))}`; })()
+    const total = (parseNum($('m-qty').value) || 0) * (parseNum($('m-cost').value) || 0);
+    const n = nParcelasDe('m-parcelas'), venc = $('m-venc').value;
+    elM.textContent = (n > 1 && total > 0 && venc)
+      ? resumoParcelas(total, n, venc, ritmoDe('m'), datasEscolhidas('m'))
       : 'Entra em "A pagar" no Financeiro e avisa quando estiver perto de vencer.';
   }
-  desenhar('t-amount', 't-parcelas', 't-venc', 't-parcelas-nota', '');
   mostrarValorLido();
+}
+function previewParcelas() {
+  sincronizarRitmo('t'); sincronizarRitmo('m');
+  notaParcelas();
 }
 // O valor de volta, em português, embaixo do campo — antes de salvar.
 //
@@ -3752,6 +3876,10 @@ function mostrarValorLido() {
 ['m-prazo', 'm-postfin', 't-prazo', 't-pago'].forEach(id => $(id).addEventListener('change', syncPrazoUI));
 ['m-parcelas', 'm-venc', 'm-qty', 'm-cost', 't-parcelas', 't-venc', 't-amount']
   .forEach(id => $(id).addEventListener('input', previewParcelas));
+['t-ritmo', 'm-ritmo'].forEach(id => $(id).addEventListener('change', previewParcelas));
+// Mexer numa data escolhida atualiza o resumo, mas NÃO redesenha a lista: o
+// redesenho tiraria a caixa debaixo do dedo no meio da digitação.
+['t-datas', 'm-datas'].forEach(id => $(id).addEventListener('input', notaParcelas));
 document.querySelectorAll('input[name="t-type"]').forEach(r => r.addEventListener('change', syncPrazoUI));
 // Apaga os lançamentos que esta compra gerou — a parcela única ou o carnê
 // inteiro. Sem isso, editar uma compra parcelada deixaria parcelas órfãs
@@ -3798,8 +3926,17 @@ function openMove(itemId, presetType, m) {
   $('m-prazo').checked = !!(tv && tv.venc);
   $('m-venc').value = tv && tv.venc ? tv.venc : '';
   $('m-parcelas').value = doGrupo.length ? doGrupo.length : 1;
+  // Reabrir uma compra parcelada tem de mostrar o carnê que ESTÁ lá, com as
+  // datas que ele tem. Salvar refaz o carnê do zero: se a tela voltasse sempre
+  // em "todo mês", bastaria abrir a compra, tocar em Salvar, e as datas
+  // combinadas uma a uma seriam reescritas em silêncio.
+  const vencsGrupo = doGrupo.map(x => x.venc);
+  $('m-ritmo').value = ritmoDetectado(vencsGrupo);
+  limparDatasParcelas('m');
   $('btn-delete-move').hidden = !m;
-  syncMoveCostUI(); syncPrazoUI();
+  syncMoveCostUI(); syncPrazoUI(); previewParcelas();
+  preencherDatasParcelas('m', vencsGrupo);
+  notaParcelas();
   openM('modal-move');
 }
 $('form-move').addEventListener('submit', e => {
@@ -3812,9 +3949,14 @@ $('form-move').addEventListener('submit', e => {
   const postFin = $('m-postfin').checked;
   const aPrazo = $('m-prazo').checked;
   const venc = $('m-venc').value;
-  const nParcM = aPrazo ? Math.min(36, Math.max(1, Math.round(parseNum($('m-parcelas').value) || 1))) : 1;
+  const nParcM = aPrazo ? nParcelasDe('m-parcelas') : 1;
+  const ritmoM = ritmoDe('m'), datasM = datasEscolhidas('m');
   if (!date || !Number.isFinite(qty) || qty <= 0) return;
   if (type === 'entrada' && postFin && aPrazo && !venc) { toast('Informe o vencimento da compra a prazo'); return; }
+  if (type === 'entrada' && postFin && aPrazo && nParcM > 1) {
+    const erro = erroDasDatas(venc, nParcM, ritmoM, datasM);
+    if (erro) { toast(erro); return; }
+  }
   const dupMv = moves.find(x => x.id !== id && x.itemId === itemId && x.date === date && x.type === type && Math.abs(x.qty - qty) < 0.0001);
   if (dupMv) {
     const tipo = type === 'entrada' ? 'entrada' : 'saída';
@@ -3846,7 +3988,7 @@ $('form-move').addEventListener('submit', e => {
         notes: it.name + (mv.notes ? ' — ' + mv.notes : ''), lock: 'stock' };
       if (aPrazo && nParcM > 1) {
         const grupo = uid();
-        const partes = montarParcelas({ base, total, venc, n: nParcM, grupo });
+        const partes = montarParcelas({ base, total, venc, n: nParcM, grupo, ritmo: ritmoM, datas: datasM });
         partes.forEach(p => bovT.push(p));
         escreverVarias('bovtrans', partes);
         mv.linkGrupo = grupo; mv.linkTrans = null;
