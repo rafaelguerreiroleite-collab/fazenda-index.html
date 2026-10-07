@@ -939,6 +939,10 @@ BR002,15/01/2025,340</pre>
       <button class="menu-item" id="menu-exp-bfin"><span>📤</span> Exportar financeiro — só Bovinos (CSV)</button>
       <button class="menu-item" id="menu-exp-afin"><span>📤</span> Exportar financeiro — só Aviários (CSV)</button>
       <button class="menu-item" id="menu-exp-gfin"><span>📤</span> Exportar financeiro — só Geral, custos da sede (CSV)</button>
+      <!-- Uma linha por atividade criada pela fazenda. Sem isto, a Soja e o
+           Trigo só saíam dentro do arquivo da fazenda inteira, e quem pedia
+           "só esta atividade" não tinha por onde. -->
+      <div id="menu-exp-atividades"></div>
       <button class="menu-item" id="menu-exp-estoque"><span>📤</span> Exportar estoque (CSV)</button>
       <hr />
       <div class="menu-setting">

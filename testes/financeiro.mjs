@@ -233,13 +233,15 @@ export default async function () {
         exportFin(livro);
         window.download = orig;
         const corpo = baixados[0] || '';
+        const cabCsv = corpo.split('\n')[0].split(';');
         const linhasCsv = corpo.split('\n').slice(1).filter(Boolean);
         regra('o CSV traz uma linha por parcela',
           linhasCsv.length === nEsperado, `${ctx}: ${linhasCsv.length}`);
-        const somaCsv = linhasCsv.reduce((s2, l) => {
-          const col = l.split(';')[2] || '0';
-          return s2 + Math.round(parseFloat(col.replace(/\./g, '').replace(',', '.')) * 100);
-        }, 0);
+        // Coluna pelo NOME: o arquivo ganhou colunas novas, e um índice fixo
+        // passaria a somar outra coisa sem ninguém notar.
+        const iValor = cabCsv.indexOf('valor_numero');
+        const somaCsv = linhasCsv.reduce((s2, l) =>
+          s2 + Math.round(parseFloat(l.split(';')[iValor] || '0') * 100), 0);
         regra('o CSV soma o mesmo que a tela',
           somaCsv === centavos(valor), `${ctx}: CSV ${somaCsv} vs ${centavos(valor)}`);
       }

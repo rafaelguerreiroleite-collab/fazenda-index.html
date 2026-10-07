@@ -230,24 +230,40 @@ export default async function () {
       /fazenda-inteira/.test(tudo.arq), tudo.arq);
     t.conferir('traz TODOS os lançamentos dos três livros',
       corpo.length === 4, `${corpo.length} de 4`);
+    // Coluna lida pelo NOME, nunca pela posição: assim acrescentar uma coluna
+    // ao arquivo não faz o conferidor passar a olhar para o lugar errado — e
+    // foi exatamente assim que ele começou a ler "saida" como se fosse valor.
+    const col = (linha, nome) => linha.split(';')[cab.split(';').indexOf(nome)];
     t.conferir('e uma coluna dizendo de qual atividade é cada um',
-      cab.startsWith('atividade;'), cab);
+      cab.split(';').includes('atividade'), cab);
     t.conferir('o lançamento de Bovinos aparece marcado como Bovinos',
-      corpo.some(l => l.startsWith('Bovinos;')), corpo.join(' | ').slice(0, 100));
+      corpo.some(l => col(l, 'atividade') === 'Bovinos'), corpo.join(' | ').slice(0, 100));
     t.conferir('o de Aviários aparece marcado como Aviários',
-      corpo.some(l => l.startsWith('Aviários;')), '');
+      corpo.some(l => col(l, 'atividade') === 'Aviários'), '');
     t.conferir('o de Geral aparece marcado como Geral',
-      corpo.some(l => l.startsWith('Geral;')), '');
+      corpo.some(l => col(l, 'atividade') === 'Geral'), '');
+    // A data que ORDENA o arquivo é a aaaa-mm-dd: ela ordena igual em qualquer
+    // programa e em qualquer idioma, e é por isso que ela vem primeiro.
     t.conferir('em ordem de data',
-      corpo.map(l => l.split(';')[1].split('/').reverse().join('-'))
-        .every((d, i, a) => i === 0 || d >= a[i - 1]), corpo.map(l => l.split(';')[1]).join(' '));
+      corpo.map(l => col(l, 'data_iso')).every((d, i, a) => i === 0 || d >= a[i - 1]),
+      corpo.map(l => col(l, 'data_iso')).join(' '));
+    t.conferir('a primeira coluna é a data que qualquer planilha ordena certo',
+      cab.split(';')[0] === 'data_iso'
+      && corpo.every(l => /^\d{4}-\d{2}-\d{2}$/.test(col(l, 'data_iso'))), cab.split(';')[0]);
     t.conferir('a soma do arquivo é a soma dos três livros',
-      Math.round(corpo.reduce((s2, l) => s2
-        + Math.round(parseFloat(l.split(';')[3].replace(/\./g, '').replace(',', '.')) * 100), 0))
+      corpo.reduce((s2, l) => s2 + Math.round(parseFloat(col(l, 'valor_numero')) * 100), 0)
         === Math.round((8200.50 + 1200 + 30000 + 950.75) * 100),
-      corpo.map(l => l.split(';')[3]).join(' + '));
-    t.conferir('mesmas colunas do arquivo de um livro só, mais a atividade',
-      cab.split(';').length === (fin.bov.corpo.split('\n')[0].split(';').length + 1), cab);
+      corpo.map(l => col(l, 'valor_numero')).join(' + '));
+    // O saldo acumulado é o que permite CONFERIR que o arquivo veio inteiro:
+    // o último tem de ser o saldo da fazenda. Faltando linha, não fecha.
+    const saldos = corpo.map(l => Math.round(parseFloat(col(l, 'saldo_acumulado')) * 100));
+    const esperado = corpo.reduce((s2, l) => s2
+      + (col(l, 'tipo') === 'entrada' ? 1 : -1) * Math.round(parseFloat(col(l, 'valor_numero')) * 100), 0);
+    t.conferir('o saldo acumulado da última linha é o saldo da fazenda',
+      saldos[saldos.length - 1] === esperado,
+      `arquivo ${saldos[saldos.length - 1]} · somado ${esperado}`);
+    t.conferir('o arquivo de um livro só tem as MESMAS colunas do da fazenda inteira',
+      cab === fin.bov.corpo.split('\n')[0], cab);
     t.conferir('nenhuma linha com NaN nem undefined',
       !corpo.some(l => /NaN|undefined/.test(l)), '');
   }

@@ -795,6 +795,10 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 #t-datas label:first-child, #m-datas label:first-child { margin-top: 0; }
 
 .menu-item.cv-tem { font-weight: 700; color: #b45309; }
+/* Quantos lançamentos a atividade tem para exportar. Fica no fim da linha,
+   discreto: é informação de conferência, não é o nome do botão. */
+.menu-n { margin-left: auto; padding: 0.1rem 0.4rem; border-radius: 999px;
+  background: #e7e5e4; color: #44403c; font-size: 0.72rem; }
 .cv-titulo { margin: 1.1rem 0 0.2rem; font-size: 0.82rem; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.03em; color: #57534e; }
 .cv-titulo.cv-grave-t { color: #b91c1c; }

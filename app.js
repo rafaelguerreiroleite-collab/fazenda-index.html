@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 92;
+const VERSAO = 93;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -4423,13 +4423,17 @@ function instalado() {
   } catch (e) { return false; }
 }
 function precisaDaTela() { return noIOS() && instalado(); }
-function download(name, content, mime, comBom) {
+// resumo: o que o arquivo tem dentro, em uma linha. No iPhone instalado a tela
+// de saída mostrava só o NOME do arquivo — e "não sei se saiu tudo" não tem
+// resposta possível olhando um nome. Com o resumo, o número de lançamentos e o
+// período aparecem antes de abrir o arquivo.
+function download(name, content, mime, comBom, resumo) {
   const texto = comBom === false ? content : '\ufeff' + content;
   const blob = new Blob([texto], { type: (mime || 'text/plain') + ';charset=utf-8' });
   if (precisaDaTela()) {
     // O texto de reserva vai SEM o marcador do Excel — copiado com ele, o
     // primeiro caractere seria um invisível que estraga o arquivo colado.
-    mostrarSaida({ nome: name, blob, resumo: name, cru: content });
+    mostrarSaida({ nome: name, blob, resumo: resumo ? name + ' · ' + resumo : name, cru: content });
     return;
   }
   const url = URL.createObjectURL(blob);
@@ -4508,46 +4512,120 @@ $('menu-exp-pes').addEventListener('click', () => {
 // Nome do arquivo por livro. Sem o Geral aqui, o CSV dele saía com o nome de
 // Bovinos e sobrescrevia o outro na pasta de downloads.
 const ARQ_LIVRO = { bov: 'bovinos', av: 'aviarios', ger: 'geral' };
+// Nome de arquivo da atividade criada pela fazenda. Sem isto, o nome caía em
+// "financeiro-bovinos" para qualquer atividade: exportar a Soja e depois os
+// Bovinos dava DOIS arquivos com o mesmo nome, e o segundo parecia ter perdido
+// os lançamentos do primeiro — ou pior, um sobrescrevia o outro na pasta.
+const arqLivro = b => ARQ_LIVRO[b]
+  || (semAcento(NOME_LIVRO[b] || String(b)).toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'atividade');
 const ORIGEM = { stock: 'compra de estoque', animal: 'venda de animal' };
+// O arquivo do financeiro, lançamento por lançamento, em ordem de data. É este
+// que vai para o contador, para o banco e para a planilha — e por isso ele
+// carrega TUDO: sem filtro de período, de regime nem de busca, e com uma coluna
+// dizendo de qual atividade é cada linha, inclusive as atividades criadas pela
+// fazenda (que antes só apareciam no arquivo da fazenda inteira).
+//
+// Quatro coisas faziam o arquivo parecer incompleto, e eram todas verdade:
+//
+//  · a data saía só em dd/mm/aaaa. Planilha configurada em inglês lê isso como
+//    mês/dia: o primeiro clique no cabeçalho reordena o arquivo inteiro e a
+//    ordem de data que ele tinha se perde na mão de quem abriu. A primeira
+//    coluna agora é aaaa-mm-dd, que ordena igual em qualquer programa e em
+//    qualquer idioma;
+//  · o valor saía só em português (1.250,50), que fora do Brasil não é número.
+//    Vai junto o mesmo valor com ponto decimal, para a planilha somar;
+//  · não havia como CONFERIR se o arquivo veio inteiro. Agora cada linha leva o
+//    saldo acumulado: se o último saldo não for o saldo da fazenda, falta linha
+//    — e a coluna mostra em qual dia a conta deixou de fechar;
+//  · lançamentos no mesmo dia saíam em ordem indefinida. A ordem agora é
+//    completa — data, vencimento, atividade, parcela, id — e o mesmo arquivo
+//    sai igual duas vezes, o que permite comparar um com o outro.
+//
 // pago_em e não só "sim": contabilidade em regime de caixa precisa da data em
 // que o dinheiro SAIU, não da data em que a conta venceu. E a coluna da nota
 // fiscal é o que liga o lançamento ao documento na hora da declaração.
-const COLS_FIN = 'data;tipo;valor;categoria;classificacao;parcela;vencimento;pago;pago_em;'
-  + 'nota_fiscal;origem;descricao';
-const linhaFin = t => {
+const COLS_FIN = 'data_iso;data;atividade;tipo;valor;valor_numero;saldo_acumulado;'
+  + 'categoria;classificacao;parcela;vencimento;venc_iso;pago;pago_em;'
+  + 'nota_fiscal;origem;descricao;id';
+// Número para planilha estrangeira: ponto decimal, sem separador de milhar.
+const numPlano = v => Number.isFinite(v) ? v.toFixed(2) : '';
+const linhaFin = (t, nome, saldoCent) => {
   const cat = t.category || '';
   return [
-    fmtBRfull(t.date), t.type, fmtN(t.amount, 2), csv(cat), classOf(cat, t.type),
+    t.date || '', fmtBRfull(t.date), csv(nome || ''), t.type,
+    fmtN(t.amount, 2), numPlano(t.amount), numPlano(saldoCent / 100),
+    csv(cat), classOf(cat, t.type),
     t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
-    t.venc ? fmtBRfull(t.venc) : '',
+    t.venc ? fmtBRfull(t.venc) : '', t.venc || '',
     t.venc ? (t.pago ? 'sim' : 'nao') : '',
     t.pagoEm ? fmtBRfull(t.pagoEm) : '',
     csv((t.anexos || []).map(a => a.nome).join(' | ')),
     ORIGEM[t.lock] || 'lançamento manual',
-    csv(t.notes)
+    csv(t.notes), t.id || ''
   ].join(';');
 };
 const porData = (a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+// Ordem COMPLETA: dois lançamentos nunca ficam em ordem indefinida. Sem os
+// critérios de desempate, o arquivo saía numa ordem num aparelho e noutra em
+// outro, e comparar dois arquivos do mesmo mês ficava impossível.
+const ordemFin = (x, y) => {
+  const t1 = x.t, t2 = y.t;
+  return String(t1.date || '').localeCompare(String(t2.date || ''))
+    || String(t1.venc || '').localeCompare(String(t2.venc || ''))
+    || String(x.nome || '').localeCompare(String(y.nome || ''), 'pt-BR')
+    || ((t1.parcela || 0) - (t2.parcela || 0))
+    || String(t1.id || '').localeCompare(String(t2.id || ''));
+};
+// Monta as linhas já ordenadas, com o saldo acumulado em CENTAVOS inteiros: em
+// ponto flutuante, mil linhas de centavo deixam o saldo final errado na casa
+// decimal, e um saldo que não fecha é exatamente o que faz o dono desconfiar
+// (com razão) de que falta lançamento.
+function linhasFinanceiro(pares) {
+  let saldo = 0;
+  return pares.slice().sort(ordemFin).map(({ t, nome }) => {
+    saldo += (t.type === 'entrada' ? 1 : -1) * Math.round(t.amount * 100);
+    return linhaFin(t, nome, saldo);
+  });
+}
+// O que a tela diz depois de gerar o arquivo. Era só o nome do arquivo — e
+// "não sei se saiu tudo" não tem resposta possível olhando um nome. Agora diz
+// quantos lançamentos foram, de que dia a que dia, e quanto somam.
+function resumoFin(pares, curto) {
+  const datas = pares.map(p => p.t.date).filter(Boolean).sort();
+  const soma = tipo => pares.filter(p => p.t.type === tipo)
+    .reduce((a, p) => a + Math.round(p.t.amount * 100), 0) / 100;
+  const base = `${pares.length} lançamento(s)`
+    + (datas.length ? ` · ${fmtBRfull(datas[0])} a ${fmtBRfull(datas[datas.length - 1])}` : '');
+  // O aviso que passa na tela tem segundos para ser lido e vira um bloco de
+  // quatro linhas se levar tudo; as somas ficam na tela do arquivo, que fica.
+  return curto ? base
+    : base + ` · entradas ${fmtRS(soma('entrada'))} · saídas ${fmtRS(soma('saida'))}`;
+}
 function exportFin(book) {
-  const rows = [COLS_FIN];
-  arrLivro(book).slice().sort(porData).forEach(t => rows.push(linhaFin(t)));
-  download(`financeiro-${ARQ_LIVRO[book] || 'bovinos'}-fazendajs.csv`, rows.join('\n'), 'text/csv');
+  const nome = NOME_LIVRO[book] || String(book);
+  const pares = arrLivro(book).map(t => ({ t, nome }));
+  const arquivo = `financeiro-${arqLivro(book)}-fazendajs.csv`;
+  const resumo = resumoFin(pares);
+  download(arquivo, [COLS_FIN, ...linhasFinanceiro(pares)].join('\n'), 'text/csv', undefined,
+    `${nome} · ${resumo}`);
   fecharMenu();
-  toast(`CSV de ${NOME_LIVRO[book] || 'Bovinos'} exportado · ${rows.length - 1} lançamentos`);
+  toast(`CSV de ${nome} · ${resumoFin(pares, true)}`);
 }
 // "Geral" é o nome do TERCEIRO livro — os custos da sede que não são de
 // bovinos nem de aviários. Quem lê "exportar financeiro Geral" entende
 // "exportar tudo", pede o arquivo e recebe um punhado de linhas achando que
-// perdeu o resto. Esta aqui é a que exporta mesmo a fazenda inteira, com uma
-// coluna dizendo de qual atividade é cada lançamento.
+// perdeu o resto. Esta aqui é a que exporta mesmo a fazenda inteira: os três
+// livros fixos E cada atividade criada pela fazenda.
 function exportFinTudo() {
-  const rows = ['atividade;' + COLS_FIN];
-  LIVROS.flatMap(b => arrLivro(b).map(t => ({ t, nome: NOME_LIVRO[b] })))
-    .sort((a, b) => porData(a.t, b.t))
-    .forEach(({ t, nome }) => rows.push(nome + ';' + linhaFin(t)));
-  download('financeiro-fazenda-inteira-fazendajs.csv', rows.join('\n'), 'text/csv');
+  const pares = LIVROS.flatMap(b => arrLivro(b).map(t => ({ t, nome: NOME_LIVRO[b] })));
+  const resumo = resumoFin(pares);
+  const quantas = LIVROS.length;
+  download('financeiro-fazenda-inteira-fazendajs.csv',
+    [COLS_FIN, ...linhasFinanceiro(pares)].join('\n'), 'text/csv', undefined,
+    `Fazenda inteira · ${resumo}`);
   fecharMenu();
-  toast(`CSV da fazenda inteira · ${rows.length - 1} lançamentos dos 3 livros`);
+  toast(`CSV da fazenda inteira · ${resumoFin(pares, true)} · ${quantas} atividade(s)`);
 }
 // Os CSVs de dados trazem linha por linha, e é o que o contador quer. Quem
 // administra a fazenda precisa do FECHAMENTO: quanto entrou, quanto saiu, por
@@ -5110,6 +5188,22 @@ $('ag-rever').addEventListener('click', () => {
 
 $('menu-exp-relatorio').addEventListener('click', exportRelatorio);
 $('menu-exp-tudo').addEventListener('click', exportFinTudo);
+// As atividades criadas pela fazenda ganham cada uma o seu item no menu, com o
+// número de lançamentos ao lado: assim "só esta atividade" existe para elas
+// como existe para Bovinos, e dá para ver de relance se a atividade tem o que
+// exportar antes de pedir o arquivo.
+function montarExportAtividades() {
+  const box = $('menu-exp-atividades');
+  if (!box) return;
+  box.innerHTML = atividades.map(a =>
+    `<button class="menu-item" data-exp-livro="${esc(a.id)}"><span>📤</span> `
+    + `Exportar financeiro — só ${esc(a.nome)} (CSV) `
+    + `<span class="menu-n mono">${arrLivro(a.id).length}</span></button>`).join('');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-exp-livro]');
+  if (b) exportFin(b.dataset.expLivro);
+});
 $('menu-exp-bfin').addEventListener('click', () => exportFin('bov'));
 $('menu-exp-afin').addEventListener('click', () => exportFin('av'));
 $('menu-exp-gfin').addEventListener('click', () => exportFin('ger'));
@@ -5507,6 +5601,7 @@ $('btn-menu').addEventListener('click', () => {
   rotuloSelo();
   updateMigrateBtn();
   rotuloConferir();
+  montarExportAtividades();
   openM('modal-menu');
 });
 document.addEventListener('click', async e => {
