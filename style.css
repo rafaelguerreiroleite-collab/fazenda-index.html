@@ -531,6 +531,16 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .ap-linha.venceu { border-left: 3px solid #991b1b; }
 .ap-linha.hoje, .ap-linha.perto { border-left: 3px solid #b45309; }
 .ap-valor { font-weight: 700; font-size: 0.9rem; white-space: nowrap; }
+/* A linha inteira abre o lançamento. Precisa PARECER que abre: no celular não
+   existe o cursor para avisar, então o aviso é o fundo respondendo ao dedo. */
+.ap-linha[data-trans] { cursor: pointer; -webkit-tap-highlight-color: rgba(34,84,55,0.08); }
+.ap-linha[data-trans]:active { background: #f5f5f4; }
+/* Clipe de nota fiscal: diz, sem abrir nada, quais contas já têm o documento
+   anexado — e quais ainda não têm, que é a pergunta de quem vai pagar. */
+.ap-nf { margin-right: 0.3rem; font-size: 0.78rem; }
+.ap-dica { margin: 0; padding: 0.45rem 0.75rem; background: white;
+  border: 1px solid #e7e5e4; border-top: none; border-radius: 0 0 3px 3px;
+  font-size: 0.68rem; color: #78716c; }
 /* Botão de dar baixa: é o toque que mexe em dinheiro e o mais errado de errar.
    44×44 no mínimo, mesmo que a palavra dentro dele seja curta. */
 .ap-pagar { background: #225437; color: #fafaf9; border: none; border-radius: 3px;

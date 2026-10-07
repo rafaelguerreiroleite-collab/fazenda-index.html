@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 95;
+const VERSAO = 96;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2022,6 +2022,17 @@ function erroDasDatas(venc, n, ritmo, datas) {
   return '';
 }
 const rotuloParcela = t => t.parcelas > 1 ? ` ${t.parcela}/${t.parcelas}` : '';
+// A conta no bloco "A pagar" cabe em uma linha e meia: categoria e vencimento.
+// O resto — a descrição inteira, a nota fiscal, o valor original, de qual
+// compra ela veio — está no lançamento, e não havia como chegar nele daqui.
+// Para ver a nota de um boleto que vence em três dias era preciso sair do
+// bloco, abrir o Financeiro, achar o mesmo lançamento na lista e tocar nele.
+//
+// Agora a linha inteira abre o lançamento. O botão de dar baixa continua
+// dentro dela e tem prioridade: quem toca em "Pagar" não quer abrir nada.
+const marcaAnexo = t => (t.anexos || []).length
+  ? `<span class="ap-nf" title="${(t.anexos || []).length} nota(s) anexada(s)">📎</span>` : '';
+const DICA_ABRIR = '<p class="ap-dica mono">Toque na conta para ver a nota fiscal e a descrição.</p>';
 // Três conceitos, e a diferença entre eles importa.
 // pendente  = tem vencimento e ainda não foi liquidado, nos DOIS sentidos.
 //             É o que o regime de caixa precisa saber: dinheiro que ainda não
@@ -2060,15 +2071,15 @@ function renderAReceber(book, el) {
       const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
       const quando = t.dias < 0 ? `atrasado ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
         : t.dias === 0 ? 'previsto hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
-      return `<div class="ap-linha ar-linha ${estado}">
+      return `<div class="ap-linha ar-linha ${estado}" data-trans="${t.id}" data-book="${book}">
         <div class="ap-quem">
-          <span class="cat">${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
+          <span class="cat">${marcaAnexo(t)}${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
           <span class="quando mono">${fmtBR(t.venc)} · ${quando}</span>
         </div>
         <span class="ap-valor ar-valor">${fmtRS(t.amount)}</span>
         <button type="button" class="ap-pagar ar-receber" data-pagar="${t.id}" data-livro="${book}">Recebi</button>
       </div>`;
-    }).join(''));
+    }).join('') + DICA_ABRIR);
 }
 function renderAPagar(book) {
   const el = $(book === 'av' ? 'av-apagar' : 'bfin-apagar');
@@ -2091,15 +2102,15 @@ function renderAPagar(book) {
       const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
       const quando = t.dias < 0 ? `venceu há ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
         : t.dias === 0 ? 'vence hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
-      return `<div class="ap-linha ${estado}">
+      return `<div class="ap-linha ${estado}" data-trans="${t.id}" data-book="${book}">
         <div class="ap-quem">
-          <span class="cat">${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
+          <span class="cat">${marcaAnexo(t)}${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
           <span class="quando mono">${fmtBR(t.venc)} · ${quando}</span>
         </div>
         <span class="ap-valor">${fmtRS(t.amount)}</span>
         <button type="button" class="ap-pagar" data-pagar="${t.id}" data-livro="${book}">Pagar</button>
       </div>`;
-    }).join('')}`);
+    }).join('')}${DICA_ABRIR}`);
 }
 // O lembrete fica no topo do app, visível de qualquer aba: quem abre o
 // aplicativo para pesar não vai procurar por uma conta no Financeiro.
@@ -2429,15 +2440,15 @@ function renderFazenda() {
           const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
           const quando = t.dias < 0 ? `atrasado ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
             : t.dias === 0 ? 'previsto hoje' : `em ${t.dias} dia${t.dias > 1 ? 's' : ''}`;
-          return `<div class="ap-linha ar-linha ${estado}">
+          return `<div class="ap-linha ar-linha ${estado}" data-trans="${t.id}" data-book="${book}">
             <div class="ap-quem">
-              <span class="cat">${esc(livro)} · ${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}</span>
+              <span class="cat">${marcaAnexo(t)}${esc(livro)} · ${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
               <span class="quando mono">${fmtBR(t.venc)} · ${quando}</span>
             </div>
             <span class="ap-valor ar-valor">${fmtRS(t.amount)}</span>
             <button type="button" class="ap-pagar ar-receber" data-pagar="${t.id}" data-livro="${book}">Recebi</button>
           </div>`;
-        }).join(''));
+        }).join('') + DICA_ABRIR);
     }
   }
   // Contas a pagar dos dois livros juntas: a fazenda paga de um bolso só.
@@ -2460,15 +2471,15 @@ function renderFazenda() {
         // Esta é a única tela que mostra as contas dos TRÊS livros juntas: é
         // aqui que se paga olhando a fazenda inteira. Sem o botão, era preciso
         // descobrir de qual atividade era a conta e ir procurá-la na aba dela.
-        return `<div class="ap-linha ${estado}">
+        return `<div class="ap-linha ${estado}" data-trans="${t.id}" data-book="${book}">
           <div class="ap-quem">
-            <span class="cat">${esc(livro)} · ${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}</span>
+            <span class="cat">${marcaAnexo(t)}${esc(livro)} · ${esc(t.category || 'Sem categoria')}${rotuloParcela(t)}${t.notes ? ' · ' + esc(t.notes) : ''}</span>
             <span class="quando mono">${fmtBR(t.venc)} · ${quando}</span>
           </div>
           <span class="ap-valor">${fmtRS(t.amount)}</span>
           <button type="button" class="ap-pagar" data-pagar="${t.id}" data-livro="${book}">Pagar</button>
         </div>`;
-      }).join('')}`);
+      }).join('')}${DICA_ABRIR}`);
   }
 
   // Categorias dos dois livros somadas, com o resto sempre declarado.
@@ -5790,9 +5801,17 @@ document.addEventListener('click', e => {
   if (mr) { const m = moves.find(x => x.id === mr.dataset.move); if (m) openMove(m.itemId, m.type, m); return; }
   const tr = e.target.closest('[data-trans]');
   if (tr) {
+    // A linha da conta a pagar É clicável e tem o botão de baixa DENTRO dela.
+    // Sem esta saída, tocar em "Pagar" dava baixa e abria o lançamento por
+    // cima — a tela do que acabou de ser pago, aparecendo sozinha.
+    if (e.target.closest('[data-pagar]')) return;
     const book = tr.dataset.book;
     const t = arrLivro(book).find(x => x.id === tr.dataset.trans);
-    if (t) openTrans(book, t);
+    // Toque que não produz resposta nenhuma é indistinguível de aplicativo
+    // quebrado — foi assim que a linha da conta parecia estar antes de abrir.
+    // Apagada no outro aparelho, a conta tem de DIZER que foi apagada.
+    if (!t) return sumiu('Este lançamento foi removido');
+    openTrans(book, t);
   }
 });
 
