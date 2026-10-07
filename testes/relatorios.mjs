@@ -69,13 +69,20 @@ export default async function () {
   const rel = nome => tudo.rel.find(r => r.nome.indexOf('relatorio-' + nome + '-') === 0);
   const bov = rel('bovinos'), av = rel('aviarios'), fz = rel('fazenda');
 
-  // Lê a tabela secao;item;valor;detalhe de um relatório.
+  // Lê a tabela do relatório: secao;item;entradas;saidas;saldo;valor;detalhe
   const ler = r => lerCSV(r.corpo).slice(1).filter(l => l.length > 1)
-    .map(p2 => ({ secao: p2[0], item: p2[1], valor: p2[2], detalhe: p2[3] || '' }));
-  const val = (linhas, secao, item) => {
-    const l = linhas.find(x => x.secao === secao && x.item === item);
-    return l ? l.valor : null;
+    .map(p2 => ({ secao: p2[0], item: p2[1], entradas: p2[2], saidas: p2[3],
+      saldo: p2[4], valor: p2[5], detalhe: p2[6] || '' }));
+  const acha = (linhas, secao, item) => linhas.find(x => x.secao === secao && x.item === item) || null;
+  const campo = (linhas, secao, item, qual) => {
+    const l = acha(linhas, secao, item);
+    return l ? l[qual] : null;
   };
+  const ent = (L, s2, i) => campo(L, s2, i, 'entradas');
+  const sai = (L, s2, i) => campo(L, s2, i, 'saidas');
+  const sal = (L, s2, i) => campo(L, s2, i, 'saldo');
+  const vlr = (L, s2, i) => campo(L, s2, i, 'valor');
+  const MOV = 'MOVIMENTO DO PERÍODO';
   const Lbov = ler(bov), Lav = ler(av), Lfz = ler(fz);
 
   // ---------- 1. os três existem, cada um com o seu arquivo ----------
@@ -87,31 +94,31 @@ export default async function () {
     tudo.rel.map(r => r.nome).join(' · '));
   t.conferir('o nome diz de qual atividade é e em que dia saiu',
     /^relatorio-bovinos-fazendajs-\d{4}-\d{2}-\d{2}\.csv$/.test(bov.nome), bov.nome);
-  t.conferir('todos com as mesmas quatro colunas',
-    [bov, av, fz].every(r => r.corpo.split('\n')[0] === 'secao;item;valor;detalhe'),
+  t.conferir('todos com as mesmas colunas, entrada e saída separadas',
+    [bov, av, fz].every(r => r.corpo.split('\n')[0] === 'secao;item;entradas;saidas;saldo;valor;detalhe'),
     bov.corpo.split('\n')[0]);
 
   // ---------- 2. cada um declara o próprio escopo ----------
   // É a primeira coisa que um auditor precisa: saber o que está olhando.
   t.secao('cada um declara o que entra e o que fica de fora');
   t.conferir('o de Bovinos diz que o escopo é Bovinos',
-    val(Lbov, 'Relatório', 'Escopo') === 'Bovinos', val(Lbov, 'Relatório', 'Escopo'));
+    vlr(Lbov, 'Relatório', 'Escopo') === 'Bovinos', vlr(Lbov, 'Relatório', 'Escopo'));
   t.conferir('e diz nominalmente o que NÃO entra nele',
-    /Aviários/.test(val(Lbov, 'Relatório', 'O que NÃO entra') || '')
-    && /Geral/.test(val(Lbov, 'Relatório', 'O que NÃO entra') || '')
-    && /Soja 2026/.test(val(Lbov, 'Relatório', 'O que NÃO entra') || ''),
-    val(Lbov, 'Relatório', 'O que NÃO entra'));
+    /Aviários/.test(vlr(Lbov, 'Relatório', 'O que NÃO entra') || '')
+    && /Geral/.test(vlr(Lbov, 'Relatório', 'O que NÃO entra') || '')
+    && /Soja 2026/.test(vlr(Lbov, 'Relatório', 'O que NÃO entra') || ''),
+    vlr(Lbov, 'Relatório', 'O que NÃO entra'));
   t.conferir('o de Aviários diz que o escopo é Aviários',
-    val(Lav, 'Relatório', 'Escopo') === 'Aviários', val(Lav, 'Relatório', 'Escopo'));
+    vlr(Lav, 'Relatório', 'Escopo') === 'Aviários', vlr(Lav, 'Relatório', 'Escopo'));
   t.conferir('o da Fazenda diz que entra tudo, e soma as atividades pelo nome',
-    val(Lfz, 'Relatório', 'O que entra') === 'tudo'
+    vlr(Lfz, 'Relatório', 'O que entra') === 'tudo'
     && /Bovinos \+ Aviários \+ Geral \+ Soja 2026/.test(
-      (Lfz.find(x => x.secao === 'Relatório' && x.item === 'Escopo') || {}).detalhe || ''),
-    (Lfz.find(x => x.secao === 'Relatório' && x.item === 'Escopo') || {}).detalhe);
+      (acha(Lfz, 'Relatório', 'Escopo') || {}).detalhe || ''),
+    (acha(Lfz, 'Relatório', 'Escopo') || {}).detalhe);
   t.conferir('todos dizem o dia e a versão do aplicativo que os gerou',
-    [Lbov, Lav, Lfz].every(L => /^\d{2}\/\d{2}\/\d{4}$/.test(val(L, 'Relatório', 'Gerado em') || '')
-      && /versão \d+/.test((L.find(x => x.item === 'Gerado em') || {}).detalhe || '')),
-    val(Lbov, 'Relatório', 'Gerado em'));
+    [Lbov, Lav, Lfz].every(L => /^\d{2}\/\d{2}\/\d{4}$/.test(vlr(L, 'Relatório', 'Gerado em') || '')
+      && /versão \d+/.test((acha(L, 'Relatório', 'Gerado em') || {}).detalhe || '')),
+    vlr(Lbov, 'Relatório', 'Gerado em'));
 
   // ---------- 3. AS PARTES SOMAM O TODO ----------
   // A conta que o auditor faz primeiro. Se não fechar, nada do resto importa.
@@ -122,41 +129,116 @@ export default async function () {
     return { ger: { rec: Math.round(r.receitas * 100), cus: Math.round(r.custos * 100), n: r.n },
       soja: { rec: Math.round(so.receitas * 100), cus: Math.round(so.custos * 100), n: so.n } };
   });
-  const recBov = cent(val(Lbov, 'Resumo', 'Receitas')), cusBov = cent(val(Lbov, 'Resumo', 'Custos'));
-  const recAv = cent(val(Lav, 'Resumo', 'Receitas')), cusAv = cent(val(Lav, 'Resumo', 'Custos'));
-  const recFz = cent(val(Lfz, 'Resumo', 'Receitas')), cusFz = cent(val(Lfz, 'Resumo', 'Custos'));
+  const recBov = cent(ent(Lbov, 'Resumo', MOV)), cusBov = cent(sai(Lbov, 'Resumo', MOV));
+  const recAv = cent(ent(Lav, 'Resumo', MOV)), cusAv = cent(sai(Lav, 'Resumo', MOV));
+  const recFz = cent(ent(Lfz, 'Resumo', MOV)), cusFz = cent(sai(Lfz, 'Resumo', MOV));
   t.conferir('receitas: Bovinos + Aviários + Geral + Soja = Fazenda, no centavo',
     recBov + recAv + geralSozinho.ger.rec + geralSozinho.soja.rec === recFz,
     `${recBov} + ${recAv} + ${geralSozinho.ger.rec} + ${geralSozinho.soja.rec} = ${recBov + recAv + geralSozinho.ger.rec + geralSozinho.soja.rec} · Fazenda ${recFz}`);
   t.conferir('custos: idem, no centavo',
     cusBov + cusAv + geralSozinho.ger.cus + geralSozinho.soja.cus === cusFz,
     `somado ${cusBov + cusAv + geralSozinho.ger.cus + geralSozinho.soja.cus} · Fazenda ${cusFz}`);
-  const nBov = Number(val(Lbov, 'Conferência', 'Lançamentos somados'));
-  const nAv = Number(val(Lav, 'Conferência', 'Lançamentos somados'));
-  const nFz = Number(val(Lfz, 'Conferência', 'Lançamentos somados'));
+  const nBov = Number(vlr(Lbov, 'Conferência', 'Lançamentos somados'));
+  const nAv = Number(vlr(Lav, 'Conferência', 'Lançamentos somados'));
+  const nFz = Number(vlr(Lfz, 'Conferência', 'Lançamentos somados'));
   t.conferir('e a contagem de lançamentos também fecha',
     nBov + nAv + geralSozinho.ger.n + geralSozinho.soja.n === nFz,
     `${nBov} + ${nAv} + ${geralSozinho.ger.n} + ${geralSozinho.soja.n} · Fazenda ${nFz}`);
-  t.conferir('o saldo de cada relatório é receitas menos custos',
-    cent(val(Lbov, 'Resumo', 'Saldo')) === recBov - cusBov
-    && cent(val(Lav, 'Resumo', 'Saldo')) === recAv - cusAv
-    && cent(val(Lfz, 'Resumo', 'Saldo')) === recFz - cusFz);
+  t.conferir('o saldo de cada relatório vem feito, entradas menos saídas',
+    cent(sal(Lbov, 'Resumo', MOV)) === recBov - cusBov
+    && cent(sal(Lav, 'Resumo', MOV)) === recAv - cusAv
+    && cent(sal(Lfz, 'Resumo', MOV)) === recFz - cusFz,
+    `${sal(Lbov, 'Resumo', MOV)} · ${sal(Lav, 'Resumo', MOV)} · ${sal(Lfz, 'Resumo', MOV)}`);
   // A pagar e a receber também são por atividade: somar a conta do aviário no
   // relatório dos bovinos faria o gado parecer mais endividado do que é.
   t.conferir('o a pagar de cada um é só o da atividade dele',
-    cent(val(Lbov, 'Resumo', 'A pagar em aberto')) === 100000
-    && cent(val(Lav, 'Resumo', 'A pagar em aberto')) === 183090
-    && cent(val(Lfz, 'Resumo', 'A pagar em aberto')) === 283090,
-    `bov ${val(Lbov, 'Resumo', 'A pagar em aberto')} · av ${val(Lav, 'Resumo', 'A pagar em aberto')} · fz ${val(Lfz, 'Resumo', 'A pagar em aberto')}`);
+    cent(vlr(Lbov, 'Resumo', 'Ainda a pagar')) === 100000
+    && cent(vlr(Lav, 'Resumo', 'Ainda a pagar')) === 183090
+    && cent(vlr(Lfz, 'Resumo', 'Ainda a pagar')) === 283090,
+    `bov ${vlr(Lbov, 'Resumo', 'Ainda a pagar')} · av ${vlr(Lav, 'Resumo', 'Ainda a pagar')} · fz ${vlr(Lfz, 'Resumo', 'Ainda a pagar')}`);
   // O a receber não aparecia em relatório nenhum: auditar só o que se deve, sem
   // o que se tem para receber, dá o retrato pela metade — e o mais pessimista.
   t.conferir('o a receber aparece, e também por atividade',
-    cent(val(Lbov, 'Resumo', 'A receber em aberto')) === 3000000
-    && cent(val(Lav, 'Resumo', 'A receber em aberto')) === 0,
-    `bov ${val(Lbov, 'Resumo', 'A receber em aberto')} · av ${val(Lav, 'Resumo', 'A receber em aberto')}`);
+    cent(vlr(Lbov, 'Resumo', 'Ainda a receber')) === 3000000
+    && cent(vlr(Lav, 'Resumo', 'Ainda a receber')) === 0,
+    `bov ${vlr(Lbov, 'Resumo', 'Ainda a receber')} · av ${vlr(Lav, 'Resumo', 'Ainda a receber')}`);
   t.conferir('com a conta a receber listada uma por uma',
     Lbov.some(x => x.secao === 'A receber' && /Venda de gado/.test(x.item)),
     Lbov.filter(x => x.secao === 'A receber').map(x => x.item).join(' | ') || 'nenhuma linha');
+
+  // ---------- 3b. ENTRADA E SAÍDA NUNCA NA MESMA COLUNA ----------
+  // Era o relato do dono: "está muito confuso, entradas e saídas". Saíam na
+  // mesma coluna "valor", as duas positivas, e o sentido do dinheiro ficava
+  // escondido dentro do texto da linha. Para conferir era preciso LER cada
+  // linha, e somar coluna nenhuma dava resultado.
+  t.secao('entrada e saída nunca na mesma coluna');
+  t.conferir('o cabeçalho tem coluna de entradas, de saídas e de saldo',
+    bov.corpo.split('\n')[0] === 'secao;item;entradas;saidas;saldo;valor;detalhe',
+    bov.corpo.split('\n')[0]);
+  // Categoria e conta em aberto têm UM sentido só por natureza: ou aquele
+  // dinheiro entra, ou sai. Linha de resumo — movimento, caixa, atividade,
+  // total — ocupa os dois lados de propósito, porque resume os dois sentidos.
+  const umLadoSo = ['Categoria', 'A pagar', 'A receber'];
+  const doisLados = [Lbov, Lav, Lfz].flatMap(L => L.filter(x =>
+    umLadoSo.includes(x.secao) && x.entradas && x.saidas && !/^TOTAL/.test(x.item)));
+  t.conferir('cada categoria e cada conta em aberto ocupa só o lado dela',
+    doisLados.length === 0,
+    doisLados.map(x => `${x.secao}/${x.item}`).join(' | '));
+  // E a atividade mostra os dois lados mais o saldo dela: é o que responde
+  // "esta atividade se paga?" sem precisar de calculadora.
+  t.conferir('a atividade mostra entradas, saídas e o saldo dela',
+    Lfz.filter(x => x.secao === 'Atividade' && !/^TOTAL/.test(x.item))
+      .every(x => x.saldo !== '' && cent(x.saldo) === cent(x.entradas || '0') - cent(x.saidas || '0')),
+    Lfz.filter(x => x.secao === 'Atividade').map(x => `${x.item} ${x.saldo}`).join(' | '));
+  t.conferir('a venda de gado aparece na coluna de ENTRADAS, e só nela',
+    ent(Lbov, 'Categoria', 'Venda de gado') === '128.000,00'
+    && sai(Lbov, 'Categoria', 'Venda de gado') === '',
+    `entradas ${ent(Lbov, 'Categoria', 'Venda de gado')} · saidas "${sai(Lbov, 'Categoria', 'Venda de gado')}"`);
+  t.conferir('a ração aparece na coluna de SAÍDAS, e só nela',
+    sai(Lbov, 'Categoria', 'Ração/insumos') === '1.250,50'
+    && ent(Lbov, 'Categoria', 'Ração/insumos') === '',
+    `entradas "${ent(Lbov, 'Categoria', 'Ração/insumos')}" · saidas ${sai(Lbov, 'Categoria', 'Ração/insumos')}`);
+  // O número negativo saía com apóstrofe na frente ('-700,00) por causa da
+  // proteção contra fórmula. Em campo de texto isso é certo; em campo
+  // NUMÉRICO, transforma o valor em texto e a planilha não soma a coluna.
+  const comApostrofe = [Lbov, Lav, Lfz].flatMap(L =>
+    L.filter(x => /^'/.test(x.entradas) || /^'/.test(x.saidas) || /^'/.test(x.saldo)));
+  t.conferir('nenhum número sai com apóstrofe na frente — a planilha precisa somar a coluna',
+    comApostrofe.length === 0,
+    comApostrofe.map(x => `${x.item}: ${x.saldo}`).join(' | '));
+  t.conferir('e o saldo negativo sai como número negativo mesmo',
+    sal(Lbov, 'Categoria', 'Ração/insumos') === '-1.250,50',
+    sal(Lbov, 'Categoria', 'Ração/insumos'));
+
+  // ---------- 3c. CADA BLOCO FECHA SOZINHO ----------
+  // É a conferência que o dono faz na planilha: seleciona a coluna de um
+  // bloco, lê o total, e compara com a linha TOTAL dele. Se não fechar, falta
+  // ou sobra lançamento DENTRO daquele bloco — e o bloco diz qual é.
+  t.secao('cada bloco fecha sozinho');
+  const somaBloco = (L, secao, qual) => L.filter(x => x.secao === secao && !/^TOTAL/.test(x.item))
+    .reduce((a, x) => a + (x[qual] ? cent(x[qual]) : 0), 0);
+  [['Categoria', 'TOTAL das categorias'], ['Natureza', 'TOTAL das naturezas'],
+   ['Atividade', 'TOTAL das atividades']].forEach(([secao, totalItem]) => {
+    [['Bovinos', Lbov], ['Fazenda', Lfz]].forEach(([nome, L]) => {
+      if (!acha(L, secao, totalItem)) return;
+      const te = cent(ent(L, secao, totalItem) || '0'), ts = cent(sai(L, secao, totalItem) || '0');
+      t.conferir(`${nome}: a linha ${totalItem} é a soma das linhas do bloco`,
+        somaBloco(L, secao, 'entradas') === te && somaBloco(L, secao, 'saidas') === ts,
+        `bloco +${somaBloco(L, secao, 'entradas')}/−${somaBloco(L, secao, 'saidas')} · TOTAL +${te}/−${ts}`);
+      t.conferir(`${nome}: e esse total é o MOVIMENTO DO PERÍODO`,
+        te === cent(ent(L, 'Resumo', MOV)) && ts === cent(sai(L, 'Resumo', MOV)),
+        `TOTAL +${te}/−${ts} · movimento +${cent(ent(L, 'Resumo', MOV))}/−${cent(sai(L, 'Resumo', MOV))}`);
+    });
+  });
+  t.conferir('o TOTAL a pagar é a soma das contas listadas',
+    somaBloco(Lfz, 'A pagar', 'saidas') === cent(sai(Lfz, 'A pagar', 'TOTAL a pagar')),
+    `contas ${somaBloco(Lfz, 'A pagar', 'saidas')} · TOTAL ${sai(Lfz, 'A pagar', 'TOTAL a pagar')}`);
+  t.conferir('o TOTAL a receber também',
+    somaBloco(Lfz, 'A receber', 'entradas') === cent(ent(Lfz, 'A receber', 'TOTAL a receber')),
+    `contas ${somaBloco(Lfz, 'A receber', 'entradas')} · TOTAL ${ent(Lfz, 'A receber', 'TOTAL a receber')}`);
+  t.conferir('e o relatório ensina, no fim, como conferir na planilha',
+    /some a coluna entradas/.test(vlr(Lfz, 'Conferência', 'Como conferir na planilha') || ''),
+    vlr(Lfz, 'Conferência', 'Como conferir na planilha'));
 
   // ---------- 4. nada vaza de uma atividade para a outra ----------
   t.secao('nada vaza de uma atividade para a outra');
@@ -168,10 +250,11 @@ export default async function () {
   t.conferir('o de Aviários não traz nada dos bovinos',
     !Lav.some(x => x.secao === 'Categoria' && /gado|Ração|Medicamentos/.test(x.item)),
     Lav.filter(x => x.secao === 'Categoria').map(x => x.item).join(' | '));
+  const contasDe = L => L.filter(x => x.secao === 'A pagar' && !/^TOTAL/.test(x.item));
   t.conferir('as contas a pagar de cada relatório são só da atividade dele',
-    Lbov.filter(x => x.secao === 'A pagar').every(x => /^Bovinos ·/.test(x.item))
-    && Lav.filter(x => x.secao === 'A pagar').every(x => /^Aviários ·/.test(x.item)),
-    Lbov.filter(x => x.secao === 'A pagar').map(x => x.item).join(' | '));
+    contasDe(Lbov).every(x => /^Bovinos ·/.test(x.item))
+    && contasDe(Lav).every(x => /^Aviários ·/.test(x.item)),
+    contasDe(Lbov).map(x => x.item).join(' | '));
   t.conferir('e o da Fazenda traz as duas, com o nome da atividade na frente',
     Lfz.filter(x => x.secao === 'A pagar').some(x => /^Bovinos ·/.test(x.item))
     && Lfz.filter(x => x.secao === 'A pagar').some(x => /^Aviários ·/.test(x.item)),
@@ -197,24 +280,24 @@ export default async function () {
   t.conferir('o da Fazenda traz o rebanho e o estoque',
     Lfz.some(x => x.secao === 'Rebanho') && Lfz.some(x => x.secao === 'Estoque'));
   t.conferir('o rebanho do relatório é o mesmo da tela',
-    Number(val(Lbov, 'Rebanho', 'Animais no rebanho'))
+    Number(vlr(Lbov, 'Rebanho', 'Animais no rebanho'))
       === await pagina.evaluate(() => animals.filter(noRebanho).length),
-    val(Lbov, 'Rebanho', 'Animais no rebanho'));
+    vlr(Lbov, 'Rebanho', 'Animais no rebanho'));
 
   // ---------- 6. as duas visões do dinheiro ----------
   t.secao('competência e caixa, lado a lado');
   t.conferir('todos trazem o caixa, separado do resultado por competência',
-    [Lbov, Lav, Lfz].every(L => L.some(x => x.secao === 'Caixa' && x.item === 'Saldo de caixa')));
+    [Lbov, Lav, Lfz].every(L => !!acha(L, 'Caixa', 'RECEBIDO E PAGO')));
   t.conferir('e o caixa do Bovinos ignora o que ainda não foi pago nem recebido',
-    cent(val(Lbov, 'Caixa', 'Receitas recebidas')) === 9800000
-    && cent(val(Lbov, 'Caixa', 'Custos pagos')) === 125050,
-    `recebido ${val(Lbov, 'Caixa', 'Receitas recebidas')} · pago ${val(Lbov, 'Caixa', 'Custos pagos')}`);
+    cent(ent(Lbov, 'Caixa', 'RECEBIDO E PAGO')) === 9800000
+    && cent(sai(Lbov, 'Caixa', 'RECEBIDO E PAGO')) === 125050,
+    `recebido ${ent(Lbov, 'Caixa', 'RECEBIDO E PAGO')} · pago ${sai(Lbov, 'Caixa', 'RECEBIDO E PAGO')}`);
   t.conferir('dizendo quanto falta pagar e quanto falta receber',
-    cent(val(Lbov, 'Caixa', 'Ainda não pago')) === 100000
-    && cent(val(Lbov, 'Caixa', 'Ainda não recebido')) === 3000000,
-    `${val(Lbov, 'Caixa', 'Ainda não pago')} · ${val(Lbov, 'Caixa', 'Ainda não recebido')}`);
-  t.conferir('a quebra por atividade sai no consolidado',
-    Lfz.filter(x => x.secao === 'Atividade').length === 4,
+    cent(vlr(Lbov, 'Caixa', 'Falta pagar')) === 100000
+    && cent(vlr(Lbov, 'Caixa', 'Falta receber')) === 3000000,
+    `${vlr(Lbov, 'Caixa', 'Falta pagar')} · ${vlr(Lbov, 'Caixa', 'Falta receber')}`);
+  t.conferir('a quebra por atividade sai no consolidado, com a linha de total',
+    Lfz.filter(x => x.secao === 'Atividade').length === 5,
     Lfz.filter(x => x.secao === 'Atividade').map(x => x.item).join(' | '));
   // Num relatório de uma atividade só, a quebra seria uma linha repetindo o
   // resumo — e linha repetida em relatório de auditoria é convite a erro.
@@ -222,13 +305,13 @@ export default async function () {
     Lbov.filter(x => x.secao === 'Atividade').length === 0);
   t.conferir('as três naturezas saem sempre, inclusive em zero',
     [Lbov, Lav, Lfz].every(L =>
-      ['Receita', 'Custeio', 'Investimento'].every(c => val(L, 'Natureza', c) !== null)),
-    ['Receita', 'Custeio', 'Investimento'].map(c => val(Lav, 'Natureza', c)).join(' · '));
+      ['Receita', 'Custeio', 'Investimento'].every(c => !!acha(L, 'Natureza', c))),
+    ['Receita', 'Custeio', 'Investimento'].map(c => (acha(Lav, 'Natureza', c) || {}).saidas).join(' · '));
   t.conferir('e somam o movimento do período, sem sobra nem falta',
     [[Lbov, recBov, cusBov], [Lav, recAv, cusAv], [Lfz, recFz, cusFz]].every(([L, rc, cs]) =>
-      cent(val(L, 'Natureza', 'Receita')) + cent(val(L, 'Natureza', 'Custeio'))
-      + cent(val(L, 'Natureza', 'Investimento')) === rc + cs),
-    `fazenda: naturezas ${cent(val(Lfz, 'Natureza', 'Receita')) + cent(val(Lfz, 'Natureza', 'Custeio')) + cent(val(Lfz, 'Natureza', 'Investimento'))} · movimento ${recFz + cusFz}`);
+      cent(ent(L, 'Natureza', 'Receita')) + cent(sai(L, 'Natureza', 'Custeio'))
+      + cent(sai(L, 'Natureza', 'Investimento')) === rc + cs),
+    `fazenda: naturezas ${cent(ent(Lfz, 'Natureza', 'Receita')) + cent(sai(Lfz, 'Natureza', 'Custeio')) + cent(sai(Lfz, 'Natureza', 'Investimento'))} · movimento ${recFz + cusFz}`);
 
   // ---------- 7. O RELATÓRIO AMARRA NO ARQUIVO DE LANÇAMENTOS ----------
   // O fecho da auditoria: o resumo tem de encostar no detalhe sem refazer
@@ -238,7 +321,7 @@ export default async function () {
   const fin = nome => tudo.fin.find(f => f.nome.indexOf('financeiro-' + nome) === 0);
   const pares = [['bovinos', Lbov, bov], ['aviarios', Lav, av], ['fazenda-inteira', Lfz, fz]];
   pares.forEach(([arq, L, r]) => {
-    const apontado = val(L, 'Relatório', 'Arquivo de lançamentos correspondente');
+    const apontado = vlr(L, 'Relatório', 'Arquivo de lançamentos correspondente');
     t.conferir(`o relatório de ${arq} aponta o arquivo certo`,
       !!fin(arq) && apontado === fin(arq).nome, `aponta ${apontado} · existe ${fin(arq) && fin(arq).nome}`);
   });
@@ -248,23 +331,23 @@ export default async function () {
     const linhas = f.corpo.split('\n').filter(Boolean);
     const cab = linhas[0].split(';');
     const corpo = linhas.slice(1);
-    const nDito = Number(val(L, 'Conferência', 'Lançamentos somados'));
+    const nDito = Number(vlr(L, 'Conferência', 'Lançamentos somados'));
     t.conferir(`${arq}: o número de lançamentos do relatório é o de linhas do arquivo`,
       corpo.length === nDito, `relatório ${nDito} · arquivo ${corpo.length}`);
     const ultimo = corpo[corpo.length - 1];
     const saldoArq = ultimo
       ? Math.round(parseFloat(ultimo.split(';')[cab.indexOf('saldo_acumulado')]) * 100) : 0;
-    t.conferir(`${arq}: "entradas − saídas" do relatório é o saldo acumulado da última linha`,
-      cent(val(L, 'Conferência', 'Entradas − saídas')) === saldoArq,
-      `relatório ${val(L, 'Conferência', 'Entradas − saídas')} · arquivo ${(saldoArq / 100).toFixed(2)}`);
+    t.conferir(`${arq}: o saldo do relatório é o saldo acumulado da última linha do arquivo`,
+      cent(sal(L, 'Conferência', 'ENTRADAS E SAÍDAS')) === saldoArq,
+      `relatório ${sal(L, 'Conferência', 'ENTRADAS E SAÍDAS')} · arquivo ${(saldoArq / 100).toFixed(2)}`);
     const somaEnt = corpo.filter(l => l.split(';')[cab.indexOf('tipo')] === 'entrada')
       .reduce((a, l) => a + Math.round(parseFloat(l.split(';')[cab.indexOf('valor_numero')]) * 100), 0);
     const somaSai = corpo.filter(l => l.split(';')[cab.indexOf('tipo')] === 'saida')
       .reduce((a, l) => a + Math.round(parseFloat(l.split(';')[cab.indexOf('valor_numero')]) * 100), 0);
     t.conferir(`${arq}: as somas do relatório são as somas do arquivo, no centavo`,
-      cent(val(L, 'Conferência', 'Soma das entradas')) === somaEnt
-      && cent(val(L, 'Conferência', 'Soma das saídas')) === somaSai,
-      `relatório +${val(L, 'Conferência', 'Soma das entradas')}/−${val(L, 'Conferência', 'Soma das saídas')}`
+      cent(ent(L, 'Conferência', 'ENTRADAS E SAÍDAS')) === somaEnt
+      && cent(sai(L, 'Conferência', 'ENTRADAS E SAÍDAS')) === somaSai,
+      `relatório +${ent(L, 'Conferência', 'ENTRADAS E SAÍDAS')}/−${sai(L, 'Conferência', 'ENTRADAS E SAÍDAS')}`
       + ` · arquivo +${(somaEnt / 100).toFixed(2)}/−${(somaSai / 100).toFixed(2)}`);
   });
 
@@ -286,11 +369,11 @@ export default async function () {
   });
   const Lfiltrado = ler({ corpo: filtrado });
   t.conferir('o relatório sai com todos os lançamentos, mesmo com a tela filtrada',
-    Number(val(Lfiltrado, 'Conferência', 'Lançamentos somados')) === nFz,
-    `${val(Lfiltrado, 'Conferência', 'Lançamentos somados')} de ${nFz}`);
+    Number(vlr(Lfiltrado, 'Conferência', 'Lançamentos somados')) === nFz,
+    `${vlr(Lfiltrado, 'Conferência', 'Lançamentos somados')} de ${nFz}`);
   t.conferir('e diz que não houve filtro de mês nem de busca',
-    /sem filtro/.test((Lfiltrado.find(x => x.item === 'Período') || {}).detalhe || ''),
-    (Lfiltrado.find(x => x.item === 'Período') || {}).detalhe);
+    /sem filtro/.test((acha(Lfiltrado, 'Resumo', MOV) || {}).detalhe || ''),
+    (acha(Lfiltrado, 'Resumo', MOV) || {}).detalhe);
   await pagina.evaluate(() => {
     definirRegime('competencia');
     ['bfin-period', 'av-period', 'fz-period'].forEach(id => {
@@ -307,7 +390,7 @@ export default async function () {
     && /^Fazenda inteira · 8 lançamento/.test(fz.resumo || ''),
     [bov.resumo, av.resumo, fz.resumo].join(' | '));
   t.conferir('com as receitas e os custos, para conferir antes de abrir',
-    [bov, av, fz].every(r => /receitas R\$/.test(r.resumo || '') && /custos R\$/.test(r.resumo || '')),
+    [bov, av, fz].every(r => /entradas R\$/.test(r.resumo || '') && /saídas R\$/.test(r.resumo || '')),
     bov.resumo);
 
   // ---------- 10. os três itens no menu ----------
@@ -338,14 +421,14 @@ export default async function () {
     return Object.values(pego).map(x => x.corpo);
   });
   t.conferir('os três saem com cabeçalho e com o escopo declarado',
-    vazios.every(c => c.split('\n')[0] === 'secao;item;valor;detalhe' && /Escopo/.test(c)),
+    vazios.every(c => c.split('\n')[0] === 'secao;item;entradas;saidas;saldo;valor;detalhe' && /Escopo/.test(c)),
     vazios.map(c => c.split('\n').length + ' linhas').join(' · '));
   t.conferir('com zero lançamento e saldo zero, sem NaN nem traço no lugar do número',
     vazios.every(c => {
       const L = ler({ corpo: c });
-      return val(L, 'Conferência', 'Lançamentos somados') === '0'
-        && cent(val(L, 'Resumo', 'Saldo')) === 0;
-    }), vazios.map(c => val(ler({ corpo: c }), 'Resumo', 'Saldo')).join(' · '));
+      return vlr(L, 'Conferência', 'Lançamentos somados') === '0'
+        && cent(sal(L, 'Resumo', MOV)) === 0;
+    }), vazios.map(c => sal(ler({ corpo: c }), 'Resumo', MOV)).join(' · '));
   t.conferir('e nenhum NaN nem undefined em nenhum dos três',
     !vazios.some(c => /NaN|undefined/.test(c)),
     (vazios.find(c => /NaN|undefined/.test(c)) || '').slice(0, 80));
@@ -371,12 +454,15 @@ export default async function () {
     return pego;
   });
   const reg = lerCSV(comPontoEVirgula).filter(l => l.length > 1);
-  t.conferir('a planilha continua vendo quatro colunas em todas as linhas',
-    reg.every(l => l.length === 4),
+  t.conferir('a planilha continua vendo sete colunas em todas as linhas',
+    reg.every(l => l.length === 7),
     JSON.stringify((reg.find(l => l.length !== 4) || []).slice(0, 5)));
-  const Lpv = reg.slice(1).map(p2 => ({ secao: p2[0], item: p2[1], valor: p2[2], detalhe: p2[3] || '' }));
+  const Lpv = reg.slice(1).map(p2 => ({ secao: p2[0], item: p2[1], entradas: p2[2],
+    saidas: p2[3], saldo: p2[4], valor: p2[5], detalhe: p2[6] || '' }));
+  // A categoria agora sai com o nome limpo: o sentido do dinheiro mudou para a
+  // coluna própria, e não precisa mais vir pendurado no texto.
   t.conferir('a categoria com ponto-e-vírgula sai inteira, sem partir ao meio',
-    Lpv.some(x => x.secao === 'Categoria' && x.item === 'Ração; insumos (saída)'),
+    Lpv.some(x => x.secao === 'Categoria' && x.item === 'Ração; insumos' && x.saidas === '1.250,50'),
     Lpv.filter(x => x.secao === 'Categoria').map(x => x.item).join(' | '));
   t.conferir('o item de estoque também',
     Lpv.some(x => x.secao === 'Estoque' && x.item === 'Milho; moído'),
@@ -384,7 +470,7 @@ export default async function () {
   t.conferir('e a atividade também, no escopo e na quebra por atividade',
     /Soja; Trigo/.test((Lpv.find(x => x.item === 'Escopo') || {}).detalhe || '')
     && Lpv.some(x => x.secao === 'Atividade' && x.item === 'Soja; Trigo'),
-    (Lpv.find(x => x.item === 'Escopo') || {}).detalhe);
+    (Lpv.find(x => x.item === 'Escopo') || {}).detalhe || '');
   t.conferir('a conta a pagar com a categoria dentro sai certa',
     Lpv.some(x => x.secao === 'A pagar' && x.item === 'Bovinos · Ração; insumos'),
     Lpv.filter(x => x.secao === 'A pagar').map(x => x.item).join(' | '));

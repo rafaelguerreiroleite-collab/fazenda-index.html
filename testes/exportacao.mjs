@@ -298,66 +298,74 @@ export default async function () {
   const rel = await baixar('menu-exp-relatorio');
   t.conferir('existe um relatório de custos e receitas', !!rel, rel ? rel.arq : 'não existe');
   if (rel) {
-    const linhas = rel.corpo.split('\n').filter(Boolean);
-    const cab = linhas[0];
-    const corpo = linhas.slice(1);
-    const secoes = new Set(corpo.map(l => l.split(';')[0]));
-    const acha = (secao, item) => corpo.find(l => l.startsWith(secao + ';' + item + ';'));
-    const valorDe = l => l ? l.split(';')[2] : '';
+    // O relatório passou a ter entrada e saída em COLUNAS separadas — era o
+    // relato do dono: na coluna "valor" única, as duas saíam positivas e o
+    // sentido do dinheiro ficava escondido no texto da linha.
+    const registros0 = lerCSV(rel.corpo).filter(l => l.length > 1);
+    const cab = registros0[0];
+    const corpoR = registros0.slice(1);
+    const secoes = new Set(corpoR.map(l => l[0]));
+    const achaR = (secao, item) => corpoR.find(l => l[0] === secao && l[1] === item) || null;
+    const entR = (secao, item) => (achaR(secao, item) || [])[2] || '';
+    const saiR = (secao, item) => (achaR(secao, item) || [])[3] || '';
+    const salR = (secao, item) => (achaR(secao, item) || [])[4] || '';
+    const vlrR = (secao, item) => (achaR(secao, item) || [])[5] || '';
 
     t.conferir('o relatório é uma tabela simples, legível em qualquer planilha',
-      cab.split(';').length === 4, cab);
+      cab.length === 7 && cab.join(';') === 'secao;item;entradas;saidas;saldo;valor;detalhe',
+      cab.join(';'));
     t.conferir('traz o resumo do dinheiro', secoes.has('Resumo'), [...secoes].join(', '));
-    t.conferir('as receitas do resumo somam os três livros',
-      valorDe(acha('Resumo', 'Receitas')) === '38.200,50', valorDe(acha('Resumo', 'Receitas')));
-    t.conferir('os custos do resumo somam os três livros',
-      valorDe(acha('Resumo', 'Custos')) === '2.150,75', valorDe(acha('Resumo', 'Custos')));
-    t.conferir('e o saldo é receitas menos custos',
-      valorDe(acha('Resumo', 'Saldo')) === '36.049,75', valorDe(acha('Resumo', 'Saldo')));
+    t.conferir('as entradas do resumo somam os três livros',
+      entR('Resumo', 'MOVIMENTO DO PERÍODO') === '38.200,50',
+      entR('Resumo', 'MOVIMENTO DO PERÍODO'));
+    t.conferir('as saídas do resumo somam os três livros',
+      saiR('Resumo', 'MOVIMENTO DO PERÍODO') === '2.150,75',
+      saiR('Resumo', 'MOVIMENTO DO PERÍODO'));
+    t.conferir('e o saldo vem feito, entradas menos saídas',
+      salR('Resumo', 'MOVIMENTO DO PERÍODO') === '36.049,75',
+      salR('Resumo', 'MOVIMENTO DO PERÍODO'));
 
     t.conferir('traz o resultado de cada atividade', secoes.has('Atividade'), '');
     t.conferir('as três atividades aparecem, mesmo a que não movimentou',
-      ['Bovinos', 'Aviários', 'Geral'].every(n => !!acha('Atividade', n)),
-      corpo.filter(l => l.startsWith('Atividade;')).join(' | '));
+      ['Bovinos', 'Aviários', 'Geral'].every(n => !!achaR('Atividade', n)),
+      corpoR.filter(l => l[0] === 'Atividade').map(l => l[1]).join(' | '));
 
     t.conferir('separa Custeio de Investimento (o que some do que vira patrimônio)',
-      secoes.has('Natureza') && !!acha('Natureza', 'Custeio'), '');
+      secoes.has('Natureza') && !!achaR('Natureza', 'Custeio'), '');
     t.conferir('traz o gasto por categoria', secoes.has('Categoria'), '');
     t.conferir('traz o que ainda se deve, com vencimento',
       secoes.has('A pagar'), '');
     t.conferir('e a conta em aberto do Geral aparece nela',
-      corpo.some(l => l.startsWith('A pagar;') && /Funrural/.test(l)),
-      corpo.filter(l => l.startsWith('A pagar;')).join(' | '));
+      corpoR.some(l => l[0] === 'A pagar' && /Funrural/.test(l[1])),
+      corpoR.filter(l => l[0] === 'A pagar').map(l => l[1]).join(' | '));
 
     t.conferir('traz o retrato do rebanho', secoes.has('Rebanho'), '');
     t.conferir('com a contagem de quem está no rebanho',
-      valorDe(acha('Rebanho', 'Animais no rebanho')) === '2',
-      valorDe(acha('Rebanho', 'Animais no rebanho')));
+      vlrR('Rebanho', 'Animais no rebanho') === '2', vlrR('Rebanho', 'Animais no rebanho'));
     t.conferir('com vendidos e mortos separados',
-      valorDe(acha('Rebanho', 'Vendidos')) === '1' && valorDe(acha('Rebanho', 'Mortos')) === '1',
-      `${valorDe(acha('Rebanho', 'Vendidos'))}/${valorDe(acha('Rebanho', 'Mortos'))}`);
-    t.conferir('e com a taxa de mortalidade', !!acha('Rebanho', 'Taxa de mortalidade'),
-      corpo.filter(l => l.startsWith('Rebanho;')).join(' | '));
-    t.conferir('traz as arrobas do rebanho', !!acha('Rebanho', 'Arrobas no rebanho'), '');
+      vlrR('Rebanho', 'Vendidos') === '1' && vlrR('Rebanho', 'Mortos') === '1',
+      `${vlrR('Rebanho', 'Vendidos')}/${vlrR('Rebanho', 'Mortos')}`);
+    t.conferir('e com a taxa de mortalidade', !!achaR('Rebanho', 'Taxa de mortalidade'),
+      corpoR.filter(l => l[0] === 'Rebanho').map(l => l[1]).join(' | '));
+    t.conferir('traz as arrobas do rebanho', !!achaR('Rebanho', 'Arrobas no rebanho'), '');
 
     t.conferir('traz o estoque com saldo e custo médio', secoes.has('Estoque'), '');
     t.conferir('o saldo do item bate com entradas menos saídas',
-      /380/.test(acha('Estoque', 'Proteinado') || ''), acha('Estoque', 'Proteinado') || '');
+      /380/.test(vlrR('Estoque', 'Proteinado')), vlrR('Estoque', 'Proteinado'));
 
     t.conferir('nenhum valor do relatório sai NaN ou undefined',
-      !corpo.some(l => /NaN|undefined/.test(l)),
-      (corpo.find(l => /NaN|undefined/.test(l)) || '').slice(0, 90));
+      !corpoR.some(l => /NaN|undefined/.test(l.join(';'))),
+      (corpoR.find(l => /NaN|undefined/.test(l.join(';'))) || []).join(';').slice(0, 90));
     // Lido com um leitor de CSV de verdade, e não com split(';'): o dono pode
     // ter uma categoria chamada "Ração; insumos" ou um item "Milho; moído", e
     // aí o campo sai entre aspas — CSV correto que o split leria como cinco
     // pedaços, acusando um defeito que não existe.
-    const registros = lerCSV(rel.corpo).filter(l => l.length > 1);
-    t.conferir('todas as linhas do relatório têm as 4 colunas',
-      registros.every(l => l.length === 4),
-      JSON.stringify((registros.find(l => l.length !== 4) || []).slice(0, 5)));
+    t.conferir('todas as linhas do relatório têm as 7 colunas',
+      registros0.every(l => l.length === 7),
+      JSON.stringify((registros0.find(l => l.length !== 7) || []).slice(0, 7)));
     t.conferir('e o relatório é uma tabela só, sem bloco de largura diferente',
-      new Set(registros.map(l => l.length)).size === 1,
-      [...new Set(registros.map(l => l.length))].join(' · '));
+      new Set(registros0.map(l => l.length)).size === 1,
+      [...new Set(registros0.map(l => l.length))].join(' · '));
   }
 
   // ---------- o que o app guarda do animal e do item ----------

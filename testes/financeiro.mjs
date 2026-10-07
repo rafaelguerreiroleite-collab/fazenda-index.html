@@ -595,16 +595,18 @@ export default async function () {
     window.download = (arq, corpo) => { pego = corpo; };
     exportRelatorio();
     window.download = orig;
+    // O relatório passou a ter entrada e saída em colunas separadas: a saída
+    // de cada linha é a coluna 4, e a linha de resumo do caixa é uma só.
     const linhas = (pego || '').split('\n');
-    const valor = (secao, item) => {
-      const l = linhas.find(x => x.startsWith(secao + ';' + item + ';'));
-      return l ? l.split(';')[2] : '';
+    const col = (secao, item, i) => {
+      const l = linhas.find(x => x.indexOf(secao + ';' + item + ';') === 0);
+      return l ? (l.split(';')[i] || '') : '';
     };
     return {
-      compCustos: valor('Resumo', 'Custos'),
-      caixaCustos: valor('Caixa', 'Custos pagos'),
-      naoPago: valor('Caixa', 'Ainda não pago'),
-      temCaixa: linhas.some(l => l.startsWith('Caixa;'))
+      compCustos: col('Resumo', 'MOVIMENTO DO PERÍODO', 3),
+      caixaCustos: col('Caixa', 'RECEBIDO E PAGO', 3),
+      naoPago: col('Caixa', 'Falta pagar', 5),
+      temCaixa: linhas.some(l => l.indexOf('Caixa;') === 0)
     };
   });
   t.conferir('o relatório traz a seção de caixa', relatorio.temCaixa === true);

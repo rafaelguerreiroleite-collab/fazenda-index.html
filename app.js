@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 94;
+const VERSAO = 95;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -4665,37 +4665,117 @@ function exportRelatorio(qual) {
   const nomesNoEscopo = (livros || LIVROS).map(b => NOME_LIVRO[b]);
   const R = resumoFazenda('all', undefined, undefined, livros);
   const linhas = [];
-  const põe = (secao, item, valor, detalhe) =>
-    linhas.push([csv(secao), csv(item), csv(valor), csv(detalhe || '')].join(';'));
+  // ENTRADA E SAÍDA EM COLUNAS SEPARADAS.
+  //
+  // O relatório saía com uma coluna "valor" só, e o sentido do dinheiro ficava
+  // escondido dentro do texto da linha — "Venda de gado (entrada)" ao lado de
+  // "Ração/insumos (saída)", os dois com número positivo, na mesma coluna.
+  // Para conferir, era preciso LER cada linha para saber se aquele dinheiro
+  // entrou ou saiu, e somar coluna nenhuma dava resultado nenhum.
+  //
+  // Agora cada linha de dinheiro ocupa a coluna do seu lado, e o saldo sai
+  // feito. Quem confere seleciona a coluna "entradas" na planilha e vê o total;
+  // faz o mesmo em "saidas"; e compara com a linha TOTAL de cada bloco, que
+  // existe justamente para o bloco fechar sozinho.
+  //
+  // E os números saem SEM a apóstrofe de proteção. Ela existe para texto que
+  // começa com = + - @ (uma observação digitada como =HYPERLINK roda na
+  // máquina do contador), mas num campo numérico ela transformava o valor
+  // negativo em TEXTO: a planilha mostrava '-700,00 e não somava a coluna.
+  const num = v => (v == null || !Number.isFinite(v)) ? '' : fmtN(v, 2);
+  const linha = (secao, item, ent, sai, saldo, valor, detalhe) =>
+    linhas.push([csv(secao), csv(item), num(ent), num(sai), num(saldo),
+      valor == null ? '' : csv(String(valor)), csv(detalhe || '')].join(';'));
+  // movimento: entrou, saiu, e o saldo da linha já calculado
+  const mov = (secao, item, ent, sai, detalhe) =>
+    linha(secao, item, ent, sai, (ent || 0) - (sai || 0), null, detalhe);
+  // conta em aberto: é compromisso, não movimento — por isso sem saldo, para
+  // não ser somado junto com o que já aconteceu
+  const conta = (secao, item, ent, sai, detalhe) =>
+    linha(secao, item, ent, sai, null, null, detalhe);
+  // linha que não é dinheiro: escopo, rebanho, GMD, estoque
+  const info = (secao, item, valor, detalhe) =>
+    linha(secao, item, null, null, null, valor, detalhe);
 
   // ---- o escopo, antes de qualquer número ----
-  põe('Relatório', 'Escopo', esc.nome, 'atividades somadas: ' + nomesNoEscopo.join(' + '));
+  info('Relatório', 'Escopo', esc.nome, 'atividades somadas: ' + nomesNoEscopo.join(' + '));
   if (!livros) {
-    põe('Relatório', 'O que entra', 'tudo',
+    info('Relatório', 'O que entra', 'tudo',
       `os ${LIVROS.length} livros da fazenda, inclusive as atividades criadas`);
   } else {
     const fora = LIVROS.filter(b => livros.indexOf(b) < 0).map(b => NOME_LIVRO[b]);
-    põe('Relatório', 'O que NÃO entra', fora.length ? fora.join(' + ') : 'nada',
+    info('Relatório', 'O que NÃO entra', fora.length ? fora.join(' + ') : 'nada',
       fora.length ? 'está no relatório da Fazenda inteira' : '');
   }
-  põe('Relatório', 'Gerado em', fmtBRfull(todayISO()), 'versão ' + VERSAO + ' do aplicativo');
-  põe('Relatório', 'Arquivo de lançamentos correspondente',
+  info('Relatório', 'Gerado em', fmtBRfull(todayISO()), 'versão ' + VERSAO + ' do aplicativo');
+  info('Relatório', 'Arquivo de lançamentos correspondente',
     'financeiro-' + (livros ? arqLivro(livros[0]) : 'fazenda-inteira') + '-fazendajs.csv',
-    // Sem ponto-e-vírgula nesta frase, de propósito: um só dentro do texto
-    // obriga o campo a sair entre aspas, e aí o importador mais simples —
-    // justamente o que o contador costuma ter — lê o arquivo com as colunas
-    // desalinhadas. O relatório inteiro sai com quatro colunas limpas.
     'o relatório resume — o arquivo traz linha por linha, em ordem de data');
 
-  põe('Resumo', 'Período', 'todos os lançamentos', 'sem filtro de mês nem de busca');
-  põe('Resumo', 'Receitas', fmtN(R.receitas, 2), `${R.n} lançamento(s) no total`);
-  põe('Resumo', 'Custos', fmtN(R.custos, 2), '');
-  põe('Resumo', 'Saldo', fmtN(R.saldo, 2), R.saldo < 0 ? 'negativo' : '');
-  põe('Resumo', 'A pagar em aberto', fmtN(R.aPagarTotal, 2), `${R.contas.length} conta(s)`);
-  // A receber existia na tela e não no relatório. Auditar só o que se deve, sem
-  // o que se tem para receber, dá um retrato pela metade — e o mais pessimista.
-  põe('Resumo', 'A receber em aberto', fmtN(R.aReceberTotal, 2), `${R.recebimentos.length} conta(s)`);
-  põe('Resumo', 'Movimento no período', fmtN(R.movimento, 2), 'entradas + saídas, para conferir volume');
+  // ---- o movimento do período, numa linha só ----
+  // Eram três linhas (receitas, custos, saldo) que o olho tinha de juntar.
+  mov('Resumo', 'MOVIMENTO DO PERÍODO', R.receitas, R.custos,
+    `${R.n} lançamento(s) · todos, sem filtro de mês nem de busca`);
+  // Compromisso não é movimento: fica na coluna "valor" para não ser somado
+  // junto com o dinheiro que já entrou ou saiu.
+  info('Resumo', 'Ainda a pagar', fmtN(R.aPagarTotal, 2),
+    `${R.contas.length} conta(s) · uma por uma na seção A pagar`);
+  info('Resumo', 'Ainda a receber', fmtN(R.aReceberTotal, 2),
+    `${R.recebimentos.length} conta(s) · uma por uma na seção A receber`);
+
+  // ---- caixa: o mesmo dinheiro pela data em que ele andou ----
+  // As duas visões saem juntas, sempre. Exportar só uma obrigaria quem lê a
+  // adivinhar qual é — e as duas respondem perguntas diferentes.
+  const C = resumoFazenda('all', 'caixa', undefined, livros);
+  mov('Caixa', 'RECEBIDO E PAGO', C.receitas, C.custos,
+    'pela data em que o dinheiro entrou ou saiu de verdade');
+  info('Caixa', 'Falta pagar', fmtN(R.aPagarTotal, 2),
+    'conta a prazo não entra no caixa até ser paga');
+  info('Caixa', 'Falta receber', fmtN(R.aReceberTotal, 2),
+    'venda a prazo não entra no caixa até o dinheiro cair');
+
+  // ---- por atividade, com total que fecha ----
+  // Num relatório de uma atividade só, a quebra seria uma linha repetindo o
+  // resumo — e linha repetida em relatório de conferência é convite a erro.
+  if (!livros || livros.length > 1) {
+    R.atividades.forEach(a => mov('Atividade', a.nome, a.entrada, a.saida,
+      `${a.n} lançamento(s)`));
+    mov('Atividade', 'TOTAL das atividades', R.receitas, R.custos,
+      'tem de ser igual ao MOVIMENTO DO PERÍODO');
+  }
+
+  // ---- por natureza, com total que fecha ----
+  // Receita é entrada; custeio e investimento são saída. Com as duas colunas,
+  // a natureza deixa de ser uma lista de números soltos e passa a somar.
+  const recClasse = R.classes['Receita'] || 0;
+  const custeio = R.classes['Custeio'] || 0;
+  const invest = R.classes['Investimento'] || 0;
+  mov('Natureza', 'Receita', recClasse, null, 'tudo o que entrou');
+  mov('Natureza', 'Custeio', null, custeio, 'o que some no ciclo');
+  mov('Natureza', 'Investimento', null, invest, 'vira patrimônio, não some no ciclo');
+  mov('Natureza', 'TOTAL das naturezas', recClasse, custeio + invest,
+    'tem de ser igual ao MOVIMENTO DO PERÍODO');
+
+  // ---- por categoria, cada uma do seu lado ----
+  R.categorias.forEach(([chave, v]) => {
+    const [tp, cat] = chave.split('|');
+    const ehEntrada = tp !== 'saida';
+    mov('Categoria', cat, ehEntrada ? v : null, ehEntrada ? null : v,
+      ehEntrada ? 'entrada' : 'saída');
+  });
+  mov('Categoria', 'TOTAL das categorias', R.receitas, R.custos,
+    'tem de ser igual ao MOVIMENTO DO PERÍODO');
+
+  // ---- o que se deve e o que se tem para receber ----
+  R.contas.forEach(({ t, livro }) => conta('A pagar',
+    `${livro} · ${t.category || 'Sem categoria'}${rotuloParcela(t)}`, null, t.amount,
+    `vence ${fmtBRfull(t.venc)} · ${t.dias < 0 ? `venceu há ${-t.dias} dia(s)` : t.dias === 0 ? 'vence hoje' : `em ${t.dias} dia(s)`}`));
+  conta('A pagar', 'TOTAL a pagar', null, R.aPagarTotal, `${R.contas.length} conta(s) em aberto`);
+  R.recebimentos.forEach(({ t, livro }) => conta('A receber',
+    `${livro} · ${t.category || 'Sem categoria'}${rotuloParcela(t)}`, t.amount, null,
+    `previsto ${fmtBRfull(t.venc)} · ${t.dias < 0 ? `atrasado há ${-t.dias} dia(s)` : t.dias === 0 ? 'hoje' : `em ${t.dias} dia(s)`}`));
+  conta('A receber', 'TOTAL a receber', R.aReceberTotal, null,
+    `${R.recebimentos.length} conta(s) em aberto`);
 
   // ---- rebanho, GMD, estoque e custo da arroba: só onde fazem sentido ----
   if (esc.rebanho) {
@@ -4703,62 +4783,21 @@ function exportRelatorio(qual) {
     // dinheiro: não adianta saber quanto entrou sem saber se o gado ganhou.
     const gger = gmdGeralRebanho();
     if (gger.gmd != null) {
-      põe('GMD do rebanho', 'Da 1ª pesagem de cada animal até a mais recente',
-        numCsv(gger.gmd, 3),
+      info('GMD do rebanho', 'Da 1ª pesagem de cada animal até a mais recente',
+        numCsv(gger.gmd, 3) + ' kg/dia',
         `${gger.n} animal(is) · ${numCsv(gger.kg, 1)} kg em ${gger.dias} dias-animal`
         + (gger.primeira ? ` · ${fmtBRfull(gger.primeira)} a ${fmtBRfull(gger.ultima)}` : ''));
     }
     const gmes = gmdPorMes();
     gmes.meses.slice(0, 24).forEach(m => {
-      põe('GMD mês a mês', rotuloMesCurto(m.mes), numCsv(m.gmd, 3),
+      info('GMD mês a mês', rotuloMesCurto(m.mes), numCsv(m.gmd, 3) + ' kg/dia',
         `${m.animais} animal(is) · ${m.dias} dias-animal · ${numCsv(m.kg, 1)} kg`);
     });
     if (gmes.misturados) {
-      põe('GMD mês a mês', 'Intervalos fora da conta', String(gmes.misturados),
+      info('GMD mês a mês', 'Intervalos fora da conta', String(gmes.misturados),
         'comparavam jejum com cheio');
     }
-  } else {
-    // Dizer que não entra é diferente de omitir: omitido, parece que faltou.
-    põe('Rebanho e estoque', 'Não entram neste relatório', '—',
-      'rebanho, GMD, estoque e custo da arroba são dos Bovinos');
-  }
 
-  // As duas visões saem juntas, sempre. Exportar só uma obrigaria quem lê a
-  // adivinhar qual é — e as duas respondem perguntas diferentes sobre o mesmo
-  // dinheiro. Acima, por competência (o custo do período). Aqui, por caixa.
-  const C = resumoFazenda('all', 'caixa', undefined, livros);
-  põe('Caixa', 'Receitas recebidas', fmtN(C.receitas, 2), 'pela data em que o dinheiro entrou');
-  põe('Caixa', 'Custos pagos', fmtN(C.custos, 2), 'pela data em que o dinheiro saiu');
-  põe('Caixa', 'Saldo de caixa', fmtN(C.saldo, 2), '');
-  põe('Caixa', 'Ainda não pago', fmtN(R.aPagarTotal, 2),
-    'conta a prazo em aberto não entra no caixa até ser paga');
-  põe('Caixa', 'Ainda não recebido', fmtN(R.aReceberTotal, 2),
-    'venda a prazo não entra no caixa até o dinheiro cair');
-
-  // Num relatório de uma atividade só, a quebra por atividade seria uma linha
-  // repetindo o resumo. No consolidado, é ela que mostra quem sustenta quem.
-  if (!livros || livros.length > 1) {
-    R.atividades.forEach(a => põe('Atividade', a.nome, fmtN(a.saldo, 2),
-      `entradas ${fmtN(a.entrada, 2)} · saídas ${fmtN(a.saida, 2)} · ${a.n} lançamento(s)`));
-  }
-
-  ['Receita', 'Custeio', 'Investimento'].forEach(c =>
-    põe('Natureza', c, fmtN(R.classes[c] || 0, 2),
-      c === 'Investimento' ? 'vira patrimônio, não some no ciclo' : ''));
-
-  R.categorias.forEach(([chave, v]) => {
-    const [tp, cat] = chave.split('|');
-    põe('Categoria', `${cat} (${tp === 'saida' ? 'saída' : 'entrada'})`, fmtN(v, 2), '');
-  });
-
-  R.contas.forEach(({ t, livro }) => põe('A pagar', `${livro} · ${t.category || 'Sem categoria'}${rotuloParcela(t)}`,
-    fmtN(t.amount, 2),
-    `vence ${fmtBRfull(t.venc)} · ${t.dias < 0 ? `venceu há ${-t.dias} dia(s)` : t.dias === 0 ? 'vence hoje' : `em ${t.dias} dia(s)`}`));
-  R.recebimentos.forEach(({ t, livro }) => põe('A receber', `${livro} · ${t.category || 'Sem categoria'}${rotuloParcela(t)}`,
-    fmtN(t.amount, 2),
-    `previsto ${fmtBRfull(t.venc)} · ${t.dias < 0 ? `atrasado há ${-t.dias} dia(s)` : t.dias === 0 ? 'hoje' : `em ${t.dias} dia(s)`}`));
-
-  if (esc.rebanho) {
     // Rebanho: os mesmos números da tela do Rebanho e da Mortalidade, para o
     // relatório e o aplicativo nunca contarem histórias diferentes.
     const noRebanhoAgora = animals.filter(noRebanho);
@@ -4769,23 +4808,23 @@ function exportRelatorio(qual) {
     const kgTotal = pesos.reduce((s2, w) => s2 + w, 0);
     const gmds = noRebanhoAgora.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite);
     const base = noRebanhoAgora.length + mortos.length;
-    põe('Rebanho', 'Animais no rebanho', String(noRebanhoAgora.length), '');
-    põe('Rebanho', 'Vendidos', String(vendidos.length),
+    info('Rebanho', 'Animais no rebanho', String(noRebanhoAgora.length), '');
+    info('Rebanho', 'Vendidos', String(vendidos.length),
       `receita registrada ${fmtN(vendidos.reduce((s2, a) => s2 + (Number.isFinite(a.soldPrice) ? a.soldPrice : 0), 0), 2)}`);
-    põe('Rebanho', 'Mortos', String(mortos.length), '');
-    põe('Rebanho', 'Taxa de mortalidade', base ? fmtN(mortos.length / base * 100, 1) + '%' : '—',
+    info('Rebanho', 'Mortos', String(mortos.length), '');
+    info('Rebanho', 'Taxa de mortalidade', base ? fmtN(mortos.length / base * 100, 1) + '%' : '—',
       base ? `${mortos.length} de ${base} (rebanho + mortos)` : 'sem base de cálculo');
-    põe('Rebanho', 'Peso total no rebanho', pesos.length ? fmtN(kgTotal, 0) + ' kg' : '—',
+    info('Rebanho', 'Peso total no rebanho', pesos.length ? fmtN(kgTotal, 0) + ' kg' : '—',
       `${pesos.length} animal(is) com pesagem`);
-    põe('Rebanho', 'Arrobas no rebanho', pesos.length ? fmtN(arrobasDe(kgTotal, settings.yield), 1) : '—',
+    info('Rebanho', 'Arrobas no rebanho', pesos.length ? fmtN(arrobasDe(kgTotal, settings.yield), 1) + ' @' : '—',
       `rendimento de carcaça ${fmtN(settings.yield, 0)}%`);
-    põe('Rebanho', 'Peso médio', pesos.length ? fmtN(kgTotal / pesos.length, 0) + ' kg' : '—', '');
-    põe('Rebanho', 'GMD médio', gmds.length ? fmtN(gmds.reduce((s2, g) => s2 + g, 0) / gmds.length, 3) : '—',
+    info('Rebanho', 'Peso médio', pesos.length ? fmtN(kgTotal / pesos.length, 0) + ' kg' : '—', '');
+    info('Rebanho', 'GMD médio', gmds.length ? fmtN(gmds.reduce((s2, g) => s2 + g, 0) / gmds.length, 3) + ' kg/dia' : '—',
       `${gmds.length} animal(is) com duas pesagens ou mais`);
 
     items.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'pt-BR')).forEach(it => {
       const q = qtyOf(it.id), med = avgCostOf(it.id);
-      põe('Estoque', it.name, `${numCsv(q)} ${it.unit}`,
+      info('Estoque', it.name, `${numCsv(q)} ${it.unit}`,
         (med != null ? `custo médio ${fmtN(med, 2)} · valor ${fmtN(q * med, 2)}` : 'sem preço de compra')
         + (Number.isFinite(it.minQty) && q < it.minQty ? ` · ABAIXO DO MÍNIMO (${numCsv(it.minQty)})` : ''));
     });
@@ -4794,26 +4833,31 @@ function exportRelatorio(qual) {
     // anunciaria um custo que ninguém calculou.
     const c = calcCusto();
     if (Number.isFinite(c.custoArroba)) {
-      põe('Custo da arroba', 'Custo por arroba produzida', fmtN(c.custoArroba, 2), '');
-      põe('Custo da arroba', 'Custo por dia por animal', fmtN(c.custoDia, 2),
+      info('Custo da arroba', 'Custo por arroba produzida', fmtN(c.custoArroba, 2), '');
+      info('Custo da arroba', 'Custo por dia por animal', fmtN(c.custoDia, 2),
         `sal ${fmtN(c.salDia, 2)} · sanidade ${fmtN(c.sanDia, 2)} · mão de obra ${fmtN(c.moDia, 2)} · terra ${fmtN(c.terraDia, 2)}`);
-      põe('Custo da arroba', 'Arrobas ganhas por dia', fmtN(c.arrobaDia, 4),
+      info('Custo da arroba', 'Arrobas ganhas por dia', fmtN(c.arrobaDia, 4),
         `GMD ${custoParams.gmd != null ? fmtN(custoParams.gmd, 3) : '—'} kg/dia · rendimento ${fmtN(c.rend, 0)}%`);
     }
+  } else {
+    // Dizer que não entra é diferente de omitir: omitido, parece que faltou.
+    info('Rebanho e estoque', 'Não entram neste relatório', '—',
+      'rebanho, GMD, estoque e custo da arroba são dos Bovinos');
   }
 
-  // A conferência fecha o relatório: é por estas quatro linhas que o auditor
-  // amarra o resumo ao arquivo de lançamentos, sem refazer conta nenhuma.
-  põe('Conferência', 'Lançamentos somados', String(R.n),
+  // ---- a conferência, no fim ----
+  // É por estas linhas que o auditor amarra o resumo ao arquivo de
+  // lançamentos, sem refazer conta nenhuma.
+  info('Conferência', 'Lançamentos somados', String(R.n),
     'o arquivo de lançamentos tem de ter este mesmo número de linhas');
-  põe('Conferência', 'Soma das entradas', fmtN(R.receitas, 2), '');
-  põe('Conferência', 'Soma das saídas', fmtN(R.custos, 2), '');
-  põe('Conferência', 'Entradas − saídas', fmtN(R.saldo, 2),
-    'igual ao saldo_acumulado da última linha do arquivo de lançamentos');
+  mov('Conferência', 'ENTRADAS E SAÍDAS', R.receitas, R.custos,
+    'o saldo é o saldo_acumulado da última linha do arquivo de lançamentos');
+  info('Conferência', 'Como conferir na planilha', 'some a coluna entradas',
+    'o total tem de bater com esta linha, e o mesmo na coluna saidas');
 
-  const resumo = `${esc.nome} · ${R.n} lançamento(s) · receitas ${fmtRS(R.receitas)} · custos ${fmtRS(R.custos)}`;
+  const resumo = `${esc.nome} · ${R.n} lançamento(s) · entradas ${fmtRS(R.receitas)} · saídas ${fmtRS(R.custos)}`;
   download(`relatorio-${esc.arquivo}-fazendajs-${todayISO()}.csv`,
-    'secao;item;valor;detalhe\n' + linhas.join('\n'), 'text/csv', undefined, resumo);
+    'secao;item;entradas;saidas;saldo;valor;detalhe\n' + linhas.join('\n'), 'text/csv', undefined, resumo);
   fecharMenu();
   toast(`Relatório de ${esc.nome} · ${R.n} lançamento(s)`);
 }
