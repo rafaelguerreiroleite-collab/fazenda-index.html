@@ -9,6 +9,7 @@
 // Cada conferência aqui compara o arquivo exportado com o que o app REALMENTE
 // guarda, campo por campo.
 import { servir, abrirApp, placar } from './apoio.mjs';
+import { lerCSV } from './csv.mjs';
 
 export default async function () {
   const s = await servir();
@@ -346,9 +347,17 @@ export default async function () {
     t.conferir('nenhum valor do relatório sai NaN ou undefined',
       !corpo.some(l => /NaN|undefined/.test(l)),
       (corpo.find(l => /NaN|undefined/.test(l)) || '').slice(0, 90));
+    // Lido com um leitor de CSV de verdade, e não com split(';'): o dono pode
+    // ter uma categoria chamada "Ração; insumos" ou um item "Milho; moído", e
+    // aí o campo sai entre aspas — CSV correto que o split leria como cinco
+    // pedaços, acusando um defeito que não existe.
+    const registros = lerCSV(rel.corpo).filter(l => l.length > 1);
     t.conferir('todas as linhas do relatório têm as 4 colunas',
-      corpo.every(l => l.split(';').length === 4),
-      (corpo.find(l => l.split(';').length !== 4) || '').slice(0, 90));
+      registros.every(l => l.length === 4),
+      JSON.stringify((registros.find(l => l.length !== 4) || []).slice(0, 5)));
+    t.conferir('e o relatório é uma tabela só, sem bloco de largura diferente',
+      new Set(registros.map(l => l.length)).size === 1,
+      [...new Set(registros.map(l => l.length))].join(' · '));
   }
 
   // ---------- o que o app guarda do animal e do item ----------

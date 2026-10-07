@@ -934,7 +934,13 @@ BR002,15/01/2025,340</pre>
       <button class="menu-item" id="menu-exp-pes"><span>📤</span> Exportar pesagens (CSV)</button>
       <button class="menu-item" id="menu-selo"><span>🔴</span> <span id="menu-selo-rot">Aviso no ícone do aplicativo</span></button>
       <button class="menu-item" id="menu-exp-agenda"><span>📅</span> Contas a pagar no calendário do celular</button>
-      <button class="menu-item" id="menu-exp-relatorio"><span>📊</span> Relatório de custos e receitas (CSV)</button>
+      <!-- Três relatórios, porque auditoria se faz por atividade: quem confere
+           Bovinos precisa dos números de Bovinos sem os aviários no meio, e
+           quem olha o consolidado precisa saber o que entrou nele. Cada um
+           declara o próprio escopo na primeira linha do arquivo. -->
+      <button class="menu-item" id="menu-rel-bov"><span>📊</span> Relatório para auditoria — Bovinos (CSV)</button>
+      <button class="menu-item" id="menu-rel-av"><span>📊</span> Relatório para auditoria — Aviários (CSV)</button>
+      <button class="menu-item" id="menu-exp-relatorio"><span>📊</span> Relatório para auditoria — FAZENDA (o geral, tudo somado) (CSV)</button>
       <button class="menu-item" id="menu-exp-tudo"><span>📤</span> Exportar financeiro — FAZENDA INTEIRA (CSV)</button>
       <button class="menu-item" id="menu-exp-bfin"><span>📤</span> Exportar financeiro — só Bovinos (CSV)</button>
       <button class="menu-item" id="menu-exp-afin"><span>📤</span> Exportar financeiro — só Aviários (CSV)</button>

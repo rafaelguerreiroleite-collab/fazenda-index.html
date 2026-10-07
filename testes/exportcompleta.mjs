@@ -21,27 +21,8 @@
 // Esta bateria fecha cada uma dessas portas comparando o arquivo com o que
 // está salvo, registro por registro, e somando o dinheiro no centavo.
 import { servir, abrirApp, placar } from './apoio.mjs';
+import { lerCSV } from './csv.mjs';
 
-// Leitor de CSV de verdade: campo entre aspas pode conter ponto-e-vírgula,
-// aspas dobradas e quebra de linha. Um split(';') simples mentiria justamente
-// nos casos que esta bateria quer pegar.
-function lerCSV(texto) {
-  const linhas = [];
-  let campo = '', linha = [], aspas = false;
-  const t = texto.replace(/^﻿/, '');
-  for (let i = 0; i < t.length; i++) {
-    const c = t[i];
-    if (aspas) {
-      if (c === '"') { if (t[i + 1] === '"') { campo += '"'; i++; } else aspas = false; }
-      else campo += c;
-    } else if (c === '"') aspas = true;
-    else if (c === ';') { linha.push(campo); campo = ''; }
-    else if (c === '\n') { linha.push(campo); linhas.push(linha); linha = []; campo = ''; }
-    else if (c !== '\r') campo += c;
-  }
-  if (campo !== '' || linha.length) { linha.push(campo); linhas.push(linha); }
-  return linhas;
-}
 const cent = v => Math.round(parseFloat(v) * 100);
 
 export default async function () {
