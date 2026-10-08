@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 99;
+const VERSAO = 100;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -85,6 +85,19 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = fals
 
 // ===== Estado (espelho local dos snapshots) =====
 let animals = [], weighings = [], bovT = [], avT = [], gerT = [], items = [], moves = [];
+// MOVIMENTO DO REBANHO, em CABEÇAS.
+//
+// O rebanho sempre foi contado um a um, pelo brinco — e isso é o que permite
+// pesar, acompanhar GMD e saber de cada bicho. Mas lote comprado não chega com
+// brinco: chegam 50 bezerros, e eles só vão sendo identificados aos poucos.
+// Até então o aplicativo não tinha como responder "quantas cabeças eu tenho",
+// que é a pergunta mais simples que se faz sobre uma fazenda de gado.
+//
+// Este livro responde por CABEÇA, não por animal: saldo inicial, compras e
+// nascimentos entram; vendas e mortes em lote saem. E as vendas e as mortes
+// dos animais COM BRINCO saem sozinhas, lidas do cadastro — é o que mantém um
+// número só em vez de dois que discordam.
+let rebmov = [];
 // Três livros de dinheiro: Bovinos, Aviários e Geral. Geral é o custo da
 // fazenda que não pertence a nenhuma das duas atividades — contador, imposto,
 // energia da sede, trator. Ratear no chute entre as duas falsearia o resultado
@@ -140,7 +153,7 @@ let custoParams = Object.assign({}, CUSTO_VAZIO);
 
 // ===== Firebase =====
 let db = null, farm = null, unsubs = [];
-const COLS = { animals: a => animals = a, weighings: a => weighings = a, bovtrans: a => bovT = a, avtrans: a => avT = a, gertrans: a => gerT = a, items: a => items = a, moves: a => moves = a };
+const COLS = { animals: a => animals = a, weighings: a => weighings = a, bovtrans: a => bovT = a, avtrans: a => avT = a, gertrans: a => gerT = a, items: a => items = a, moves: a => moves = a, rebmov: a => rebmov = a };
 const colRef = name => db.collection('farms').doc(farm).collection(name);
 
 // ===== Funciona sem internet =====
@@ -153,7 +166,7 @@ function salvarEspelho(agora) {
   clearTimeout(espelhoTimer);
   const gravar = () => {
     const ok = LS.s(ESPELHO, { farm, animals, weighings, bovT, avT, gerT, items, moves,
-      atividades, extraT, settings, custo: custoParams });
+      rebmov, atividades, extraT, settings, custo: custoParams });
     // Falhar aqui significa que o aparelho não está guardando nada — o pior
     // cenário possível no campo. Precisa ser gritado, não engolido.
     if (!ok && !espelhoFalhou) {
@@ -171,6 +184,7 @@ function carregarEspelho(codigo) {
   if (!e || e.farm !== codigo) return false;
   animals = e.animals || []; weighings = e.weighings || []; bovT = e.bovT || [];
   avT = e.avT || []; gerT = e.gerT || []; items = e.items || []; moves = e.moves || [];
+  rebmov = e.rebmov || [];
   // As atividades vêm antes dos lançamentos delas: sem a lista, extraT não
   // tem dono e arrLivro devolveria Bovinos para todos.
   extraT = {};
@@ -441,7 +455,7 @@ let firstAnimalsSnap = true;
 // a fazenda foi mesmo apagada, e tem de ser respeitado.
 const listaDaColecao = { animals: () => animals, weighings: () => weighings,
   bovtrans: () => bovT, avtrans: () => avT, gertrans: () => gerT,
-  items: () => items, moves: () => moves };
+  items: () => items, moves: () => moves, rebmov: () => rebmov };
 // As coleções das atividades criadas não cabem num mapa fixo: o nome delas só
 // existe depois que a pessoa cria a atividade.
 const colDeAtividade = name => name.indexOf('at_') === 0 ? name.slice(3) : null;
@@ -713,6 +727,95 @@ function projetar(a, gmdSim, hoje) {
   const peso = ultima.weight + gmdSim * dias;
   if (!Number.isFinite(peso) || peso <= 0) return null;
   return { peso, dias, base: ultima.weight, ganho: peso - ultima.weight };
+}
+
+// ===== Estoque de gado, em cabeças =====
+// O rebanho com brinco responde "quais animais eu tenho". Este livro responde
+// "QUANTAS CABEÇAS eu tenho" — e são perguntas diferentes assim que entra um
+// lote: chegam 50 bezerros sem brinco, e eles existem muito antes de serem
+// identificados um a um.
+//
+// Os dois sistemas se encontram aqui, e o encontro tem uma regra só, que é o
+// que impede o número de mentir: ENTRADA vem do livro de lotes; SAÍDA vem dos
+// dois lados. A venda e a morte de um animal COM BRINCO saem sozinhas, lidas
+// do cadastro — não precisam ser registradas de novo aqui, e registrar seria
+// descontar duas vezes a mesma cabeça. A tela diz isso em letra miúda,
+// embaixo do saldo, porque é a única coisa que alguém poderia errar.
+//
+// Saldo inicial existe porque ninguém começa do zero: quem já tem o rebanho
+// cadastrado lança o que tem hoje e segue daí.
+const REB_TIPOS = {
+  inicial: { nome: 'Saldo inicial', sinal: 1, rotulo: 'Saldo inicial' },
+  compra: { nome: 'Compra', sinal: 1, rotulo: 'Compras' },
+  nascimento: { nome: 'Nascimento', sinal: 1, rotulo: 'Nascimentos' },
+  venda: { nome: 'Venda em lote', sinal: -1, rotulo: 'Vendas em lote' },
+  morte: { nome: 'Morte em lote', sinal: -1, rotulo: 'Mortes em lote' }
+};
+const ehTipoReb = t => Object.prototype.hasOwnProperty.call(REB_TIPOS, t);
+const cabecasDe = m => {
+  const q = Number(m && m.qtd);
+  return Number.isFinite(q) && q > 0 ? Math.round(q) : 0;
+};
+const rebmovOrdenado = () => rebmov.slice().sort((a, b) =>
+  String(b.date || '').localeCompare(String(a.date || '')) || String(b.id).localeCompare(String(a.id)));
+function saldoRebanho() {
+  const porTipo = {};
+  Object.keys(REB_TIPOS).forEach(k => { porTipo[k] = { cabecas: 0, n: 0 }; });
+  rebmov.forEach(m => {
+    if (!ehTipoReb(m.tipo)) return;
+    porTipo[m.tipo].cabecas += cabecasDe(m);
+    porTipo[m.tipo].n++;
+  });
+  // As saídas que o cadastro já conhece. Vendido E morto conta uma vez só, do
+  // lado da morte: o animal saiu do rebanho uma vez, e somar os dois tiraria
+  // duas cabeças por um bicho.
+  const mortosComBrinco = animals.filter(a => a.dead).length;
+  const vendidosComBrinco = animals.filter(a => a.sold && !a.dead).length;
+  const entradas = porTipo.inicial.cabecas + porTipo.compra.cabecas + porTipo.nascimento.cabecas;
+  const saidasLote = porTipo.venda.cabecas + porTipo.morte.cabecas;
+  const saldo = entradas - saidasLote - vendidosComBrinco - mortosComBrinco;
+  const comBrinco = animals.filter(noRebanho).length;
+  return {
+    porTipo, entradas, saidasLote, vendidosComBrinco, mortosComBrinco,
+    saidas: saidasLote + vendidosComBrinco + mortosComBrinco,
+    saldo, comBrinco,
+    // Quantas cabeças existem sem ficha individual. É o número que diz quanto
+    // do rebanho ainda não passou pelo brinco — e, quando fica negativo, que
+    // há mais ficha do que cabeça: falta lançar uma compra ou sobra um animal.
+    semBrinco: saldo - comBrinco,
+    temMovimento: rebmov.length > 0
+  };
+}
+// Valor da compra em dinheiro: o lançamento no Financeiro nasce daqui, como já
+// nasce da venda do animal e da compra de estoque. lock: 'rebanho' marca que a
+// origem é outra tela — editar por lá avisaria para voltar aqui.
+function syncCompraTrans(m) {
+  const temValor = Number.isFinite(m.valor) && m.valor > 0;
+  if (temValor && m.postFin) {
+    const cabecas = cabecasDe(m);
+    const dados = { date: m.date, type: m.tipo === 'venda' ? 'entrada' : 'saida',
+      amount: m.valor, category: m.tipo === 'venda' ? 'Venda de gado' : 'Compra de gado (engorda)',
+      notes: `${REB_TIPOS[m.tipo].nome} · ${cabecas} cabeça(s)` + (m.notes ? ' · ' + m.notes : ''),
+      lock: 'rebanho' };
+    if (m.linkTrans) {
+      const t = bovT.find(x => x.id === m.linkTrans);
+      if (t) { Object.assign(t, dados); upsert('bovtrans', t); return; }
+    }
+    const dup = findDupTrans(bovT, dados, null);
+    if (dup && !askDuplicate(`Já existe um lançamento de ${fmtRS(dados.amount)} em ${fmtBRfull(dados.date)}${dup.notes ? `\nDescrição: ${dup.notes}` : ''}.\n\nO movimento do rebanho será registrado de qualquer forma.`)) {
+      m.linkTrans = null;
+      return;
+    }
+    const t = Object.assign({ id: uid() }, dados);
+    bovT.push(t); upsert('bovtrans', t);
+    m.linkTrans = t.id;
+  } else if (m.linkTrans) {
+    const t = bovT.find(x => x.id === m.linkTrans);
+    if (t) apagarAnexosDe(t);
+    bovT = bovT.filter(x => x.id !== m.linkTrans);
+    remove('bovtrans', m.linkTrans);
+    m.linkTrans = null;
+  }
 }
 
 // ===== Carência de medicamento =====
@@ -1254,8 +1357,9 @@ function render() {
   if (tab === 'bovinos') {
     document.querySelectorAll('#bov-segs .seg').forEach(s => s.classList.toggle('active', s.dataset.seg === seg));
     mostrarSegAtivo();
-    ['bov-rebanho', 'bov-detail', 'bov-vendidas', 'bov-mortes', 'bov-estoque', 'stock-detail', 'bov-fin', 'bov-custos'].forEach(id => $(id).classList.remove('active'));
+    ['bov-rebanho', 'bov-detail', 'bov-compras', 'bov-vendidas', 'bov-mortes', 'bov-estoque', 'stock-detail', 'bov-fin', 'bov-custos'].forEach(id => $(id).classList.remove('active'));
     if (seg === 'rebanho') { $(detailAnimal ? 'bov-detail' : 'bov-rebanho').classList.add('active'); detailAnimal ? renderAnimalDetail() : renderRebanho(); }
+    if (seg === 'compras') { $('bov-compras').classList.add('active'); renderCompras(); }
     if (seg === 'vendidas') { $('bov-vendidas').classList.add('active'); renderVendidas(); }
     if (seg === 'mortes') { $('bov-mortes').classList.add('active'); renderMortes(); }
     if (seg === 'custos') { $('bov-custos').classList.add('active'); renderCustos(); }
@@ -3808,6 +3912,197 @@ $('btn-delete-transaction').addEventListener('click', () => {
   agendarMudanca([], book, ids);
 });
 
+// ===== Aba Compras: o livro de cabeças =====
+function renderCompras() {
+  const R = saldoRebanho();
+  const linha = (rot, n, cls) => n === 0 ? '' : `<div class="rs-linha ${cls || ''}">
+    <span class="rs-rot">${esc(rot)}</span>
+    <span class="rs-n mono">${cls === 'rs-sai' ? '−' : '+'}${fmtN(n, 0)}</span></div>`;
+  const entradas = linha('Saldo inicial', R.porTipo.inicial.cabecas)
+    + linha(`Compras${R.porTipo.compra.n ? ` (${R.porTipo.compra.n})` : ''}`, R.porTipo.compra.cabecas)
+    + linha('Nascimentos', R.porTipo.nascimento.cabecas);
+  const saidas = linha('Vendas em lote', R.porTipo.venda.cabecas, 'rs-sai')
+    + linha('Mortes em lote', R.porTipo.morte.cabecas, 'rs-sai')
+    + linha('Vendidos com brinco', R.vendidosComBrinco, 'rs-sai')
+    + linha('Mortos com brinco', R.mortosComBrinco, 'rs-sai');
+  // Sem nenhum movimento a tela não mostra saldo: zero cabeças seria uma
+  // afirmação falsa sobre uma fazenda que tem gado e ainda não lançou nada.
+  if (!R.temMovimento) {
+    $('reb-saldo').innerHTML = `<div class="rs-vazio">
+      <p class="eyebrow mono">Estoque de gado</p>
+      <p>Aqui se conta o rebanho por <b>cabeça</b>, e não por brinco — é o que responde
+      "quantas cabeças eu tenho" quando entra um lote que ainda não foi identificado.</p>
+      <p class="small">Comece pelo <b>saldo inicial</b>: quantas cabeças você tem hoje.
+      Depois, cada compra, nascimento, venda ou morte de lote. As vendas e as mortes
+      dos animais com brinco entram sozinhas — você não precisa lançá-las aqui.</p>
+      ${R.comBrinco ? `<button type="button" class="btn-secondary" id="reb-inicial">
+        Usar os ${R.comBrinco} animais cadastrados como saldo inicial</button>` : ''}
+    </div>`;
+    $('reb-lista').innerHTML = '';
+    return;
+  }
+  const alerta = R.saldo < 0 ? 'rs-negativo' : '';
+  $('reb-saldo').innerHTML = `<div class="rs-caixa ${alerta}">
+      <div class="rs-cab mono">Estoque de gado</div>
+      <div class="rs-saldo">${fmtN(R.saldo, 0)} <span class="rs-un">cabeça${R.saldo === 1 ? '' : 's'}</span></div>
+      <div class="rs-corpo">
+        <div class="rs-grupo"><div class="rs-tit mono">Entradas · ${fmtN(R.entradas, 0)}</div>${entradas || '<div class="rs-nada mono">nenhuma</div>'}</div>
+        <div class="rs-grupo"><div class="rs-tit mono">Saídas · ${fmtN(R.saidas, 0)}</div>${saidas || '<div class="rs-nada mono">nenhuma</div>'}</div>
+      </div>
+      <p class="rs-nota mono">A venda e a morte de animal com brinco já saem daqui, lidas do cadastro —
+      lançar de novo descontaria a mesma cabeça duas vezes.</p>
+    </div>
+    <p class="est-nota mono" id="reb-conferencia">${
+      R.saldo < 0
+        ? '<b>Saldo negativo.</b> Saiu mais cabeça do que entrou: falta lançar uma compra ou o saldo inicial.'
+        : `Com brinco no rebanho: <b>${fmtN(R.comBrinco, 0)}</b> · `
+          + (R.semBrinco >= 0
+            ? `sem brinco: <b>${fmtN(R.semBrinco, 0)}</b>`
+            : `<b>${fmtN(-R.semBrinco, 0)} ficha(s) a mais que cabeça</b> — falta lançar uma compra, ou sobra animal cadastrado`)
+    }</p>`;
+  const itens = rebmovOrdenado();
+  $('reb-lista').innerHTML = `<div class="list">${itens.map(m => {
+    const tipo = REB_TIPOS[m.tipo] || REB_TIPOS.compra;
+    const n = cabecasDe(m);
+    const peso = Number.isFinite(m.pesoMedio) && m.pesoMedio > 0;
+    const val = Number.isFinite(m.valor) && m.valor > 0;
+    return `<div class="list-item" data-rebmov="${esc(m.id)}">
+      <div class="item-main">
+        <div class="item-title">${esc(tipo.nome)}${m.cat ? ' · ' + esc(m.cat) : ''}</div>
+        <div class="item-sub mono">${fmtBRfull(m.date)}${m.notes ? ' · ' + esc(m.notes) : ''}${
+          peso ? ` · ${fmtN(m.pesoMedio, 0)} kg/cab` : ''}${
+          val ? ` · ${fmtRS(m.valor)}` : ''}${m.linkTrans ? ' · no Financeiro' : ''}</div>
+      </div>
+      <div class="item-side">
+        <div class="value ${tipo.sinal < 0 ? 'negative' : 'positive'}">${tipo.sinal < 0 ? '−' : '+'}${fmtN(n, 0)}</div>
+        <div class="aux mono">cabeça${n === 1 ? '' : 's'}</div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+// O tipo manda no resto do formulário: nascimento não tem preço de compra,
+// venda em lote tem é receita, e saldo inicial não é dinheiro nenhum.
+function sincronizarRebmov() {
+  const tipo = $('rm-tipo').value;
+  const ehVenda = tipo === 'venda';
+  const temDinheiro = tipo === 'compra' || ehVenda;
+  $('rm-dinheiro').style.display = temDinheiro ? '' : 'none';
+  $('rm-valor-rot').textContent = ehVenda ? 'Valor total recebido (R$)' : 'Valor total da compra (R$)';
+  $('rm-postfin-rot').textContent = ehVenda
+    ? 'Lançar a venda no Financeiro (Bovinos)' : 'Lançar a compra no Financeiro (Bovinos)';
+  const AJUDA = {
+    compra: 'Entram cabeças no rebanho. Use para o lote que chegou, com ou sem brinco.',
+    nascimento: 'Entram cabeças nascidas na fazenda.',
+    venda: 'Saem cabeças SEM brinco. Animal cadastrado se vende pela ficha dele, na aba Rebanho — e sai daqui sozinho.',
+    morte: 'Saem cabeças SEM brinco. Animal cadastrado se marca como morto na ficha dele, e sai daqui sozinho.',
+    inicial: 'Quantas cabeças a fazenda tinha quando você começou a usar esta aba. Lance uma vez só.'
+  };
+  $('rm-ajuda').textContent = AJUDA[tipo] || '';
+  mostrarValorCompra();
+}
+function mostrarValorCompra() {
+  const el = $('rm-valor-lido'); if (!el) return;
+  const bruto = $('rm-valor').value.trim();
+  const v = parseNum(bruto);
+  const vale = Number.isFinite(v) && v > 0;
+  const n = Math.round(parseNum($('rm-qtd').value) || 0);
+  el.hidden = !bruto;
+  el.textContent = !bruto ? ''
+    : vale ? '= ' + fmtRS(v) + (n > 0 ? ` · ${fmtRS(v / n)} por cabeça` : '')
+    : 'Não entendi este valor — escreva os centavos com vírgula (ex: 1.250,50)';
+  el.classList.toggle('valor-erro', !!bruto && !vale);
+}
+function openRebmov(m) {
+  $('rm-modal-title').textContent = m ? 'Editar movimento' : 'Movimento do rebanho';
+  $('rm-id').value = m ? m.id : '';
+  $('rm-tipo').value = m ? m.tipo : 'compra';
+  $('rm-date').value = m ? m.date : todayISO();
+  $('rm-qtd').value = m ? cabecasDe(m) : '';
+  $('rm-cat').value = m ? (m.cat || '') : '';
+  $('rm-peso').value = m && Number.isFinite(m.pesoMedio) ? numParaCampo(m.pesoMedio) : '';
+  $('rm-valor').value = m && Number.isFinite(m.valor) ? numParaCampo(m.valor) : '';
+  $('rm-postfin').checked = m ? !!m.linkTrans || !m.id : true;
+  $('rm-notes').value = m ? (m.notes || '') : '';
+  $('btn-delete-rebmov').hidden = !m;
+  sincronizarRebmov();
+  openM('modal-rebmov');
+}
+$('rm-tipo').addEventListener('change', sincronizarRebmov);
+['rm-valor', 'rm-qtd'].forEach(id =>
+  ['input', 'change'].forEach(ev => $(id).addEventListener(ev, mostrarValorCompra)));
+$('form-rebmov').addEventListener('submit', e => {
+  e.preventDefault();
+  const id = $('rm-id').value;
+  const tipo = $('rm-tipo').value;
+  if (!ehTipoReb(tipo)) return;
+  const date = $('rm-date').value;
+  const qtd = Math.round(parseNum($('rm-qtd').value));
+  if (!date || !Number.isFinite(qtd) || qtd <= 0) { toast('Informe a data e quantas cabeças'); return; }
+  const pesoMedio = parseNum($('rm-peso').value);
+  const valor = parseNum($('rm-valor').value);
+  const temDinheiro = tipo === 'compra' || tipo === 'venda';
+  // Saldo inicial é um retrato do começo: dois deles seriam duas fazendas
+  // somadas, e o número ficaria o dobro sem nada na tela explicando.
+  if (tipo === 'inicial' && rebmov.some(x => x.tipo === 'inicial' && x.id !== id)) {
+    toast('Já existe um saldo inicial — edite o que está lá');
+    return;
+  }
+  const dados = {
+    tipo, date, qtd,
+    cat: $('rm-cat').value.trim() || null,
+    pesoMedio: Number.isFinite(pesoMedio) && pesoMedio > 0 ? pesoMedio : null,
+    valor: temDinheiro && Number.isFinite(valor) && valor > 0 ? valor : null,
+    notes: $('rm-notes').value.trim()
+  };
+  let m;
+  if (id) {
+    m = rebmov.find(x => x.id === id);
+    if (!m) return sumiu('Este movimento foi removido');
+    Object.assign(m, dados);
+  } else {
+    m = Object.assign({ id: uid(), linkTrans: null }, dados);
+    rebmov.push(m);
+  }
+  m.postFin = temDinheiro && $('rm-postfin').checked;
+  syncCompraTrans(m);
+  delete m.postFin;
+  upsert('rebmov', m);
+  closeAllM(); render(); toast('Movimento salvo');
+});
+$('btn-delete-rebmov').addEventListener('click', () => {
+  const id = $('rm-id').value; if (!id) return;
+  const m = rebmov.find(x => x.id === id);
+  if (!m) return;
+  const temLanc = !!m.linkTrans;
+  if (!confirm(`Excluir este movimento de ${cabecasDe(m)} cabeça(s)?`
+    + (temLanc ? '\n\nO lançamento dele no Financeiro sai junto.' : ''))) return;
+  if (temLanc) {
+    const t = bovT.find(x => x.id === m.linkTrans);
+    if (t) apagarAnexosDe(t);
+    bovT = bovT.filter(x => x.id !== m.linkTrans);
+    remove('bovtrans', m.linkTrans);
+  }
+  rebmov = rebmov.filter(x => x.id !== id);
+  remove('rebmov', id);
+  closeAllM(); render(); toast('Movimento excluído');
+});
+document.addEventListener('click', e => {
+  const li = e.target.closest('[data-rebmov]');
+  if (li) {
+    const m = rebmov.find(x => x.id === li.dataset.rebmov);
+    if (!m) return sumiu('Este movimento foi removido');
+    return openRebmov(m);
+  }
+  // Atalho da tela vazia: o saldo inicial que quase todo mundo vai querer.
+  if (e.target.id === 'reb-inicial') {
+    const n = animals.filter(noRebanho).length;
+    openRebmov(null);
+    $('rm-tipo').value = 'inicial'; sincronizarRebmov();
+    $('rm-qtd').value = String(n);
+    $('rm-notes').value = 'Rebanho já cadastrado quando a aba começou';
+  }
+});
+
 function openItem(it) {
   $('i-modal-title').textContent = it ? 'Editar item' : 'Novo item de estoque';
   $('i-id').value = it ? it.id : '';
@@ -4944,7 +5239,18 @@ function exportRelatorio(qual) {
     const kgTotal = pesos.reduce((s2, w) => s2 + w, 0);
     const gmds = noRebanhoAgora.map(a => gmdTotal(wOf(a.id))).filter(Number.isFinite);
     const base = noRebanhoAgora.length + mortos.length;
-    info('Rebanho', 'Animais no rebanho', String(noRebanhoAgora.length), '');
+    // O estoque por CABEÇA vem antes da contagem por ficha: são números
+    // diferentes de propósito, e o relatório precisa dizer os dois para que
+    // ninguém some um com o outro achando que é o mesmo rebanho.
+    const SR = saldoRebanho();
+    if (SR.temMovimento) {
+      info('Rebanho', 'Estoque de gado (cabeças)', String(SR.saldo),
+        `entradas ${SR.entradas} · saídas ${SR.saidas} · pelo livro de movimento do rebanho`);
+      info('Rebanho', 'Cabeças sem brinco', String(SR.semBrinco),
+        'estoque de gado menos os animais cadastrados um a um');
+    }
+    info('Rebanho', 'Animais no rebanho', String(noRebanhoAgora.length),
+      SR.temMovimento ? 'cadastrados um a um, com brinco' : '');
     info('Rebanho', 'Vendidos', String(vendidos.length),
       `receita registrada ${fmtN(vendidos.reduce((s2, a) => s2 + (Number.isFinite(a.soldPrice) ? a.soldPrice : 0), 0), 2)}`);
     info('Rebanho', 'Mortos', String(mortos.length), '');
@@ -5475,6 +5781,27 @@ $('menu-exp-gfin').addEventListener('click', () => exportFin('ger'));
 // dentro do aplicativo: não havia como levá-lo para uma planilha nem mostrá-lo
 // ao contador. O saldo vai acumulado linha a linha, para conferir o estoque
 // físico contra o que o app diz.
+// O livro de cabeças sai como os outros: uma linha por movimento, em ordem de
+// data, com o saldo acumulado para conferir que não falta nem sobra linha.
+$('menu-exp-rebmov').addEventListener('click', () => {
+  const rows = ['data_iso;data;movimento;cabecas;saldo_acumulado;categoria;peso_medio_kg;valor;no_financeiro;observacao;id'];
+  let saldo = 0;
+  rebmov.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))
+    || String(a.id).localeCompare(String(b.id))).forEach(m => {
+    const tipo = REB_TIPOS[m.tipo] || REB_TIPOS.compra;
+    const n = cabecasDe(m);
+    saldo += tipo.sinal * n;
+    rows.push([m.date || '', fmtBRfull(m.date), csv(tipo.nome), tipo.sinal * n, saldo,
+      csv(m.cat || ''), Number.isFinite(m.pesoMedio) ? numCsv(m.pesoMedio, 1) : '',
+      Number.isFinite(m.valor) ? fmtN(m.valor, 2) : '',
+      m.linkTrans ? 'sim' : 'nao', csv(m.notes || ''), m.id].join(';'));
+  });
+  const R = saldoRebanho();
+  download('movimento-rebanho-fazendajs.csv', rows.join('\n'), 'text/csv', undefined,
+    `${rebmov.length} movimento(s) · estoque ${fmtN(R.saldo, 0)} cabeça(s)`);
+  fecharMenu();
+  toast(`CSV do movimento do rebanho · ${rebmov.length} movimento(s) · ${fmtN(R.saldo, 0)} cabeça(s)`);
+});
 $('menu-exp-estoque').addEventListener('click', () => {
   // estoque_minimo e carencia vêm do cadastro do item: o mínimo é o que dispara
   // a recompra, e a carência é quantos dias o medicamento impede o abate. Os
@@ -5534,8 +5861,8 @@ $('menu-backup').addEventListener('click', async () => {
   // backup na mão e sem conseguir entrar. O arquivo já continha a fazenda
   // inteira, então ele sempre foi tão secreto quanto o código — e agora
   // também serve para voltar.
-  const data = { app: 'fazendajs', v: 8, exportedAt: new Date().toISOString(), farm,
-    animals, weighings, bovT, avT, gerT, items, moves, atividades, extraT,
+  const data = { app: 'fazendajs', v: 9, exportedAt: new Date().toISOString(), farm,
+    animals, weighings, bovT, avT, gerT, items, moves, rebmov, atividades, extraT,
     anexos, settings, custo: custoParams };
   const corpo = JSON.stringify(data, null, 1);
   download(`backup-fazendajs-${todayISO()}.json`, corpo, 'application/json');
@@ -5573,7 +5900,8 @@ $('restore-input').addEventListener('change', e => {
         // nuvem para sempre, sem lançamento que as alcance.
         ...anexosDeTudo().map(id => ({ col: 'anexos', del: id })),
         ...items.map(x => ({ col: 'items', del: x.id })),
-        ...moves.map(x => ({ col: 'moves', del: x.id }))
+        ...moves.map(x => ({ col: 'moves', del: x.id })),
+        ...rebmov.map(x => ({ col: 'rebmov', del: x.id }))
       ];
       await batchWrite(delOps);
       const addOps = [
@@ -5586,6 +5914,7 @@ $('restore-input').addEventListener('change', e => {
           .map(x => ({ col: 'at_' + a.id, obj: x }))),
         ...(d.items || []).map(x => ({ col: 'items', obj: x })),
         ...(d.moves || []).map(x => ({ col: 'moves', obj: x })),
+        ...(d.rebmov || []).map(x => ({ col: 'rebmov', obj: x })),
         // As notas fiscais do backup voltam para a coleção delas. Sem isto, os
         // lançamentos restaurados anunciariam notas que não existem mais.
         ...(d.anexos || []).filter(x => x && x.id && x.dados).map(x => ({ col: 'anexos', obj: x }))
@@ -5597,7 +5926,7 @@ $('restore-input').addEventListener('change', e => {
       // aparelho seguia com os dados velhos enquanto a fila carregava os novos.
       animals = d.animals || []; weighings = d.weighings || [];
       bovT = d.bovT || []; avT = d.avT || []; gerT = d.gerT || [];
-      items = d.items || []; moves = d.moves || [];
+      items = d.items || []; moves = d.moves || []; rebmov = d.rebmov || [];
       // A lista de atividades entra antes dos lançamentos delas, pelo mesmo
       // motivo do espelho: sem dono, extraT não é lido por ninguém.
       extraT = {};
@@ -5646,12 +5975,13 @@ $('menu-clear').addEventListener('click', async () => {
     ...LIVROS.flatMap(b => arrLivro(b).map(x => ({ col: colLivro(b), del: x.id }))),
     ...anexosDeTudo().map(id => ({ col: 'anexos', del: id })),
     ...items.map(x => ({ col: 'items', del: x.id })),
-    ...moves.map(x => ({ col: 'moves', del: x.id }))
+    ...moves.map(x => ({ col: 'moves', del: x.id })),
+    ...rebmov.map(x => ({ col: 'rebmov', del: x.id }))
   ];
   // A tela tem de esvaziar AGORA. Antes isto dependia do snapshot da nuvem
   // responder: sem internet o app seguia mostrando tudo, e quem acabara de
   // digitar APAGAR concluía que nada tinha sido apagado.
-  animals = []; weighings = []; bovT = []; avT = []; gerT = []; items = []; moves = [];
+  animals = []; weighings = []; bovT = []; avT = []; gerT = []; items = []; moves = []; rebmov = [];
   anexoCache.clear();
   detailAnimal = null; detailItem = null; closeAllM();
   salvarEspelho(true); render();
@@ -5947,6 +6277,7 @@ $('fab').addEventListener('click', () => {
   if (tab === 'fazenda') return openTrans(null);   // pergunta a atividade
   if (tab === 'aviarios') return openTrans('av');
   if (seg === 'vendidas' || seg === 'custos') return;
+  if (seg === 'compras') return openRebmov();
   if (seg === 'rebanho' && detailAnimal) return openWeighing(detailAnimal);
   if (seg === 'rebanho') return openAnimal();
   if (seg === 'estoque' && detailItem) return openMove(detailItem, 'entrada');

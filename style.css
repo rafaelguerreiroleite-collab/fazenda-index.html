@@ -813,6 +813,31 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 #t-datas label, #m-datas label { margin-top: 0.5rem; }
 #t-datas label:first-child, #m-datas label:first-child { margin-top: 0; }
 
+/* ESTOQUE DE GADO, EM CABEÇAS. O saldo é o número que a pessoa veio ver, então
+   ele vem primeiro e grande; a conta que o produziu fica embaixo, aberta, para
+   que ninguém precise acreditar — dá para conferir linha por linha. */
+.rs-caixa { background: #225437; color: #fafaf9; border-radius: 3px; padding: 1rem 1.1rem 0.9rem; }
+.rs-caixa.rs-negativo { background: #7f1d1d; }
+.rs-cab { font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.85; }
+.rs-saldo { font-family: 'Playfair Display', Georgia, serif; font-size: 2.4rem;
+  font-weight: 800; line-height: 1.1; margin: 0.1rem 0 0.7rem; }
+.rs-un { font-size: 1rem; font-weight: 600; opacity: 0.85; }
+.rs-corpo { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1rem;
+  border-top: 1px solid rgba(250,250,249,0.22); padding-top: 0.6rem; }
+.rs-tit { font-size: 0.66rem; letter-spacing: 0.05em; text-transform: uppercase;
+  opacity: 0.8; margin-bottom: 0.25rem; }
+.rs-linha { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem;
+  padding: 0.12rem 0; }
+.rs-rot { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs-n { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.rs-linha.rs-sai .rs-n { color: #fecaca; }
+.rs-nada { font-size: 0.72rem; opacity: 0.6; }
+.rs-nota { margin: 0.7rem 0 0; font-size: 0.66rem; line-height: 1.5; opacity: 0.8; }
+.rs-vazio { padding: 1.1rem; background: white; border: 1px solid #e7e5e4; border-radius: 3px; }
+.rs-vazio p { margin: 0 0 0.6rem; font-size: 0.88rem; line-height: 1.55; }
+.rs-vazio .eyebrow { margin-bottom: 0.35rem; }
+.rs-vazio .btn-secondary { width: 100%; margin-top: 0.3rem; }
+
 .menu-item.cv-tem { font-weight: 700; color: #b45309; }
 /* Quantos lançamentos a atividade tem para exportar. Fica no fim da linha,
    discreto: é informação de conferência, não é o nome do botão. */

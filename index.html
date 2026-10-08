@@ -102,6 +102,7 @@
   <div class="seg-wrap" id="bov-segs-wrap">
   <div class="seg-row" id="bov-segs">
     <button class="seg active" data-seg="rebanho">Rebanho</button>
+    <button class="seg" data-seg="compras">Compras</button>
     <button class="seg" data-seg="vendidas">Vendidas</button>
     <button class="seg" data-seg="mortes">Mortalidade</button>
     <button class="seg" data-seg="estoque">Estoque</button>
@@ -161,6 +162,17 @@
       <p class="eyebrow mono">Nenhum animal cadastrado</p>
       <p>Toque em + para cadastrar, use o modo pesagem, ou importe um CSV pelo menu (⋯).</p>
     </div>
+  </div>
+
+  <!-- ESTOQUE DE GADO, EM CABEÇAS.
+       O rebanho com brinco responde "quais animais eu tenho"; este livro
+       responde "quantas cabeças eu tenho", que é outra pergunta assim que
+       entra um lote sem brinco. As vendas e as mortes dos animais cadastrados
+       saem sozinhas daqui — por isso há um número só, e não dois que
+       discordam. -->
+  <div class="subview" id="bov-compras">
+    <div id="reb-saldo"></div>
+    <div id="reb-lista"></div>
   </div>
 
   <div class="subview" id="bov-vendidas">
@@ -921,6 +933,48 @@ BR002,15/01/2025,340</pre>
   </div>
 </div>
 
+<div class="modal" id="modal-rebmov" hidden>
+  <div class="modal-content">
+    <header class="modal-header">
+      <h2 id="rm-modal-title">Movimento do rebanho</h2>
+      <button class="close-btn" data-close>×</button>
+    </header>
+    <form id="form-rebmov">
+      <input type="hidden" id="rm-id" />
+      <label class="mono">O que aconteceu *</label>
+      <select id="rm-tipo">
+        <option value="compra">Compra de gado</option>
+        <option value="nascimento">Nascimento</option>
+        <option value="venda">Venda em lote (sem brinco)</option>
+        <option value="morte">Morte em lote (sem brinco)</option>
+        <option value="inicial">Saldo inicial do rebanho</option>
+      </select>
+      <p class="small" id="rm-ajuda"></p>
+      <label class="mono">Data *</label>
+      <input type="date" id="rm-date" required />
+      <label class="mono">Quantidade de cabeças *</label>
+      <input type="number" inputmode="numeric" min="1" step="1" id="rm-qtd" required />
+      <label class="mono">Categoria</label>
+      <input type="text" id="rm-cat" list="categorias-animal" placeholder="Ex: Bezerro, Novilho" />
+      <label class="mono">Peso médio por cabeça (kg)</label>
+      <input type="text" inputmode="decimal" id="rm-peso" placeholder="Opcional" />
+      <div id="rm-dinheiro">
+        <label class="mono" id="rm-valor-rot">Valor total da compra (R$)</label>
+        <input type="text" inputmode="decimal" id="rm-valor" placeholder="Opcional" />
+        <p class="small valor-lido" id="rm-valor-lido" hidden></p>
+        <label class="check-lbl"><input type="checkbox" id="rm-postfin" checked />
+          <span id="rm-postfin-rot">Lançar no Financeiro (Bovinos)</span></label>
+      </div>
+      <label class="mono">Observações</label>
+      <input type="text" id="rm-notes" placeholder="Ex: leilão de outubro, lote 3" />
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" id="btn-delete-rebmov" hidden>Excluir</button>
+        <button type="submit" class="btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal" id="modal-menu" hidden>
   <div class="modal-content">
     <header class="modal-header">
@@ -950,6 +1004,7 @@ BR002,15/01/2025,340</pre>
            "só esta atividade" não tinha por onde. -->
       <div id="menu-exp-atividades"></div>
       <button class="menu-item" id="menu-exp-estoque"><span>📤</span> Exportar estoque (CSV)</button>
+      <button class="menu-item" id="menu-exp-rebmov"><span>📤</span> Exportar movimento do rebanho (CSV)</button>
       <hr />
       <div class="menu-setting">
         <label class="mono">Rendimento de carcaça (%)</label>
