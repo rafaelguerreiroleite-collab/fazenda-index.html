@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 98;
+const VERSAO = 99;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -11,7 +11,37 @@ const LS = {
   s: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
   del: k => { try { localStorage.removeItem(k); } catch (e) {} }
 };
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+// IDENTIDADE DE REGISTRO. Era carimbo de tempo mais cinco caracteres de
+// Math.random() — e cinco caracteres base36 são sessenta milhões de
+// combinações, o que parece muito até alguém criar mil registros no mesmo
+// instante. Medido: um lote de MIL ids sorteados no mesmo milissegundo tem
+// 0,9% de chance de conter dois iguais. Importar uma planilha com 500 pesagens
+// cria exatamente isso — 500 animais e 500 pesagens num laço só.
+//
+// E id repetido não dá erro em lugar nenhum. A gravação é por id: o segundo
+// registro simplesmente SOBRESCREVE o primeiro na nuvem, e a pesagem some sem
+// rastro, sem aviso, sem nada na tela que denuncie. É o pior tipo de defeito
+// que este aplicativo pode ter.
+//
+// Agora vão três coisas juntas:
+//   · o instante, que separa as sessões no tempo;
+//   · um CONTADOR que não repete dentro desta sessão — garantia absoluta para
+//     criação em lote, que é justamente onde o risco morava;
+//   · bytes do sorteador criptográfico do navegador, que separam um aparelho
+//     do outro quando os dois criam registros no mesmo milissegundo.
+// Math.random fica só como último recurso, se o sorteador não existir.
+let uidSeq = 0;
+function uid() {
+  let r;
+  try {
+    const b = new Uint8Array(5);
+    crypto.getRandomValues(b);
+    r = Array.from(b, x => x.toString(36).padStart(2, '0')).join('');
+  } catch (e) {
+    r = Math.random().toString(36).slice(2).padEnd(8, '0').slice(0, 8);
+  }
+  return Date.now().toString(36) + (++uidSeq).toString(36) + r;
+}
 const todayISO = () => { const d = new Date(); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
 const fmtBR = iso => { if (!iso) return '—'; const [y, m, d] = iso.split('-'); return `${d}/${m}/${y.slice(2)}`; };
 const fmtBRfull = iso => { if (!iso) return ''; const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
@@ -3977,12 +4007,19 @@ function mostrarValorLido() {
   el.classList.toggle('valor-erro', !!bruto && !vale);
 }
 ['m-prazo', 'm-postfin', 't-prazo', 't-pago'].forEach(id => $(id).addEventListener('change', syncPrazoUI));
+// "input" E "change", nos dois. Campo de data é o caso: a caixa nativa do
+// iPhone nem sempre dispara "input" quando a data vem do seletor de rolagem —
+// e sem o evento a prévia fica parada, mostrando as datas antigas enquanto o
+// salvamento grava as novas. Mostrar uma coisa e gravar outra é exatamente o
+// defeito que esta tela não pode ter. Os dois tratadores são idempotentes:
+// chamar duas vezes não custa nada e não muda resultado.
 ['m-parcelas', 'm-venc', 'm-qty', 'm-cost', 't-parcelas', 't-venc', 't-amount']
-  .forEach(id => $(id).addEventListener('input', previewParcelas));
+  .forEach(id => ['input', 'change'].forEach(ev => $(id).addEventListener(ev, previewParcelas)));
 ['t-ritmo', 'm-ritmo'].forEach(id => $(id).addEventListener('change', previewParcelas));
 // Mexer numa data escolhida atualiza o resumo, mas NÃO redesenha a lista: o
 // redesenho tiraria a caixa debaixo do dedo no meio da digitação.
-['t-datas', 'm-datas'].forEach(id => $(id).addEventListener('input', notaParcelas));
+['t-datas', 'm-datas'].forEach(id =>
+  ['input', 'change'].forEach(ev => $(id).addEventListener(ev, notaParcelas)));
 document.querySelectorAll('input[name="t-type"]').forEach(r => r.addEventListener('change', syncPrazoUI));
 // Apaga os lançamentos que esta compra gerou — a parcela única ou o carnê
 // inteiro. Sem isso, editar uma compra parcelada deixaria parcelas órfãs
