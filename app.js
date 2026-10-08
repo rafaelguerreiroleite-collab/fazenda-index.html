@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 96;
+const VERSAO = 97;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -3080,8 +3080,45 @@ function aplicarAnexos(t, col) {
   anexosRemover.forEach(id => { remove('anexos', id); anexoCache.delete(id); });
   anexosRemover = [];
   t.anexos = anexosForm.map(a => ({ id: a.id, nome: a.nome, tipo: a.tipo, tamanho: a.tamanho }));
+  espalharAnexosNoCarne(t, col);
 }
-const apagarAnexosDe = t => (t.anexos || []).forEach(a => { remove('anexos', a.id); anexoCache.delete(a.id); });
+// De qual livro é uma coleção. Preciso disto para achar as irmãs de uma
+// parcela a partir do nome da coleção, que é o que aplicarAnexos recebe.
+const livroDaCol = col => colDeAtividade(col)
+  || Object.keys(COL_LIVRO).find(b => COL_LIVRO[b] === col) || 'bov';
+// A NOTA FISCAL VALE PARA O CARNÊ INTEIRO.
+//
+// A nota ficava só na primeira parcela — e com razão: o arquivo pesa, e
+// guardar uma cópia dele por prestação encheria o armazenamento do aparelho.
+// Só que o dono abre a parcela 3/8 que vence esta semana, e ali não há nota
+// nenhuma: a compra tem documento, a parcela não tem como alcançá-lo.
+//
+// O que se repete agora é só a REFERÊNCIA — nome, tipo, tamanho e o id do
+// arquivo. O documento continua sendo UM registro na nuvem, com um id só.
+// Assim qualquer parcela abre a nota da compra, e o peso não muda.
+//
+// Tirar a nota de uma parcela tira do carnê inteiro, e é o que se espera: a
+// nota é da compra, não da prestação.
+function espalharAnexosNoCarne(t, col) {
+  if (!t.grupo) return;
+  const irmas = arrLivro(livroDaCol(col)).filter(x => x.grupo === t.grupo && x.id !== t.id);
+  if (!irmas.length) return;
+  const ref = t.anexos || [];
+  irmas.forEach(x => { x.anexos = ref.map(a => Object.assign({}, a)); });
+  escreverVarias(col, irmas);
+}
+// saindo: os ids que estão sendo apagados agora. Sem isto, apagar UMA parcela
+// levaria junto a nota que as outras ainda apontam — e elas ficariam
+// anunciando um documento que não existe mais.
+function apagarAnexosDe(t, saindo) {
+  const fora = saindo instanceof Set ? saindo : new Set([t.id]);
+  (t.anexos || []).forEach(a => {
+    const aindaUsada = LIVROS.some(b => arrLivro(b).some(x =>
+      !fora.has(x.id) && (x.anexos || []).some(y => y.id === a.id)));
+    if (aindaUsada) return;
+    remove('anexos', a.id); anexoCache.delete(a.id);
+  });
+}
 
 function renderFin(book) {
   const isAv = book === 'av';
@@ -3450,7 +3487,12 @@ function openTrans(book, t) {
   $('t-notes').value = t ? (t.notes || '') : '';
   $('t-prazo').checked = !!(t && t.venc);
   $('t-venc').value = t && t.venc ? t.venc : '';
-  $('t-parcelas').value = 1;
+  // O NÚMERO DE PARCELAS DO CARNÊ, e não "1".
+  //
+  // Abrindo a parcela 3/8, o campo mostrava "Em quantas vezes: 1", cinzento.
+  // Era a única informação na tela sobre o parcelamento, e estava errada: a
+  // tela dizia que o lançamento não era parcelado justamente quando era.
+  $('t-parcelas').value = t && t.parcelas > 1 ? t.parcelas : 1;
   // O ritmo volta ao do boleto a cada abertura: ele vale para o carnê que está
   // sendo criado agora, e carregar a escolha da vez passada para um lançamento
   // novo seria decidir no lugar de quem está digitando.
@@ -3467,10 +3509,37 @@ function openTrans(book, t) {
   // nenhum jeito de arrumar.
   $('t-pago-em').value = t && t.pagoEm ? t.pagoEm : '';
   syncPrazoUI(); previewParcelas();
+  // O CARNÊ INTEIRO, À VISTA.
+  //
+  // Dentro do lançamento aberto não havia nada dizendo que aquilo era uma
+  // parcela — nem qual, nem de quantas, nem quanto foi a compra. A lista de
+  // fora mostra "3/8"; abrindo, a informação sumia. Agora o carnê inteiro
+  // aparece aqui: cada parcela, a data, se já foi paga, e qual é esta.
   const ctx = $('t-context');
-  if (t && t.lock === 'stock') { ctx.hidden = false; ctx.textContent = 'Gerado pelo estoque — prefira editar pela movimentação de estoque.'; }
-  else if (t && t.lock === 'animal') { ctx.hidden = false; ctx.textContent = 'Gerado pela venda do animal — prefira editar pelo cadastro do animal.'; }
-  else ctx.hidden = true;
+  const avisos = [];
+  const irmas = t && t.grupo
+    ? arrLivro(efetivo).filter(x => x.grupo === t.grupo).sort((a, b) => (a.parcela || 0) - (b.parcela || 0))
+    : [];
+  if (irmas.length > 1) {
+    const soma = irmas.reduce((s2, x) => s2 + x.amount, 0);
+    avisos.push(`<b>Parcela ${t.parcela} de ${t.parcelas}</b> — carnê de ${fmtRS(soma)}`);
+    avisos.push('<span class="tc-carne">' + irmas.map(x =>
+      `<span class="tc-parc${x.id === t.id ? ' tc-esta' : ''}${x.pago ? ' tc-paga' : ''}">`
+      + `${x.parcela}/${x.parcelas} ${fmtBR(x.venc)}${x.pago ? ' paga' : ''}`
+      + `${x.id === t.id ? ' ←' : ''}</span>`).join('') + '</span>');
+  }
+  if (t && t.lock === 'stock') avisos.push('Gerado pelo estoque — prefira editar pela movimentação de estoque.');
+  else if (t && t.lock === 'animal') avisos.push('Gerado pela venda do animal — prefira editar pelo cadastro do animal.');
+  ctx.hidden = !avisos.length;
+  ctx.innerHTML = avisos.join('<br>');
+  // A nota é da COMPRA, não da prestação: vale para as parcelas todas, e tirar
+  // de uma tira de todas. Dizer isso evita a dúvida de anexar oito vezes.
+  const notaAx = $('t-anexo-nota');
+  if (notaAx) {
+    notaAx.textContent = irmas.length > 1
+      ? `A nota vale para as ${irmas.length} parcelas deste carnê — anexe uma vez só.`
+      : 'A foto é reduzida no aparelho antes de subir, para caber na nuvem.';
+  }
   $('btn-delete-transaction').hidden = !t;
   openM('modal-transaction');
 }
@@ -3692,7 +3761,8 @@ $('btn-delete-transaction').addEventListener('click', () => {
     });
     animals.forEach(a => { if (ids.includes(a.linkTrans)) { delete a.linkTrans; upsert('animals', a); } });
   }
-  alvos.forEach(apagarAnexosDe);
+  const saindo = new Set(ids);
+  alvos.forEach(x => apagarAnexosDe(x, saindo));
   ids.forEach(x => remove(col, x));
   closeAllM(); render(); toast('Lançamento excluído');
   agendarMudanca([], book, ids);
@@ -3734,7 +3804,8 @@ $('btn-delete-item').addEventListener('click', () => {
   const linked = mv.flatMap(lancamentosDaCompra);
   // A nota fiscal fica num registro próprio na nuvem. Apagar só o lançamento
   // deixava a foto lá, sem nada que a alcançasse de volta.
-  bovT.filter(t => linked.includes(t.id)).forEach(apagarAnexosDe);
+  const saindoItem = new Set(linked);
+  bovT.filter(t => linked.includes(t.id)).forEach(t => apagarAnexosDe(t, saindoItem));
   bovT = bovT.filter(t => !linked.includes(t.id));
   moves = moves.filter(m => m.itemId !== id);
   items = items.filter(x => x.id !== id);
@@ -3918,7 +3989,8 @@ function limparVinculoCompra(mv) {
   if (!ids.length) return [];
   // A nota fiscal anexada some junto com o lançamento que a carregava, senão o
   // arquivo fica na nuvem sem dono — ocupando espaço e sem tela que o abra.
-  bovT.filter(x => ids.includes(x.id)).forEach(apagarAnexosDe);
+  const saindoCompra = new Set(ids);
+  bovT.filter(x => ids.includes(x.id)).forEach(x => apagarAnexosDe(x, saindoCompra));
   bovT = bovT.filter(x => !ids.includes(x.id));
   ids.forEach(id => remove('bovtrans', id));
   mv.linkTrans = null; mv.linkGrupo = null;
@@ -5541,7 +5613,9 @@ $('menu-clear').addEventListener('click', async () => {
 // registro à parte na nuvem: se ninguém o apagar junto, ele fica lá para
 // sempre, ocupando espaço e sem nenhum lançamento que o alcance.
 function anexosDeTudo() {
-  return LIVROS.flatMap(b => arrLivro(b).flatMap(t => (t.anexos || []).map(a => a.id)));
+  // Sem o conjunto, a nota de um carnê de oito parcelas sairia oito vezes no
+  // backup e no apagar-tudo — oito cópias do mesmo arquivo.
+  return [...new Set(LIVROS.flatMap(b => arrLivro(b).flatMap(t => (t.anexos || []).map(a => a.id))))];
 }
 // ===== Limpeza: manter só quem foi pesado num dia =====
 // Serve para acertar o rebanho depois de uma venda em lote: quem passou pela

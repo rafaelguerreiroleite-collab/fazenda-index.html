@@ -339,8 +339,12 @@ export default async function () {
       guardouId: !!primeira,
       ehAPrimeira: primeira && primeira.parcela === 1,
       temNota: primeira && (primeira.anexos || []).length === 1,
-      // a nota é da compra inteira: não pode ser copiada em cada parcela
-      semDuplicar: bovT.filter(x => (x.anexos || []).length).length === 1,
+      // A nota é da COMPRA: toda parcela tem de alcançá-la, senão quem abre a
+      // 3/8 que vence esta semana não encontra documento nenhum. O que se
+      // repete é a REFERÊNCIA (nome, tipo, id); o arquivo continua sendo um
+      // registro só — era isso que não podia ser copiado oito vezes.
+      todasAlcancam: bovT.filter(x => (x.anexos || []).length).length === 3,
+      umIdSo: new Set(bovT.flatMap(x => (x.anexos || []).map(a => a.id))).size === 1,
       soma: bovT.reduce((s, x) => s + x.amount, 0)
     };
   });
@@ -348,7 +352,9 @@ export default async function () {
   t.conferir('o lançamento guarda a identidade na parcela 1', comNota.guardouId === true);
   t.conferir('e ela é mesmo a parcela 1', comNota.ehAPrimeira === true);
   t.conferir('a nota fiscal continua anexada', comNota.temNota === true);
-  t.conferir('e não é copiada em cada parcela', comNota.semDuplicar === true);
+  t.conferir('e as 3 parcelas alcançam a nota da compra', comNota.todasAlcancam === true);
+  t.conferir('apontando todas para o MESMO arquivo, sem duplicar o documento',
+    comNota.umIdSo === true);
   t.conferir('as parcelas somam o valor original', Math.abs(comNota.soma - 300) < 1e-9, String(comNota.soma));
 
   t.secao('editar uma parcela do carnê');
