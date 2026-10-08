@@ -273,6 +273,119 @@ export default async function () {
   t.conferir('e o arquivo foi apagado, já que ninguém mais aponta para ele',
     tirou.arquivoApagado === true, tirou.arquivoApagado ? 'apagado' : 'ficou órfão');
 
+  // ---------- 10. A PARCELA ABERTA NÃO PODE SER DIVIDIDA DE NOVO ----------
+  // O caso que o dono trouxe, com a nota na mão: compra de R$ 5.785,14 em 2×
+  // de R$ 2.892,57 (Cooperativa Agrária, fatura Nr.001 e Nr.002). Abrindo a
+  // parcela, o campo de valor mostra R$ 2.892,57 — que é o valor DELA — e a
+  // prévia, lendo aquilo como total da compra, anunciava embaixo "2× de
+  // R$ 1.446,29 (a última de R$ 1.446,28)", com datas inventadas.
+  //
+  // Nada estava errado nos dados: o carnê continuava certo. Errado era o que a
+  // tela dizia sobre ele, bem na hora de conferir contra a nota fiscal — que é
+  // a pior hora possível para o aplicativo mentir.
+  t.secao('a parcela aberta não é dividida de novo');
+  await LIMPAR();
+  const notaReal = await pagina.evaluate(() => {
+    openTrans('bov', null);
+    $('t-date').value = '2026-09-10';
+    $('t-amount').value = '5.785,14';
+    $('t-category').value = 'Sal mineral/suplemento';
+    $('t-notes').value = 'NF 329669 Agrária';
+    $('t-prazo').checked = true; $('t-prazo').dispatchEvent(new Event('change'));
+    $('t-venc').value = '2026-10-10';
+    $('t-parcelas').value = '2'; $('t-parcelas').dispatchEvent(new Event('input'));
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true }));
+    closeAllM();
+    return bovT.filter(x => x.grupo).sort((a, b) => a.parcela - b.parcela)
+      .map(x => ({ id: x.id, valor: x.amount, venc: x.venc, parcela: x.parcela }));
+  });
+  t.conferir('a compra entrou como 2 parcelas de R$ 2.892,57',
+    notaReal.length === 2 && notaReal.every(p => Math.abs(p.valor - 2892.57) < 1e-9),
+    notaReal.map(p => `${p.parcela}: ${p.valor}`).join(' · '));
+  t.conferir('somando os R$ 5.785,14 da nota, no centavo',
+    Math.abs(notaReal.reduce((a, p) => a + p.valor, 0) - 5785.14) < 1e-9,
+    'R$ ' + notaReal.reduce((a, p) => a + p.valor, 0).toFixed(2));
+
+  const naSegunda = await pagina.evaluate(id => {
+    openTrans('bov', bovT.find(x => x.id === id));
+    const r = {
+      valor: $('t-amount').value,
+      lido: $('t-amount-lido').textContent,
+      previa: $('t-parcelas-nota').textContent.replace(/\s+/g, ' ').trim(),
+      parcelas: $('t-parcelas').value,
+      travado: $('t-parcelas').disabled,
+      rotuloVenc: $('t-venc-rot').textContent,
+      venc: $('t-venc').value,
+      contexto: $('t-context').textContent.replace(/\s+/g, ' ').trim(),
+      ritmoEscondido: $('t-ritmo-wrap').hidden
+    };
+    closeAllM();
+    return r;
+  }, notaReal[1].id);
+  t.conferir('o campo mostra o valor DESTA parcela', naSegunda.valor === '2892,57', naSegunda.valor);
+  t.conferir('e a leitura embaixo confirma R$ 2.892,57',
+    /2\.892,57/.test(naSegunda.lido), naSegunda.lido);
+  // O defeito em uma linha: a prévia dividia a parcela de novo.
+  t.conferir('NÃO aparece prévia nenhuma dividindo a parcela em duas',
+    naSegunda.previa === '', naSegunda.previa || '(vazia)');
+  t.conferir('e em lugar nenhum da tela aparece R$ 1.446,29',
+    !/1\.446,2/.test(naSegunda.previa + naSegunda.contexto + naSegunda.lido),
+    naSegunda.previa + ' | ' + naSegunda.contexto);
+  t.conferir('o campo continua dizendo que são 2 parcelas, travado',
+    naSegunda.parcelas === '2' && naSegunda.travado === true,
+    `${naSegunda.parcelas} · travado ${naSegunda.travado}`);
+  t.conferir('o ritmo some: não há o que espaçar numa parcela que já existe',
+    naSegunda.ritmoEscondido === true);
+  // "1º vencimento" numa parcela fazia parecer que mexer ali mexia no carnê.
+  t.conferir('a data se chama "Vencimento desta parcela", não "1º vencimento"',
+    /desta parcela/.test(naSegunda.rotuloVenc), naSegunda.rotuloVenc);
+  t.conferir('e é a data da 2ª parcela', naSegunda.venc === notaReal[1].venc,
+    `${naSegunda.venc} · esperado ${notaReal[1].venc}`);
+  // O carnê verdadeiro, no alto: é ele que responde o que a prévia falsa dizia.
+  t.conferir('o alto da tela mostra o carnê de verdade, com o total da nota',
+    /Parcela 2 de 2/.test(naSegunda.contexto) && /5\.785,14/.test(naSegunda.contexto),
+    naSegunda.contexto);
+
+  // Salvar sem mexer em nada não pode mudar valor, nem duplicar, nem avisar de
+  // duplicidade — o aviso de carnê repetido comparava o valor DA PARCELA com a
+  // soma dos carnês existentes e achava o próprio.
+  const antesDeSalvar = avisos.length;
+  const depoisDeSalvar = await pagina.evaluate(id => {
+    openTrans('bov', bovT.find(x => x.id === id));
+    $('form-transaction').dispatchEvent(new Event('submit', { cancelable: true }));
+    closeAllM();
+    return { quantas: bovT.length,
+      valores: bovT.filter(x => x.grupo).sort((a, b) => a.parcela - b.parcela).map(x => x.amount),
+      grupos: new Set(bovT.filter(x => x.grupo).map(x => x.grupo)).size };
+  }, notaReal[1].id);
+  t.conferir('salvar a parcela sem mexer mantém as 2 parcelas',
+    depoisDeSalvar.quantas === 2 && depoisDeSalvar.grupos === 1,
+    `${depoisDeSalvar.quantas} lançamento(s) · ${depoisDeSalvar.grupos} carnê(s)`);
+  t.conferir('com o valor intacto, sem dividir de novo',
+    depoisDeSalvar.valores.every(v => Math.abs(v - 2892.57) < 1e-9),
+    depoisDeSalvar.valores.join(' · '));
+  t.conferir('e sem acusar duplicidade de um carnê que é ele mesmo',
+    !avisos.slice(antesDeSalvar).some(a => /DUPLICIDADE/i.test(a)),
+    avisos.slice(antesDeSalvar).join(' | ') || 'nenhum aviso');
+
+  // Lançamento novo continua podendo parcelar normalmente: o conserto não pode
+  // ter desligado a prévia de quem está criando um carnê.
+  const novoCarne = await pagina.evaluate(() => {
+    openTrans('bov', null);
+    $('t-date').value = '2026-09-20'; $('t-amount').value = '5.785,14';
+    $('t-category').value = 'Ração/insumos';
+    $('t-prazo').checked = true; $('t-prazo').dispatchEvent(new Event('change'));
+    $('t-venc').value = '2026-10-10';
+    $('t-parcelas').value = '2'; $('t-parcelas').dispatchEvent(new Event('input'));
+    const r = { previa: $('t-parcelas-nota').textContent.replace(/\s+/g, ' ').trim(),
+      travado: $('t-parcelas').disabled };
+    closeAllM();
+    return r;
+  });
+  t.conferir('num lançamento NOVO a prévia continua funcionando',
+    /2× de R\$ 2\.892,57/.test(novoCarne.previa) && novoCarne.travado === false,
+    novoCarne.previa);
+
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
 

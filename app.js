@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 97;
+const VERSAO = 98;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -3563,7 +3563,12 @@ function sincronizarSentidoTrans() {
   const marcado = document.querySelector('input[name="t-type"]:checked');
   const ehEntrada = !!marcado && marcado.value === 'entrada';
   $('t-prazo-rot').textContent = ehEntrada ? 'A prazo (receber depois)' : 'A prazo (pagar depois)';
-  $('t-venc-rot').textContent = ehEntrada ? '1ª previsão de recebimento *' : '1º vencimento *';
+  // Numa parcela que já existe, a data ali é a DELA. Chamá-la de "1º
+  // vencimento" fazia parecer que mexer nela mexia no carnê inteiro.
+  const umaParcela = $('t-parcelas').disabled;
+  $('t-venc-rot').textContent = umaParcela
+    ? (ehEntrada ? 'Previsão de recebimento desta parcela *' : 'Vencimento desta parcela *')
+    : (ehEntrada ? '1ª previsão de recebimento *' : '1º vencimento *');
   $('t-pago-rot').textContent = ehEntrada ? 'Já recebi' : 'Já foi pago';
   $('t-pago-em-rot').textContent = ehEntrada ? 'Data do recebimento' : 'Data do pagamento';
 }
@@ -3639,7 +3644,12 @@ $('form-transaction').addEventListener('submit', e => {
   // uma entrada, e a venda virava dinheiro que já estava na conta.
   const aPrazo = $('t-prazo').checked;
   if (aPrazo && !$('t-venc').value) { toast('Informe o vencimento'); return; }
-  const nParc = aPrazo ? nParcelasDe('t-parcelas') : 1;
+  // O número de parcelas só é um PEDIDO quando o campo está destravado. Travado,
+  // ele é informação — "esta é uma de duas". Lido como pedido, o salvamento ia
+  // procurar carnê repetido usando o valor da PARCELA como total da compra, e
+  // avisava de uma duplicidade que não existe.
+  const reparcelando = aPrazo && !$('t-parcelas').disabled;
+  const nParc = reparcelando ? nParcelasDe('t-parcelas') : 1;
   const ritmoT = ritmoDe('t'), datasT = datasEscolhidas('t');
   // Data em branco ou fora de ordem para antes de salvar: parcela sem
   // vencimento sairia do "A pagar" sem avisar, e uma que vence antes da
@@ -3925,7 +3935,13 @@ function notaParcelas() {
   const elT = $('t-parcelas-nota');
   if (elT) {
     const total = parseNum($('t-amount').value), n = nParcelasDe('t-parcelas'), venc = $('t-venc').value;
-    elT.textContent = (!Number.isFinite(total) || total <= 0 || n < 2 || !venc) ? ''
+    // CAMPO TRAVADO = PARCELA QUE JÁ EXISTE, e aí o valor na tela é o DELA, não
+    // o da compra. Simular a divisão aqui dividia a parcela de novo: numa conta
+    // de R$ 2.892,57 que é uma de duas, a prévia anunciava "2× de R$ 1.446,29"
+    // — um carnê que não existe, com datas inventadas, embaixo do valor certo.
+    // O carnê de verdade já aparece inteiro no alto da tela.
+    const parcelaExistente = $('t-parcelas').disabled;
+    elT.textContent = (parcelaExistente || !Number.isFinite(total) || total <= 0 || n < 2 || !venc) ? ''
       : resumoParcelas(total, n, venc, ritmoDe('t'), datasEscolhidas('t'));
   }
   const elM = $('m-parcelas-nota');
