@@ -67,7 +67,7 @@ const APOIO = semente => `
   };
   const limpar = () => {
     bovT = []; avT = []; gerT = []; atividades = []; extraT = {}; recomputarLivros();
-    animals = []; weighings = []; items = []; moves = []; pendentes = [];
+    animals = []; weighings = []; items = []; moves = []; rebmov = []; pendentes = [];
     anexosForm = []; anexosRemover = [];
     LS.s('fjs-ics-auto', false); LS.s('fjs-ics-visto', true);
   };
@@ -731,6 +731,218 @@ export default async function () {
     return falhas;
   })(${IDS})`);
   marcar('ids', f7, IDS);
+
+  // ================= 8. DADO ESTRAGADO =================
+  // Um registro meio escrito — outro aparelho, versão antiga, importação com
+  // coluna trocada, edição interrompida — não pode derrubar o aplicativo.
+  // Esta família nasceu de crashes de verdade: os formatadores de data
+  // chamavam .split direto, e uma única data que não fosse texto apagava a
+  // tela INTEIRA, com erro de JavaScript e nada desenhado. Tela em branco no
+  // curral é pior que qualquer número errado: não dá nem para ver o resto dos
+  // dados para descobrir o que houve.
+  t.secao('8. dado estragado não derruba tela nem inventa número');
+  const f8 = await pagina.evaluate(`(function () {
+    ${APOIO(SEMENTE + 43)}
+    const LIXOS = [undefined, null, '', 'abc', NaN, Infinity, -Infinity, 0, -1, 1e21, {}, [], true];
+    const TELAS = [
+      ['rebanho', () => { tab='bovinos'; seg='rebanho'; detailAnimal=null; }],
+      ['detalhe do animal', () => { tab='bovinos'; seg='rebanho'; detailAnimal=(animals[0]||{}).id; }],
+      ['compras', () => { tab='bovinos'; seg='compras'; }],
+      ['vendidas', () => { tab='bovinos'; seg='vendidas'; }],
+      ['mortalidade', () => { tab='bovinos'; seg='mortes'; }],
+      ['estoque', () => { tab='bovinos'; seg='estoque'; detailItem=null; }],
+      ['detalhe do item', () => { tab='bovinos'; seg='estoque'; detailItem=(items[0]||{}).id; }],
+      ['financeiro', () => { tab='bovinos'; seg='financeiro'; }],
+      ['custos', () => { tab='bovinos'; seg='custos'; }],
+      ['aviários', () => { tab='aviarios'; }],
+      ['fazenda', () => { tab='fazenda'; }]
+    ];
+    for (let i = 0; i < LIXOS.length; i++) {
+      const L = LIXOS[i];
+      // O lixo vai nos campos NUMÉRICOS e de DATA. Campo de texto com lixo é
+      // dado estragado mostrado honestamente — o que não pode é um número
+      // calculado vazar para a tela.
+      animals = [
+        { id: 'a1', ident: 'A1', cat: 'Boi', raca: 'Nelore', entryDate: L, entryWeight: L,
+          sold: L, soldDate: L, soldWeight: L, soldPrice: L, dead: L, deadDate: L,
+          deadCause: 'causa', notes: 'obs', manejoData: L, manejoMedicamento: 'remédio', linkTrans: L },
+        { id: 'a2', ident: '102' }
+      ];
+      weighings = [
+        { id: 'w1', animalId: 'a1', date: L, weight: L, jejum: L, notes: 'obs' },
+        { id: 'w2', animalId: 'a1', date: '2026-01-01', weight: 300, jejum: false },
+        { id: 'w3', animalId: L, date: '2026-02-01', weight: L }
+      ];
+      bovT = [
+        { id: 't1', date: L, type: L, amount: L, category: 'Frete', notes: 'obs', venc: L,
+          pago: L, pagoEm: L, parcela: L, parcelas: L, grupo: L, lock: L, anexos: L },
+        { id: 't2', date: '2026-03-01', type: 'saida', amount: 100, category: 'Frete' }
+      ];
+      avT = [{ id: 'av1', date: L, type: L, amount: L, category: 'Gás' }];
+      gerT = [{ id: 'g1', date: L, type: L, amount: L, category: 'Outros' }];
+      items = [{ id: 'i1', name: 'Proteinado', unit: 'kg', minQty: L, carencia: L, notes: 'obs' }];
+      moves = [{ id: 'm1', itemId: 'i1', date: L, type: L, qty: L, unitCost: L, notes: 'obs' }];
+      rebmov = [{ id: 'r1', tipo: 'compra', date: L, qtd: L, cat: 'Bezerro', pesoMedio: L, valor: L, notes: 'obs', linkTrans: L }];
+      atividades = [{ id: 'sj', nome: 'Soja' }];
+      extraT = { sj: [{ id: 'e1', date: L, type: L, amount: L, category: 'Soja' }] };
+      settings = { yield: L };
+      custoParams = Object.assign({}, CUSTO_VAZIO, { gmd: L, salPreco: L, pesoCompra: L, pesoVenda: L });
+      recomputarLivros();
+      for (let j = 0; j < TELAS.length; j++) {
+        const nome = TELAS[j][0];
+        let quebrou = '';
+        try { TELAS[j][1](); render(); } catch (e) { quebrou = String(e.message || e); }
+        regra('nenhuma tela quebra com registro estragado', !quebrou, nome + ' com ' + String(L) + ': ' + quebrou);
+        const txt = document.body.innerText || '';
+        const vazou = (txt.match(/.{0,90}(NaN|Infinity|\\[object Object\\]).{0,60}/) || [''])[0].replace(/\\s+/g, ' ');
+        regra('nenhuma tela escreve número impossível', !vazou, nome + ' com ' + String(L) + ': ' + vazou);
+      }
+      // Formulário que não ABRE é pior que número errado: o registro torto
+      // fica preso no aplicativo, sem como corrigir nem como apagar.
+      const FORMS = [
+        ['lançamento', () => openTrans('bov', bovT[0])],
+        ['animal', () => openAnimal(animals[0])],
+        ['pesagem', () => openWeighing('a1', weighings[0])],
+        ['item de estoque', () => openItem(items[0])],
+        ['movimentação de estoque', () => openMove('i1', 'entrada', moves[0])],
+        ['movimento do rebanho', () => openRebmov(rebmov[0])]
+      ];
+      for (let f = 0; f < FORMS.length; f++) {
+        let quebrouF = '';
+        try { FORMS[f][1](); } catch (e) { quebrouF = String(e.message || e); }
+        try { closeAllM(); } catch (e) {}
+        regra('nenhum formulário deixa de abrir com registro estragado',
+          !quebrouF, FORMS[f][0] + ' com ' + String(L) + ': ' + quebrouF);
+      }
+      let erro = '';
+      try {
+        const R = resumoFazenda('all', 'competencia', '', null);
+        regra('os totais da fazenda continuam sendo números',
+          [R.receitas, R.custos, R.saldo, R.aPagarTotal, R.aReceberTotal].every(Number.isFinite),
+          String(L));
+        regra('o estoque de gado continua sendo um número',
+          Number.isFinite(saldoRebanho().saldo), String(L));
+        regra('o saldo do estoque de insumos continua sendo um número',
+          Number.isFinite(qtyOf('i1')), String(L) + ': ' + qtyOf('i1'));
+        const ge = gmdGeralRebanho();
+        regra('o GMD não vira número impossível',
+          ge.gmd === null || Number.isFinite(ge.gmd), String(ge.gmd));
+      } catch (e) { erro = String(e.message || e); }
+      regra('nenhum cálculo quebra com registro estragado', !erro, erro);
+      // as exportações também não podem quebrar nem escrever lixo numérico
+      let saiu = '', erroExp = '';
+      const origDown = window.download;
+      window.download = function (n2, c) { saiu += String(c); };
+      try {
+        exportFinTudo(); exportRelatorio('bov'); exportRelatorio('fazenda');
+        $('menu-exp-pes').click(); $('menu-exp-estoque').click(); $('menu-exp-rebmov').click();
+        // O arquivo do calendário entra aqui junto: leitor de calendário é
+        // rigoroso, e uma linha com lixo faz o iPhone recusar o arquivo
+        // INTEIRO — todas as contas somem de uma vez, sem aviso na tela.
+        saiu += agendaICS(contasParaAgenda());
+      } catch (e) { erroExp = String(e.message || e); }
+      window.download = origDown;
+      regra('nenhuma exportação quebra com registro estragado', !erroExp, erroExp);
+      const vazouExp = (saiu.match(/.{0,90}(NaN|Infinity|\\[object Object\\]).{0,60}/) || [''])[0].replace(/\\s+/g, ' ');
+      regra('nenhuma exportação escreve número impossível', !vazouExp, String(L) + ': ' + vazouExp);
+    }
+    return falhas;
+  })()`);
+  marcar('lixo', f8, 13);
+
+  // ================= 9. VÍNCULOS ENTRE COLEÇÕES =================
+  // Vínculo pendurado não dá erro: a tela só passa a afirmar algo falso — "no
+  // Financeiro" ao lado de um lançamento que não existe mais. Esta família
+  // nasceu de dois furos reais, e confere TODOS os vínculos depois de CADA
+  // operação que apaga alguma coisa.
+  t.secao('9. nenhum vínculo fica pendurado depois de apagar');
+  const f9 = await pagina.evaluate(`(function () {
+    ${APOIO(SEMENTE + 47)}
+    window.confirm = function () { return true; };
+    const conferir = onde => {
+      const todosT = LIVROS.flatMap(b => arrLivro(b));
+      const idsT = new Set(todosT.map(x => x.id));
+      const idsA = new Set(animals.map(a => a.id));
+      const idsW = new Set(weighings.map(w => w.id));
+      const idsI = new Set(items.map(i => i.id));
+      regra('nenhum animal aponta para lançamento que não existe',
+        animals.every(a => !a.linkTrans || idsT.has(a.linkTrans)), onde);
+      regra('nenhum animal aponta para pesagem de entrada que não existe',
+        animals.every(a => !a.entryWeighingId || idsW.has(a.entryWeighingId)), onde);
+      regra('nenhuma pesagem fica órfã de animal',
+        weighings.every(w => idsA.has(w.animalId)), onde);
+      regra('nenhuma movimentação fica órfã de item',
+        moves.every(m => idsI.has(m.itemId)), onde);
+      regra('nenhuma compra de estoque aponta para lançamento que não existe',
+        moves.every(m => !m.linkTrans || idsT.has(m.linkTrans)), onde);
+      regra('nenhuma compra de estoque aponta para carnê que não existe',
+        moves.every(m => !m.linkGrupo || todosT.some(x => x.grupo === m.linkGrupo)), onde);
+      regra('nenhum movimento do rebanho aponta para lançamento que não existe',
+        rebmov.every(m => !m.linkTrans || idsT.has(m.linkTrans)), onde);
+      regra('nenhuma atividade apagada deixa lançamento para trás',
+        Object.keys(extraT).every(id => atividades.some(a => a.id === id) || !(extraT[id] || []).length), onde);
+    };
+    const montar = () => {
+      limpar();
+      db = null;
+      atividades = [{ id: 'sj', nome: 'Soja' }]; extraT = { sj: [] }; recomputarLivros();
+      items = [{ id: 'i1', name: 'Proteinado', unit: 'kg' }];
+      animals = [{ id: 'a1', ident: '101' }, { id: 'a2', ident: '102' }];
+      openAnimal(animals[0]);
+      $('an-entry-date').value = '2026-01-10'; $('an-entry-weight').value = '300';
+      $('an-sold').checked = true; $('an-sold').dispatchEvent(new Event('change'));
+      $('an-sold-date').value = '2026-05-01'; $('an-sold-price').value = '9.000';
+      $('form-animal').dispatchEvent(new Event('submit', { cancelable: true })); closeAllM();
+      openMove('i1', 'entrada', null);
+      $('m-date').value = '2026-02-01'; $('m-qty').value = '100'; $('m-cost').value = '3';
+      $('m-prazo').checked = true; $('m-prazo').dispatchEvent(new Event('change'));
+      $('m-venc').value = '2026-03-01'; $('m-parcelas').value = '3';
+      $('m-parcelas').dispatchEvent(new Event('input'));
+      $('form-move').dispatchEvent(new Event('submit', { cancelable: true })); closeAllM();
+      openRebmov(null);
+      $('rm-tipo').value = 'compra'; sincronizarRebmov();
+      $('rm-date').value = '2026-04-01'; $('rm-qtd').value = '20'; $('rm-valor').value = '40.000';
+      $('form-rebmov').dispatchEvent(new Event('submit', { cancelable: true })); closeAllM();
+    };
+    const OPERACOES = [
+      ['apagar o lançamento da venda do animal', function () {
+        openTrans('bov', bovT.filter(x => x.lock === 'animal')[0]);
+        $('btn-delete-transaction').click(); closeAllM(); }],
+      ['apagar o lançamento da compra de gado', function () {
+        openTrans('bov', bovT.filter(x => x.lock === 'rebanho')[0]);
+        $('btn-delete-transaction').click(); closeAllM(); }],
+      ['apagar uma parcela do carnê do estoque', function () {
+        window.confirm = function () { return false; };
+        openTrans('bov', bovT.filter(x => x.lock === 'stock')[1]);
+        $('btn-delete-transaction').click(); closeAllM();
+        window.confirm = function () { return true; }; }],
+      ['apagar o carnê inteiro do estoque', function () {
+        openTrans('bov', bovT.filter(x => x.lock === 'stock')[0]);
+        $('btn-delete-transaction').click(); closeAllM(); }],
+      ['apagar o animal', function () {
+        openAnimal(animals[0]); $('btn-delete-animal').click(); closeAllM(); }],
+      ['apagar a pesagem de entrada', function () {
+        const w = weighings[0];
+        if (w) { openWeighing(w.animalId, w); $('btn-delete-weighing').click(); closeAllM(); } }],
+      ['apagar o item de estoque', function () {
+        openItem(items[0]); $('btn-delete-item').click(); closeAllM(); }],
+      ['apagar a movimentação de estoque', function () {
+        const m = moves[0];
+        if (m) { openMove(m.itemId, m.type, m); $('btn-delete-move').click(); closeAllM(); } }],
+      ['apagar o movimento do rebanho', function () {
+        openRebmov(rebmov[0]); $('btn-delete-rebmov').click(); closeAllM(); }]
+    ];
+    for (let i = 0; i < OPERACOES.length; i++) {
+      montar();
+      conferir('antes de ' + OPERACOES[i][0]);
+      let quebrou = '';
+      try { OPERACOES[i][1](); } catch (e) { quebrou = String(e.message || e); }
+      regra('nenhuma exclusão quebra', !quebrou, OPERACOES[i][0] + ': ' + quebrou);
+      conferir('depois de ' + OPERACOES[i][0]);
+    }
+    return falhas;
+  })()`);
+  marcar('vinculos', f9, 9);
 
   t.conferir('nenhum erro de JavaScript em toda a varredura',
     errosJS.length === 0, errosJS.slice(0, 3).join(' | '));

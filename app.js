@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 100;
+const VERSAO = 101;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -43,8 +43,27 @@ function uid() {
   return Date.now().toString(36) + (++uidSeq).toString(36) + r;
 }
 const todayISO = () => { const d = new Date(); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
-const fmtBR = iso => { if (!iso) return '—'; const [y, m, d] = iso.split('-'); return `${d}/${m}/${y.slice(2)}`; };
-const fmtBRfull = iso => { if (!iso) return ''; const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
+// Data guardada que NÃO é uma data. Acontece: backup antigo, importação com
+// coluna trocada, edição interrompida, ou outro aparelho gravando um número
+// onde devia haver texto. Os formatadores partiam do princípio de que o campo
+// era uma cadeia no formato aaaa-mm-dd e chamavam .split direto — e um único
+// registro torto derrubava a tela INTEIRA, com erro de JavaScript, sem
+// desenhar nada. Tela em branco no curral é pior do que qualquer número
+// errado: não dá nem para ver o resto dos dados para descobrir o que houve.
+//
+// Agora o que não for data vira travessão, e o resto da tela continua de pé.
+// A lista de notas fiscais de um lançamento, sempre como LISTA. O campo vinha
+// de um registro gravado por outro aparelho ou por uma versão antiga, e um
+// valor que não fosse lista passava pelo "|| []" (porque qualquer coisa
+// diferente de nulo é verdadeira) e estourava no .map logo adiante — derrubando
+// a exportação do financeiro inteira por causa de um registro torto.
+const anexosDe = t => Array.isArray(t && t.anexos) ? t.anexos : [];
+const soData = v => {
+  const txt = typeof v === 'string' ? v : (v == null ? '' : String(v));
+  return /^\d{4}-\d{2}-\d{2}/.test(txt) ? txt.slice(0, 10) : '';
+};
+const fmtBR = iso => { const t = soData(iso); if (!t) return '—'; const [y, m, d] = t.split('-'); return `${d}/${m}/${y.slice(2)}`; };
+const fmtBRfull = iso => { const t = soData(iso); if (!t) return ''; const [y, m, d] = t.split('-'); return `${d}/${m}/${y}`; };
 const fmtN = (n, c = 2) => Number.isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }) : '—';
 const fmtRS = n => 'R$ ' + fmtN(n, 2);
 const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 86400000);
@@ -81,6 +100,18 @@ function parseNum(txt) {
 }
 // Mostra o número de volta no campo em português (2,5 em vez de 2.5)
 const numParaCampo = n => Number.isFinite(n) ? String(n).replace('.', ',') : '';
+// Marcar o botão de rádio do registro que está sendo editado — sentido do
+// dinheiro, entrada ou saída do estoque. O valor vinha direto para dentro do
+// seletor, e um registro com o campo gravado torto (backup antigo, importação,
+// outro aparelho) não casava com botão nenhum: o seletor devolvia NULO e o
+// formulário estourava antes de abrir. O registro ficava preso no aplicativo,
+// sem como corrigir e sem como apagar, porque as duas coisas se fazem de
+// dentro do formulário que não abria mais.
+function marcarRadio(nome, valor, padrao) {
+  const todos = [...document.querySelectorAll(`input[name="${nome}"]`)];
+  const alvo = todos.find(x => x.value === valor) || todos.find(x => x.value === padrao);
+  if (alvo) alvo.checked = true;
+}
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(t._to); t._to = setTimeout(() => t.hidden = true, 2500); }
 
 // ===== Estado (espelho local dos snapshots) =====
@@ -1012,8 +1043,8 @@ function gmdGeralRebanho(lista) {
 }
 const MES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const rotuloMesCurto = m => {
-  const [a, mm] = String(m).split('-');
-  return `${MES_CURTO[Number(mm) - 1] || mm}/${a.slice(2)}`;
+  const [a, mm] = String(m == null ? '' : m).split('-');
+  return `${MES_CURTO[Number(mm) - 1] || mm || '—'}/${String(a || '').slice(2)}`;
 };
 function gmdPorMes(lista) {
   const porMes = {};
@@ -1052,7 +1083,12 @@ function gmdPorMes(lista) {
 }
 
 const movesOf = iid => moves.filter(m => m.itemId === iid).sort((a, b) => a.date < b.date ? 1 : -1);
-const qtyOf = iid => moves.filter(m => m.itemId === iid).reduce((s, m) => s + (m.type === 'entrada' ? m.qty : -m.qty), 0);
+// Quantidade que não é número (registro gravado torto por outro aparelho ou
+// por versão antiga) fica de fora da soma, como já acontece com o custo
+// unitário: um registro estragado tirava o saldo do item inteiro de circulação,
+// porque NaN contamina toda soma que encosta nele.
+const qtyOf = iid => moves.filter(m => m.itemId === iid)
+  .reduce((s, m) => Number.isFinite(m.qty) ? s + (m.type === 'entrada' ? m.qty : -m.qty) : s, 0);
 function avgCostOf(iid) {
   const ins = moves.filter(m => m.itemId === iid && m.type === 'entrada' && Number.isFinite(m.unitCost) && m.unitCost > 0);
   const q = ins.reduce((s, m) => s + m.qty, 0);
@@ -1083,9 +1119,12 @@ function inPeriod(iso, sel) {
 const NOME_MES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const rotuloMes = m => {
-  const [a, mm] = m.split('-');
-  const nome = NOME_MES[Number(mm) - 1] || mm;
-  return nome.charAt(0).toUpperCase() + nome.slice(1) + ' de ' + a;
+  // Mês que não é mês não pode derrubar o seletor de período: ele monta a lista
+  // inteira num laço, e um item torto apagava a tela toda.
+  const [a, mm] = String(m == null ? '' : m).split('-');
+  const nome = String(NOME_MES[Number(mm) - 1] || mm || '');
+  if (!nome) return String(m == null ? '' : m);
+  return nome.charAt(0).toUpperCase() + nome.slice(1) + (a ? ' de ' + a : '');
 };
 function periodosComLancamento(lista, regime) {
   const datas = [];
@@ -1178,12 +1217,12 @@ function textoDoLancamento(t, livro) {
     fmtRS(t.amount), String(t.amount),
     Number.isFinite(t.amount) ? t.amount.toFixed(2).replace('.', ',') : '',
     fmtBRfull(t.date), t.venc ? fmtBRfull(t.venc) : '', t.pagoEm ? fmtBRfull(t.pagoEm) : '',
-    t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
+    ehCarne(t) ? `${t.parcela}/${t.parcelas}` : '',
     t.type === 'entrada' ? 'entrada receita' : 'saida gasto despesa custo',
     emAberto(t) ? 'a pagar em aberto devendo' : '',
     aReceber(t) ? 'a receber em aberto pendente recebimento' : '',
     (t.venc && t.pago) ? (t.type === 'entrada' ? 'recebido' : 'pago quitado') : '',
-    (t.anexos || []).map(x => x.nome).join(' ')
+    anexosDe(t).map(x => x.nome).join(' ')
   ].filter(Boolean).join(' '));
 }
 // Todas as palavras têm de aparecer, em qualquer ordem e em qualquer campo:
@@ -1967,7 +2006,7 @@ function renderAnimalDetail() {
         <h2>${esc(a.ident)}</h2>
         <button class="edit-link" id="btn-edit-animal">editar</button>
       </div>
-      <div class="meta">${esc(catERaca(a))}${a.entryDate ? ' · entrada ' + fmtBR(a.entryDate) : ''} · ${ws.length} pesagens${arro != null ? ' · ~' + fmtN(arro, 1) + ' @ (rend. ' + settings.yield + '%)' : ''}</div>
+      <div class="meta">${esc(catERaca(a))}${a.entryDate ? ' · entrada ' + fmtBR(a.entryDate) : ''} · ${ws.length} pesagens${arro != null ? ' · ~' + fmtN(arro, 1) + ' @ (rend. ' + fmtN(settings.yield, 0) + '%)' : ''}</div>
       ${a.manejoData ? `<div class="meta">Manejo sanitário: ${fmtBR(a.manejoData)}${a.manejoMedicamento ? ' — ' + esc(a.manejoMedicamento) : ''}</div>` : ''}
       ${(() => { const c = carenciaDoAnimal(a); if (!c) return '';
         return c.bloqueado
@@ -2030,7 +2069,7 @@ function renderEstoque() {
     return `<div class="list-item" data-item="${it.id}">
       <div class="item-main">
         <div class="item-title">${esc(it.name)}</div>
-        <div class="item-subtitle">${ac != null ? 'custo médio ' + fmtRS(ac) + '/' + esc(it.unit) : 'sem custo registrado'}${it.carencia ? ' · carência ' + esc(it.carencia) + 'd' : ''}</div>
+        <div class="item-subtitle">${ac != null ? 'custo médio ' + fmtRS(ac) + '/' + esc(it.unit) : 'sem custo registrado'}${Number.isFinite(it.carencia) && it.carencia > 0 ? ' · carência ' + fmtN(it.carencia, 0) + 'd' : ''}</div>
       </div>
       <div class="item-side">
         <div class="value${q < 0 ? ' qtd-neg' : ''}">${fmtN(q, q % 1 ? 2 : 0)} ${esc(it.unit)}</div>
@@ -2059,7 +2098,7 @@ function renderStockDetail() {
         <h2>${esc(it.name)}</h2>
         <button class="edit-link" id="btn-edit-item">editar</button>
       </div>
-      <div class="meta">${it.carencia ? 'carência ' + it.carencia + ' dias · ' : ''}${esc(it.notes || '')}</div>
+      <div class="meta">${Number.isFinite(it.carencia) && it.carencia > 0 ? 'carência ' + fmtN(it.carencia, 0) + ' dias · ' : ''}${esc(it.notes || '')}</div>
       <div class="metrics">
         <div class="metric"><div class="lbl">Em estoque</div><div class="val">${fmtN(q, q % 1 ? 2 : 0)} ${esc(it.unit)}</div></div>
         <div class="metric"><div class="lbl">Custo médio</div><div class="val">${ac != null ? fmtRS(ac) : '—'}</div></div>
@@ -2094,7 +2133,12 @@ function parcelasDe(total, n) {
 // Vencimento da parcela seguinte: mesmo dia no mês seguinte. Dia 31 em mês de
 // 30 cai no último dia do mês, como fazem os boletos.
 function vencimentoParcela(iso, k) {
-  const [y, m, d] = iso.split('-').map(Number);
+  // Vencimento gravado torto (backup antigo, importação, outro aparelho) não
+  // pode estourar aqui: esta função é chamada ao ABRIR um carnê que já existe,
+  // e um erro neste ponto trancava o formulário — o lançamento não abria mais.
+  const base = soData(iso);
+  if (!base) return '';
+  const [y, m, d] = base.split('-').map(Number);
   const alvo = new Date(y, m - 1 + k, 1);
   const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate();
   alvo.setDate(Math.min(d, ultimo));
@@ -2155,7 +2199,10 @@ function erroDasDatas(venc, n, ritmo, datas) {
   }
   return '';
 }
-const rotuloParcela = t => t.parcelas > 1 ? ` ${t.parcela}/${t.parcelas}` : '';
+// "2/3" só quando os dois números existem de verdade. Com um registro torto o
+// rótulo saía "Infinity/Infinity" na lista, no calendário e no CSV.
+const ehCarne = t => Number.isFinite(t.parcelas) && t.parcelas > 1 && Number.isFinite(t.parcela);
+const rotuloParcela = t => ehCarne(t) ? ` ${t.parcela}/${t.parcelas}` : '';
 // A conta no bloco "A pagar" cabe em uma linha e meia: categoria e vencimento.
 // O resto — a descrição inteira, a nota fiscal, o valor original, de qual
 // compra ela veio — está no lançamento, e não havia como chegar nele daqui.
@@ -2164,8 +2211,8 @@ const rotuloParcela = t => t.parcelas > 1 ? ` ${t.parcela}/${t.parcelas}` : '';
 //
 // Agora a linha inteira abre o lançamento. O botão de dar baixa continua
 // dentro dela e tem prioridade: quem toca em "Pagar" não quer abrir nada.
-const marcaAnexo = t => (t.anexos || []).length
-  ? `<span class="ap-nf" title="${(t.anexos || []).length} nota(s) anexada(s)">📎</span>` : '';
+const marcaAnexo = t => anexosDe(t).length
+  ? `<span class="ap-nf" title="${anexosDe(t).length} nota(s) anexada(s)">📎</span>` : '';
 const DICA_ABRIR = '<p class="ap-dica mono">Toque na conta para ver a nota fiscal e a descrição.</p>';
 // Três conceitos, e a diferença entre eles importa.
 // pendente  = tem vencimento e ainda não foi liquidado, nos DOIS sentidos.
@@ -2649,7 +2696,7 @@ function renderFazenda() {
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
         <div class="item-subtitle">${fmtBR(quando)}${marcaDaData(t, regime, quando)} · ${esc(livro)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
-        ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
+        ${anexosDe(t).length ? `<div class="item-anexo">📎 ${anexosDe(t).length} nota${anexosDe(t).length > 1 ? 's' : ''} anexada${anexosDe(t).length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
     </div>`).join('')
@@ -3021,7 +3068,7 @@ function ligarZoom() {
 
 async function abrirAnexo(id) {
   const meta = anexosForm.find(x => x.id === id)
-    || LIVROS.flatMap(b => arrLivro(b)).flatMap(t => t.anexos || []).find(x => x.id === id);
+    || LIVROS.flatMap(b => arrLivro(b)).flatMap(t => anexosDe(t)).find(x => x.id === id);
   $('ax-titulo').textContent = meta ? meta.nome : 'Nota fiscal';
   $('ax-corpo').innerHTML = '<p class="ax-carregando mono">Carregando…</p>';
   axPdfDoc = null; axZoom = 1;
@@ -3237,7 +3284,7 @@ function espalharAnexosNoCarne(t, col) {
   if (!t.grupo) return;
   const irmas = arrLivro(livroDaCol(col)).filter(x => x.grupo === t.grupo && x.id !== t.id);
   if (!irmas.length) return;
-  const ref = t.anexos || [];
+  const ref = anexosDe(t);
   irmas.forEach(x => { x.anexos = ref.map(a => Object.assign({}, a)); });
   escreverVarias(col, irmas);
 }
@@ -3246,9 +3293,9 @@ function espalharAnexosNoCarne(t, col) {
 // anunciando um documento que não existe mais.
 function apagarAnexosDe(t, saindo) {
   const fora = saindo instanceof Set ? saindo : new Set([t.id]);
-  (t.anexos || []).forEach(a => {
+  anexosDe(t).forEach(a => {
     const aindaUsada = LIVROS.some(b => arrLivro(b).some(x =>
-      !fora.has(x.id) && (x.anexos || []).some(y => y.id === a.id)));
+      !fora.has(x.id) && anexosDe(x).some(y => y.id === a.id)));
     if (aindaUsada) return;
     remove('anexos', a.id); anexoCache.delete(a.id);
   });
@@ -3326,7 +3373,7 @@ function renderFin(book) {
       <div class="item-main">
         <div class="item-title">${esc(t.category || (t.type === 'entrada' ? 'Entrada' : 'Saída'))}${rotuloParcela(t)}</div>
         <div class="item-subtitle">${fmtBR(quando)}${marcaDaData(t, regime, quando)}${t.notes ? ' · ' + esc(t.notes) : ''}</div>
-        ${(t.anexos || []).length ? `<div class="item-anexo">📎 ${t.anexos.length} nota${t.anexos.length > 1 ? 's' : ''} anexada${t.anexos.length > 1 ? 's' : ''}</div>` : ''}
+        ${anexosDe(t).length ? `<div class="item-anexo">📎 ${anexosDe(t).length} nota${anexosDe(t).length > 1 ? 's' : ''} anexada${anexosDe(t).length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="item-side"><div class="value ${t.type}">${t.type === 'saida' ? '−' : '+'} ${fmtRS(t.amount)}</div></div>
     </div>`).join('')
@@ -3377,7 +3424,7 @@ function preencherMedicamentos() {
     if (vistos.has(k)) return;
     vistos.add(k);
     const rot = Number.isFinite(it.carencia) && it.carencia > 0
-      ? `carência ${it.carencia} dias` : 'do estoque';
+      ? `carência ${fmtN(it.carencia, 0)} dias` : 'do estoque';
     linhas.push(`<option value="${esc(it.name)}">${rot}</option>`);
   });
   MEDICAMENTOS_FIXOS.forEach(n => {
@@ -3594,6 +3641,12 @@ $('btn-delete-weighing').addEventListener('click', () => {
   const id = $('w-id').value; if (!id || !confirm('Excluir esta pesagem?')) return;
   weighings = weighings.filter(x => x.id !== id);
   remove('weighings', id);
+  // O cadastro do animal aponta para a pesagem de entrada. Apagada ela, o
+  // ponteiro ficava apontando para o vazio — e o animal seguia afirmando ter
+  // um peso de entrada que não existia mais em pesagem nenhuma.
+  animals.forEach(a => {
+    if (a.entryWeighingId === id) { a.entryWeighingId = null; upsert('animals', a); }
+  });
   closeAllM(); render(); toast('Pesagem excluída');
 });
 
@@ -3613,35 +3666,39 @@ function openTrans(book, t) {
   // quiser jogar em Bovinos ou Aviários troca no seletor, que está no topo.
   $('t-livro').value = perguntar && tab === 'fazenda' ? 'ger' : efetivo;
   sincronizarLivroTrans();
-  document.querySelector(`input[name="t-type"][value="${t ? t.type : 'saida'}"]`).checked = true;
+  marcarRadio('t-type', t ? t.type : 'saida', 'saida');
   sincronizarSentidoTrans();
-  $('t-date').value = t ? t.date : todayISO();
+  $('t-date').value = t ? soData(t.date) : todayISO();
   $('t-amount').value = t ? numParaCampo(t.amount) : '';
   $('t-category').value = t ? (t.category || '') : '';
   $('t-notes').value = t ? (t.notes || '') : '';
   $('t-prazo').checked = !!(t && t.venc);
-  $('t-venc').value = t && t.venc ? t.venc : '';
+  $('t-venc').value = soData(t && t.venc);
   // O NÚMERO DE PARCELAS DO CARNÊ, e não "1".
   //
   // Abrindo a parcela 3/8, o campo mostrava "Em quantas vezes: 1", cinzento.
   // Era a única informação na tela sobre o parcelamento, e estava errada: a
   // tela dizia que o lançamento não era parcelado justamente quando era.
-  $('t-parcelas').value = t && t.parcelas > 1 ? t.parcelas : 1;
+  // Número de parcelas só vale como número de verdade: um registro com o
+  // campo gravado torto punha "Infinity" num campo numérico, que o navegador
+  // devolve VAZIO — e salvar em seguida reparcelava o lançamento do nada.
+  const carneAberto = !!(t && Number.isFinite(t.parcelas) && t.parcelas > 1);
+  $('t-parcelas').value = carneAberto ? t.parcelas : 1;
   // O ritmo volta ao do boleto a cada abertura: ele vale para o carnê que está
   // sendo criado agora, e carregar a escolha da vez passada para um lançamento
   // novo seria decidir no lugar de quem está digitando.
   $('t-ritmo').value = 'mes';
   limparDatasParcelas('t');
   // Uma parcela já criada não se re-parcela: editar a 2/3 mexe só nela.
-  $('t-parcelas').disabled = !!(t && t.parcelas > 1);
-  anexosForm = (t && t.anexos ? t.anexos.map(a => Object.assign({}, a)) : []);
+  $('t-parcelas').disabled = carneAberto;
+  anexosForm = anexosDe(t).map(a => Object.assign({}, a));
   anexosRemover = [];
   renderAnexosForm();
   $('t-pago').checked = !!(t && t.pago);
   // Sem este campo, pagoEm só podia ser o dia em que se tocou em "Pagar" — e
   // conta paga na semana passada caía no mês errado do regime de caixa, sem
   // nenhum jeito de arrumar.
-  $('t-pago-em').value = t && t.pagoEm ? t.pagoEm : '';
+  $('t-pago-em').value = soData(t && t.pagoEm);
   syncPrazoUI(); previewParcelas();
   // O CARNÊ INTEIRO, À VISTA.
   //
@@ -3664,6 +3721,9 @@ function openTrans(book, t) {
   }
   if (t && t.lock === 'stock') avisos.push('Gerado pelo estoque — prefira editar pela movimentação de estoque.');
   else if (t && t.lock === 'animal') avisos.push('Gerado pela venda do animal — prefira editar pelo cadastro do animal.');
+  // Sem este aviso, corrigir o valor aqui parecia funcionar — e era desfeito
+  // sem alarde na próxima vez que o movimento do rebanho fosse salvo.
+  else if (t && t.lock === 'rebanho') avisos.push('Gerado pela aba Compras — prefira editar pelo movimento do rebanho.');
   ctx.hidden = !avisos.length;
   ctx.innerHTML = avisos.join('<br>');
   // A nota é da COMPRA, não da prestação: vale para as parcelas todas, e tirar
@@ -3904,6 +3964,13 @@ $('btn-delete-transaction').addEventListener('click', () => {
       if (m.linkGrupo && alvo.grupo === m.linkGrupo && ids.length > 1) { delete m.linkGrupo; upsert('moves', m); }
     });
     animals.forEach(a => { if (ids.includes(a.linkTrans)) { delete a.linkTrans; upsert('animals', a); } });
+    // O movimento do rebanho também aponta para o lançamento que ele gerou.
+    // Sem soltar o vínculo aqui, o movimento seguia dizendo "no Financeiro" ao
+    // lado de um lançamento que não existe mais — e a tela mentia sobre o
+    // próprio registro, que é o tipo de erro que ninguém vai procurar.
+    rebmov.forEach(m => {
+      if (m.linkTrans && ids.includes(m.linkTrans)) { m.linkTrans = null; upsert('rebmov', m); }
+    });
   }
   const saindo = new Set(ids);
   alvos.forEach(x => apagarAnexosDe(x, saindo));
@@ -4351,8 +4418,8 @@ function openMove(itemId, presetType, m) {
   $('m-context').textContent = `${it.name} — em estoque: ${fmtN(qtyOf(it.id), 1)} ${it.unit}`;
   $('m-id').value = m ? m.id : '';
   $('m-item-id').value = itemId;
-  document.querySelector(`input[name="m-type"][value="${m ? m.type : presetType}"]`).checked = true;
-  $('m-date').value = m ? m.date : todayISO();
+  marcarRadio('m-type', m ? m.type : presetType, 'entrada');
+  $('m-date').value = m ? soData(m.date) : todayISO();
   $('m-qty').value = m ? numParaCampo(m.qty) : '';
   $('m-cost').value = m ? numParaCampo(m.unitCost) : '';
   $('m-postfin').checked = m ? !!(m.linkTrans || m.linkGrupo) : true;
@@ -4360,7 +4427,7 @@ function openMove(itemId, presetType, m) {
   const doGrupo = m && m.linkGrupo ? bovT.filter(x => x.grupo === m.linkGrupo).sort((a, b) => a.parcela - b.parcela) : [];
   const tv = doGrupo.length ? doGrupo[0] : (m && m.linkTrans ? bovT.find(x => x.id === m.linkTrans) : null);
   $('m-prazo').checked = !!(tv && tv.venc);
-  $('m-venc').value = tv && tv.venc ? tv.venc : '';
+  $('m-venc').value = soData(tv && tv.venc);
   $('m-parcelas').value = doGrupo.length ? doGrupo.length : 1;
   // Reabrir uma compra parcelada tem de mostrar o carnê que ESTÁ lá, com as
   // datas que ele tem. Salvar refaz o carnê do zero: se a tela voltasse sempre
@@ -4955,7 +5022,7 @@ const ARQ_LIVRO = { bov: 'bovinos', av: 'aviarios', ger: 'geral' };
 const arqLivro = b => ARQ_LIVRO[b]
   || (semAcento(NOME_LIVRO[b] || String(b)).toLowerCase()
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'atividade');
-const ORIGEM = { stock: 'compra de estoque', animal: 'venda de animal' };
+const ORIGEM = { stock: 'compra de estoque', animal: 'venda de animal', rebanho: 'movimento do rebanho' };
 // O arquivo do financeiro, lançamento por lançamento, em ordem de data. É este
 // que vai para o contador, para o banco e para a planilha — e por isso ele
 // carrega TUDO: sem filtro de período, de regime nem de busca, e com uma coluna
@@ -4989,14 +5056,14 @@ const numPlano = v => Number.isFinite(v) ? v.toFixed(2) : '';
 const linhaFin = (t, nome, saldoCent) => {
   const cat = t.category || '';
   return [
-    t.date || '', fmtBRfull(t.date), csv(nome || ''), t.type,
+    soData(t.date), fmtBRfull(t.date), csv(nome || ''), t.type === 'entrada' ? 'entrada' : 'saida',
     fmtN(t.amount, 2), numPlano(t.amount), numPlano(saldoCent / 100),
     csv(cat), classOf(cat, t.type),
-    t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : '',
-    t.venc ? fmtBRfull(t.venc) : '', t.venc || '',
+    ehCarne(t) ? `${t.parcela}/${t.parcelas}` : '',
+    fmtBRfull(t.venc), soData(t.venc),
     t.venc ? (t.pago ? 'sim' : 'nao') : '',
     t.pagoEm ? fmtBRfull(t.pagoEm) : '',
-    csv((t.anexos || []).map(a => a.nome).join(' | ')),
+    csv(anexosDe(t).map(a => a.nome).join(' | ')),
     ORIGEM[t.lock] || 'lançamento manual',
     csv(t.notes), t.id || ''
   ].join(';');
@@ -5409,7 +5476,7 @@ function eventoICS(c, livro, seq, carimbo, hoje) {
     'Atividade: ' + livro,
     'Valor: ' + fmtRS(c.amount),
     'Vence em: ' + fmtBRfull(c.venc),
-    c.parcelas > 1 ? `Parcela ${c.parcela} de ${c.parcelas}` : 'Parcela única',
+    ehCarne(c) ? `Parcela ${c.parcela} de ${c.parcelas}` : 'Parcela única',
     'Lançada em: ' + fmtBRfull(c.date),
     c.notes ? 'Observação: ' + c.notes : '',
     '',
@@ -5791,7 +5858,7 @@ $('menu-exp-rebmov').addEventListener('click', () => {
     const tipo = REB_TIPOS[m.tipo] || REB_TIPOS.compra;
     const n = cabecasDe(m);
     saldo += tipo.sinal * n;
-    rows.push([m.date || '', fmtBRfull(m.date), csv(tipo.nome), tipo.sinal * n, saldo,
+    rows.push([soData(m.date), fmtBRfull(m.date), csv(tipo.nome), tipo.sinal * n, saldo,
       csv(m.cat || ''), Number.isFinite(m.pesoMedio) ? numCsv(m.pesoMedio, 1) : '',
       Number.isFinite(m.valor) ? fmtN(m.valor, 2) : '',
       m.linkTrans ? 'sim' : 'nao', csv(m.notes || ''), m.id].join(';'));
@@ -5816,10 +5883,14 @@ $('menu-exp-estoque').addEventListener('click', () => {
     moves.filter(m => m.itemId === it.id)
       .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
       .forEach(m => {
-        saldo += m.type === 'entrada' ? m.qty : -m.qty;
-        const total = m.type === 'entrada' && Number.isFinite(m.unitCost) ? m.qty * m.unitCost : null;
+        // Mesma regra do saldo na tela: quantidade que não é número fica de
+        // fora, para um registro torto não apagar o saldo acumulado da coluna
+        // inteira dali para baixo.
+        if (Number.isFinite(m.qty)) saldo += m.type === 'entrada' ? m.qty : -m.qty;
+        const total = m.type === 'entrada' && Number.isFinite(m.unitCost) && Number.isFinite(m.qty)
+          ? m.qty * m.unitCost : null;
         rows.push([
-          ...doItem(it), fmtBRfull(m.date), m.type,
+          ...doItem(it), fmtBRfull(m.date), m.type === 'entrada' ? 'entrada' : 'saida',
           numCsv(m.qty), Number.isFinite(m.unitCost) ? fmtN(m.unitCost, 2) : '',
           total != null ? fmtN(total, 2) : '', numCsv(saldo),
           csv(m.notes)
@@ -5841,7 +5912,7 @@ $('menu-exp-estoque').addEventListener('click', () => {
 // arquivo trazia um lançamento dizendo "1 nota anexada" e a nota não existia em
 // lugar nenhum. Um backup que não devolve a nota não é backup da nota.
 async function anexosParaBackup() {
-  const metas = LIVROS.flatMap(b => arrLivro(b).flatMap(t => (t.anexos || [])
+  const metas = LIVROS.flatMap(b => arrLivro(b).flatMap(t => anexosDe(t)
     .map(a => Object.assign({}, a, { transId: t.id, col: colLivro(b) }))));
   const saida = [], faltaram = [];
   for (const m of metas) {
@@ -5853,7 +5924,7 @@ async function anexosParaBackup() {
 }
 $('menu-backup').addEventListener('click', async () => {
   closeAllM();
-  const metas = LIVROS.flatMap(b => arrLivro(b).flatMap(t => t.anexos || []));
+  const metas = LIVROS.flatMap(b => arrLivro(b).flatMap(t => anexosDe(t)));
   if (metas.length) toast(`Juntando ${metas.length} nota(s) fiscal(is) ao backup…`);
   const { anexos, faltaram } = await anexosParaBackup();
   // O código da fazenda vai DENTRO do backup. Sem ele, o arquivo guardava
@@ -5998,7 +6069,7 @@ $('menu-clear').addEventListener('click', async () => {
 function anexosDeTudo() {
   // Sem o conjunto, a nota de um carnê de oito parcelas sairia oito vezes no
   // backup e no apagar-tudo — oito cópias do mesmo arquivo.
-  return [...new Set(LIVROS.flatMap(b => arrLivro(b).flatMap(t => (t.anexos || []).map(a => a.id))))];
+  return [...new Set(LIVROS.flatMap(b => arrLivro(b).flatMap(t => anexosDe(t).map(a => a.id))))];
 }
 // ===== Limpeza: manter só quem foi pesado num dia =====
 // Serve para acertar o rebanho depois de uma venda em lote: quem passou pela
@@ -6598,6 +6669,18 @@ function valoresSuspeitos() {
       valor: a.soldPrice, data: a.soldDate,
       quem: `Venda do animal ${a.ident}` });
   });
+  // Compra e venda de gado em lote: o lançamento que elas geram é marcado como
+  // reflexo e por isso não entra na lista acima — mas o erro de digitação mora
+  // na ORIGEM, e sem isto uma compra de 50 cabeças por R$ 14,40 não aparecia
+  // em lugar nenhum desta tela.
+  rebmov.forEach(m => {
+    if (!ehTipoReb(m.tipo) || !dinheiro(m.valor)) return;
+    const n = cabecasDe(m);
+    achados.push({ o: 'rebmov', grave: casasDe(m.valor) > 2, id: m.id,
+      valor: m.valor, data: m.date,
+      quem: `${REB_TIPOS[m.tipo].nome} · ${n} cabeça(s)`
+        + (n > 0 ? ` · ${fmtRS(m.valor / n)} por cabeça` : '') });
+  });
   weighings.forEach(w => {
     if (!Number.isFinite(w.weight) || w.weight <= 0 || w.weight >= CV_PESO) return;
     const a = animals.find(x => x.id === w.animalId);
@@ -6614,7 +6697,8 @@ function renderConferir() {
     + 'era lido como <b>R$ 10,00</b>. Isso foi corrigido, mas o que já estava salvo '
     + 'continua com o número que foi lido na hora. Esta tela procura o que pode ter caído nisso: '
     + `centavo com três casas, lançamento abaixo de ${fmtRS(CV_DINHEIRO)}, compra de estoque que não chega a esse total, `
-    + `venda de animal por menos que isso e pesagem abaixo de ${CV_PESO} kg.`;
+    + `venda de animal por menos que isso, compra ou venda de gado em lote pelo mesmo valor, `
+    + `e pesagem abaixo de ${CV_PESO} kg.`;
   const el = $('cv-resultado');
   if (!achados.length) {
     el.innerHTML = `<div class="cv-limpo">
@@ -6686,6 +6770,9 @@ document.addEventListener('click', e => {
   } else if (abrir.dataset.cvAbrir === 'animal') {
     const a = animals.find(x => x.id === id);
     if (a) openAnimal(a); else sumiu('Este animal foi removido');
+  } else if (abrir.dataset.cvAbrir === 'rebmov') {
+    const m = rebmov.find(x => x.id === id);
+    if (m) openRebmov(m); else sumiu('Este movimento foi removido');
   } else if (abrir.dataset.cvAbrir === 'pesagem') {
     const w = weighings.find(x => x.id === id);
     if (w) openWeighing(w.animalId, w); else sumiu('Esta pesagem foi removida');
