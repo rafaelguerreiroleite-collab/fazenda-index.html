@@ -101,6 +101,31 @@ export default async function () {
   t.conferir('carência de zero dia é o mesmo que sem carência', c.zeroDias === null);
 
   // ---------- na tela ----------
+  // As fichas desta parte são montadas a partir de HOJE, e não em datas fixas.
+  //
+  // Com data fixa, o teste dependia do calendário: o BR007 levou manejo em
+  // 25/09 com carência de 21 dias, estava bloqueado no dia em que este arquivo
+  // foi escrito, e ficou liberado no dia 16/10 — sozinho, sem ninguém mexer em
+  // uma linha de código. Dali em diante a bateria acusava falha no aplicativo
+  // por causa da virada do calendário, que é o pior tipo de alarme falso: o
+  // conferidor para de ser acreditado, e quando o erro for de verdade ninguém
+  // vai olhar. O que esta parte cobra é o COMPORTAMENTO — quem está em
+  // carência hoje aparece no bloco do topo e na busca — e isso tem de valer
+  // em qualquer dia em que a bateria rodar.
+  const MONTAR_TELA = () => {
+    animals = [
+      // Ivermectina, 30 dias de carência, aplicada há 10 dias: bloqueado
+      { id: 'a1', ident: 'BR001', cat: 'Boi', manejoData: somarDias(todayISO(), -10), manejoMedicamento: 'Ivermectina' },
+      // mesma Ivermectina, aplicada há 300 dias: liberado
+      { id: 'a2', ident: 'BR002', cat: 'Boi', manejoData: somarDias(todayISO(), -300), manejoMedicamento: 'Ivermectina' },
+      // produto que não está no estoque: o aplicativo não sabe, e não inventa
+      { id: 'a3', ident: 'BR003', cat: 'Boi', manejoData: somarDias(todayISO(), -2), manejoMedicamento: 'Coisa qualquer' },
+      // Terramicina, 21 dias, aplicada há 5: bloqueado
+      { id: 'a7', ident: 'BR007', cat: 'Boi', manejoData: somarDias(todayISO(), -5), manejoMedicamento: 'terramicina' }
+    ];
+    tab = 'bovinos'; seg = 'rebanho'; render();
+  };
+  await pagina.evaluate(`(${MONTAR_TELA.toString()})()`);
   t.secao('aparece onde a pergunta é feita');
   const tela = await pagina.evaluate(() => {
     const linha = ident => {
@@ -130,6 +155,9 @@ export default async function () {
     achou.length === 2 && achou.includes('BR001') && achou.includes('BR007'), achou.join(','));
   await pagina.evaluate(() => { $('bov-busca').value = ''; $('bov-busca').dispatchEvent(new Event('input')); });
   await pagina.waitForTimeout(280);
+  // volta às fichas de datas fixas: a parte da venda confere a data que o
+  // aviso mostra, e para isso ela precisa de um dia conhecido.
+  await pagina.evaluate(`(${MONTAR.toString()})()`);
 
   // ---------- a hora da venda ----------
   // É aqui que a carência deixa de ser aviso e vira consequência.

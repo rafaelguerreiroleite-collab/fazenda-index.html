@@ -13,25 +13,38 @@ import { servir, abrirApp, placar } from './apoio.mjs';
 // Uma fazenda de tamanho realista: é com ela que a altura importa.
 const MONTAR = () => {
   const p = n => String(n).padStart(2, '0');
+  // Tudo contado a partir de HOJE. Com datas fixas, esta fazenda ia
+  // envelhecendo sozinha: meses depois a última pesagem ficava velha demais, o
+  // bloco da estimativa deixava de ser desenhado, e a bateria acusava erro de
+  // layout num aplicativo intacto. Conferidor que falha sozinho com a virada
+  // do calendário é alarme falso, e alarme falso é o jeito mais rápido de
+  // fazer o dono parar de acreditar na bateria inteira.
+  const atras = n => somarDias(todayISO(), -n);
   animals = Array.from({ length: 60 }, (_, i) => ({ id: 'a' + i, ident: 'BR' + p(i + 1),
-    cat: i % 3 ? 'Novilho' : 'Novilha', entryDate: '2025-06-01', entryWeight: 260 + i % 40 }));
+    cat: i % 3 ? 'Novilho' : 'Novilha', entryDate: atras(500), entryWeight: 260 + i % 40 }));
   weighings = [];
-  ['2025-08-15', '2025-11-20', '2026-02-18', '2026-05-22', '2026-09-10'].forEach((d, k) => {
+  [430, 340, 250, 150, 40].forEach((d, k) => {
     animals.forEach((a, i) => weighings.push({ id: 'w' + k + '_' + i, animalId: a.id,
-      date: d, weight: 280 + k * 45 + (i % 30) }));
+      date: atras(d), weight: 280 + k * 45 + (i % 30) }));
   });
   const cats = ['Ração/insumos', 'Vacina', 'Frete', 'Energia elétrica', 'Mão de obra',
     'Benfeitorias', 'Combustível'];
+  // espalhados pelos últimos meses, e nove em cada dez com vencimento à frente
   bovT = Array.from({ length: 120 }, (_, i) => Object.assign({
-    id: 't' + i, date: `2026-0${1 + i % 9}-1${i % 9}`, type: i % 8 ? 'saida' : 'entrada',
+    id: 't' + i, date: atras(10 + (i * 2) % 300), type: i % 8 ? 'saida' : 'entrada',
     amount: 50 + (i * 37) % 3000, category: cats[i % 7], notes: 'nota ' + i
-  }, i % 9 === 0 ? { venc: `2026-1${i % 3}-1${i % 9}`, pago: false } : {}));
+  }, i % 9 === 0 ? { venc: somarDias(todayISO(), 5 + (i % 40)), pago: false } : {}));
   avT = bovT.slice(0, 40).map((t, i) => Object.assign({}, t, { id: 'av' + i }));
   gerT = bovT.slice(0, 20).map((t, i) => Object.assign({}, t, { id: 'g' + i }));
   items = []; moves = []; settings.yield = 52;
   $('bov-gmd-sim').value = '0,700'; LS.s('fjs-gmd-sim', '0,700');
   definirRegime('competencia');
-  ['bfin-period', 'av-period', 'fz-period'].forEach(id => { $(id).value = 'this-year'; guardarPeriodo(id); });
+  // "Todo período", e não "este ano": esta bateria mede ALTURA, e a lista
+  // inteira é o pior caso — que é justamente o que um teste de layout quer.
+  // Com "este ano", bastava a bateria rodar em janeiro para os blocos ficarem
+  // vazios e sumirem da tela, e o conferidor acusava layout quebrado num
+  // aplicativo intacto.
+  ['bfin-period', 'av-period', 'fz-period'].forEach(id => { $(id).value = 'all'; guardarPeriodo(id); });
 };
 
 export default async function () {
@@ -121,18 +134,22 @@ export default async function () {
     blocos.map(([n, b]) => `${n} ${b ? b.altFechado + '→' + b.altAberto : '?'}`).join(' · '));
   // A informação não pode sumir junto com o corpo: é isso que separa
   // "recolher" de "esconder".
+  // Bloco que não apareceu tem de virar falha COM NOME. Lido direto, um bloco
+  // ausente estourava aqui e derrubava a bateria inteira com "Cannot read
+  // properties of null" — o conferidor morria antes de dizer o que faltou.
+  const texto = b => (b && b.cab) || '(o bloco não apareceu na tela)';
   t.conferir('a estimativa mostra o total em arroba no cabeçalho',
-    /@/.test(cab.est.cab), cab.est.cab);
+    /@/.test(texto(cab.est)), texto(cab.est));
   t.conferir('o GMD do rebanho mostra o número no cabeçalho',
-    /\d,\d{3}/.test(cab.gmdPes.cab), cab.gmdPes.cab);
+    /\d,\d{3}/.test(texto(cab.gmdPes)), texto(cab.gmdPes));
   t.conferir('o mês a mês mostra os dois últimos meses',
-    /\/\d{2}/.test(cab.gmdMes.cab), cab.gmdMes.cab);
+    /\/\d{2}/.test(texto(cab.gmdMes)), texto(cab.gmdMes));
   t.conferir('o A pagar mostra quanto se deve e quantas contas',
-    /R\$/.test(cab.apagar.cab) && /conta\(s\)/.test(cab.apagar.cab), cab.apagar.cab);
+    /R\$/.test(texto(cab.apagar)) && /conta\(s\)/.test(texto(cab.apagar)), texto(cab.apagar));
   t.conferir('as categorias mostram a maior',
-    /maior:/.test(cab.cats.cab), cab.cats.cab);
+    /maior:/.test(texto(cab.cats)), texto(cab.cats));
   t.conferir('as atividades mostram o saldo de cada uma',
-    /Bovinos/.test(cab.fzAtiv.cab) && /Aviários/.test(cab.fzAtiv.cab), cab.fzAtiv.cab);
+    /Bovinos/.test(texto(cab.fzAtiv)) && /Aviários/.test(texto(cab.fzAtiv)), texto(cab.fzAtiv));
 
   t.secao('vencida se anuncia mesmo com o bloco fechado');
   const venc = await pagina.evaluate(`(function () {

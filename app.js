@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 101;
+const VERSAO = 102;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -4775,6 +4775,20 @@ $('wm-save').addEventListener('click', () => {
 
 // ===== Importar CSV =====
 let pendingRows = null;
+// A balança escreve "novilha", o dono digita "Novilha", e a planilha do vizinho
+// manda "NOVILHA". Para o aplicativo são TRÊS categorias diferentes: o relatório
+// por categoria mostraria o mesmo lote partido em três linhas, cada uma com um
+// pedaço do rebanho, e nenhuma com o total certo. Aqui a grafia é acertada pela
+// lista que o próprio formulário oferece. Categoria que não está na lista entra
+// como veio — inventar não é trabalho desta função.
+function categoriaPadrao(txt) {
+  const bruto = String(txt == null ? '' : txt).trim().slice(0, 40);
+  if (!bruto) return '';
+  const lista = $('categorias-animal');
+  const chave = semAcento(bruto).toLowerCase();
+  const achou = lista && [...lista.options].find(o => semAcento(o.value).toLowerCase() === chave);
+  return achou ? achou.value : bruto;
+}
 function parseDateFlex(s) {
   s = s.trim();
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -4784,7 +4798,10 @@ function parseDateFlex(s) {
   return null;
 }
 $('menu-import').addEventListener('click', () => { closeAllM(); $('csv-input').value = ''; $('import-preview').hidden = true; pendingRows = null; openM('modal-import'); });
-$('btn-template').addEventListener('click', () => download('modelo-pesagens.csv', 'identificacao,data,peso\nBR001,15/01/2025,320\nBR001,20/04/2025,415\n', 'text/csv'));
+$('btn-template').addEventListener('click', () => download('modelo-pesagens.csv',
+  'identificacao,data,peso,categoria,raca\n'
+  + 'BR001,15/01/2025,320,Novilha,Nelore\n'
+  + 'BR001,20/04/2025,415,Novilha,Nelore\n', 'text/csv'));
 $('csv-input').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) return;
   const reader = new FileReader();
@@ -4815,6 +4832,19 @@ $('csv-input').addEventListener('change', e => {
     const iIdent = temCabecalho ? acha(/^identifica/i, /^ident/i, /brinco/i, /^animal/i) : 0;
     const iData = temCabecalho ? acha(/^data$/i, /^data_pesagem$/i, /^date$/i) : 1;
     const iPeso = temCabecalho ? acha(/^peso$/i, /^peso_kg$/i, /^weight$/i) : 2;
+    // Categoria e raça, quando a planilha trouxer. Sem elas, o animal criado
+    // pela importação nascia só com o brinco — e a categoria é o que separa
+    // bezerro de novilha de boi em TODO relatório. Preenchida depois, era
+    // ficha por ficha, na mão, uma a uma.
+    //
+    // "tipo_animal" entra na lista porque é o nome que a balança usa no
+    // arquivo dela; "categoria" e "raca" porque são os nomes que este mesmo
+    // aplicativo escreve ao exportar — exportar, corrigir na planilha e
+    // trazer de volta é o caminho natural, e ele tem de fechar o círculo.
+    // Só por NOME, nunca por posição: uma quarta coluna qualquer num arquivo
+    // sem cabeçalho não é categoria coisa nenhuma.
+    const iCat = temCabecalho ? acha(/^categoria$/i, /^cat$/i, /^tipo[_ ]?animal$/i, /^tipo$/i) : -1;
+    const iRaca = temCabecalho ? acha(/^ra[cç]a$/i, /^raca_animal$/i) : -1;
     // Cabeçalho que não nomeia as três: volta para as três primeiras colunas,
     // que é o formato do modelo e o que uma planilha simples produz.
     const ci = iIdent >= 0 ? iIdent : 0;
@@ -4835,7 +4865,9 @@ $('csv-input').addEventListener('change', e => {
       if (!ident) { errors.push(`Linha ${i + 1}: identificação vazia`); return; }
       if (!date) { errors.push(`Linha ${i + 1}: data inválida "${cols[cd]}"`); return; }
       if (!Number.isFinite(peso) || peso <= 0) { errors.push(`Linha ${i + 1}: peso inválido "${cols[cp]}"`); return; }
-      rows.push({ ident, date, peso });
+      rows.push({ ident, date, peso,
+        cat: iCat >= 0 ? categoriaPadrao(cols[iCat]) : '',
+        raca: iRaca >= 0 ? String(cols[iRaca] || '').trim().slice(0, 40) : '' });
     });
     const existingIdents = new Set(animals.filter(noRebanho).map(a => chaveBrinco(a.ident)));
     const newIdents = new Set(rows.map(r => chaveBrinco(r.ident)).filter(x => !existingIdents.has(x)));
@@ -4854,8 +4886,26 @@ $('csv-input').addEventListener('change', e => {
       const aviso = pesagemSuspeita(r.ident, r.peso, g, ant, d);
       if (aviso) suspeitas.push(aviso.split('\n')[0]);
     });
+    // A categoria, dita ANTES de confirmar: quantos animais nascem com ela, e
+    // quantos já cadastrados vão receber a que está em branco. Preencher ficha
+    // que já existe sem avisar seria mexer no cadastro de alguém pelas costas,
+    // ainda que só onde está vazio.
+    const comCat = rows.filter(r => r.cat || r.raca);
+    const nascemCom = new Set(comCat.filter(r => !animalDoBrinco(r.ident)).map(r => chaveBrinco(r.ident)));
+    const completam = new Set(comCat.filter(r => {
+      const a2 = animalDoBrinco(r.ident);
+      return a2 && ((r.cat && !a2.cat) || (r.raca && !a2.raca));
+    }).map(r => chaveBrinco(r.ident)));
+    const lista3 = v => [...new Set(v)].slice(0, 3).join(' / ');
+    const cats = lista3(comCat.map(r => r.cat).filter(Boolean));
+    const racas = lista3(comCat.map(r => r.raca).filter(Boolean));
+    const notaCat = !comCat.length ? ''
+      : (cats ? ` · categoria <b>${esc(cats)}</b>` : '')
+        + (racas ? ` · raça <b>${esc(racas)}</b>` : '')
+        + (nascemCom.size ? ` em <b>${nascemCom.size}</b> animal(is) novo(s)` : '')
+        + (completam.size ? ` · <b>${completam.size}</b> já cadastrado(s) receberão o que está em branco` : '');
     pendingRows = rows;
-    $('preview-stats').innerHTML = `<b>${rows.length}</b> pesagens válidas · <b>${newIdents.size}</b> animais novos serão criados · <b>${dupes}</b> duplicatas serão ignoradas${errors.length ? ` · <b>${errors.length}</b> linhas com erro` : ''}`
+    $('preview-stats').innerHTML = `<b>${rows.length}</b> pesagens válidas · <b>${newIdents.size}</b> animais novos serão criados · <b>${dupes}</b> duplicatas serão ignoradas${errors.length ? ` · <b>${errors.length}</b> linhas com erro` : ''}${notaCat}`
       + (suspeitas.length ? `<br><span class="aviso-suspeita">⚠ <b>${suspeitas.length}</b> pesagem(ns) com número fora do esperado: ${suspeitas.slice(0, 3).map(esc).join(' · ')}${suspeitas.length > 3 ? ' …' : ''}</span>` : '');
     $('preview-errors').hidden = !errors.length;
     $('preview-errors').innerHTML = errors.slice(0, 10).join('<br>') + (errors.length > 10 ? `<br>… e mais ${errors.length - 10}` : '');
@@ -4865,13 +4915,21 @@ $('csv-input').addEventListener('change', e => {
 });
 $('btn-confirm-import').addEventListener('click', async () => {
   if (!pendingRows || !pendingRows.length) { toast('Nada para importar'); return; }
-  let added = 0, dup = 0, newA = 0;
+  let added = 0, dup = 0, newA = 0, completados = 0;
   const ops = [];
   pendingRows.forEach(r => {
     let a = animalDoBrinco(r.ident);
     if (!a) {
-      a = { id: uid(), ident: r.ident, cat: '', entryDate: r.date, entryWeight: null, notes: '' };
+      a = { id: uid(), ident: r.ident, cat: r.cat || '', raca: r.raca || '',
+        entryDate: r.date, entryWeight: null, notes: '' };
       animals.push(a); ops.push({ col: 'animals', obj: a }); newA++;
+    } else if ((r.cat && !a.cat) || (r.raca && !a.raca)) {
+      // Só o que está EM BRANCO. A planilha não manda no que já foi cadastrado
+      // à mão: trocar calado a categoria de um animal seria pior do que não
+      // preencher nenhuma, porque ninguém iria procurar o que mudou.
+      if (r.cat && !a.cat) a.cat = r.cat;
+      if (r.raca && !a.raca) a.raca = r.raca;
+      ops.push({ col: 'animals', obj: a }); completados++;
     }
     if (weighings.some(w => w.animalId === a.id && w.date === r.date)) { dup++; return; }
     const w = { id: uid(), animalId: a.id, date: r.date, weight: r.peso, jejum: false, notes: 'Importado' };
@@ -4880,7 +4938,7 @@ $('btn-confirm-import').addEventListener('click', async () => {
   });
   closeAllM(); render();
   toast('Enviando para a nuvem…');
-  try { await batchWrite(ops); toast(`${added} pesagens importadas${newA ? `, ${newA} animais criados` : ''}${dup ? `, ${dup} duplicadas ignoradas` : ''}`); }
+  try { await batchWrite(ops); toast(`${added} pesagens importadas${newA ? `, ${newA} animais criados` : ''}${completados ? `, ${completados} com categoria preenchida` : ''}${dup ? `, ${dup} duplicadas ignoradas` : ''}`); }
   catch (err) { toast('Falha parcial no envio — verifique a conexão'); }
   pendingRows = null;
 });

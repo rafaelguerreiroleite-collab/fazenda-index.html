@@ -28,9 +28,30 @@ export async function servir() {
 const CHROMIUM = '/opt/pw-browsers/chromium';
 const opcoesNavegador = existsSync(CHROMIUM) ? { executablePath: CHROMIUM } : {};
 
+// Rodar a bateria COMO SE FOSSE OUTRO DIA.
+//
+// Um conferidor da carência de medicamento passou a falhar sozinho, sem
+// ninguém mexer em código: ele montava um animal com manejo em data fixa, que
+// estava bloqueado no dia em que o arquivo foi escrito e ficou liberado
+// algumas semanas depois. Alarme falso é o pior defeito que um conferidor
+// pode ter — o dono para de acreditar nele, e quando o erro for de verdade
+// ninguém vai olhar.
+//
+// Com FJS_HOJE=2027-03-01 a bateria inteira roda como se fosse aquele dia, e
+// quem depender do calendário aparece na hora, em vez de aparecer sozinho num
+// dia qualquer, bloqueando a publicação de outra coisa.
+const HOJE_FALSO = process.env.FJS_HOJE || '';
+export async function fingirHoje(ctx) {
+  if (!HOJE_FALSO) return;
+  // setFixedTime só mexe no relógio: os temporizadores continuam reais, então
+  // o aplicativo segue gravando e desenhando como sempre.
+  await ctx.clock.setFixedTime(new Date(HOJE_FALSO + 'T09:00:00'));
+}
+
 export async function abrirApp(url, { locale = 'pt-BR' } = {}) {
   const navegador = await chromium.launch(opcoesNavegador);
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 900 }, locale, serviceWorkers: 'block' });
+  await fingirHoje(ctx);
   const pagina = await ctx.newPage();
   const errosJS = [];
   pagina.on('pageerror', e => errosJS.push(e.message));

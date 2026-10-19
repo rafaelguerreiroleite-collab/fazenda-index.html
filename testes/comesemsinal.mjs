@@ -32,7 +32,7 @@
 // correção e exclusão — porque o furo costuma estar numa porta que esqueceu de
 // chamar quem grava, não em quem grava.
 import { chromium } from 'playwright';
-import { servir, placar } from './apoio.mjs';
+import { servir, placar, fingirHoje } from './apoio.mjs';
 import { existsSync } from 'node:fs';
 
 const CHROMIUM = '/opt/pw-browsers/chromium';
@@ -396,6 +396,7 @@ export default async function () {
   const s = await servir();
   const navegador = await chromium.launch(existsSync(CHROMIUM) ? { executablePath: CHROMIUM } : {});
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 900 }, locale: 'pt-BR', serviceWorkers: 'block' });
+  await fingirHoje(ctx);
   const pagina = await ctx.newPage();
   const errosJS = [];
   pagina.on('pageerror', e => errosJS.push(e.message));

@@ -53,12 +53,17 @@ export default async function () {
   // ---------- Financeiro: saldo, período e categorias ----------
   t.secao('financeiro bovinos');
   const fin = await pagina.evaluate(() => {
+    // O ANO vem do relógio, não de uma data escrita à mão: este trecho usa o
+    // filtro "este ano", e com ano fixo ele passava a falhar sozinho na virada
+    // do calendário — sem ninguém mexer em código, acusando erro onde não há.
+    const ANO = todayISO().slice(0, 4);
+    const PASSADO = String(Number(ANO) - 1);
     bovT = [
-      { id: 't1', date: '2026-04-01', type: 'entrada', amount: 10000, category: 'Venda de gado' },
-      { id: 't2', date: '2026-04-02', type: 'saida', amount: 1234.56, category: 'Ração/insumos' },
-      { id: 't3', date: '2026-04-03', type: 'saida', amount: 765.44, category: 'Ração/insumos' },
-      { id: 't4', date: '2026-04-04', type: 'saida', amount: 500, category: 'Sanidade' },
-      { id: 't5', date: '2025-04-04', type: 'saida', amount: 9999, category: 'Ano passado' }
+      { id: 't1', date: ANO + '-04-01', type: 'entrada', amount: 10000, category: 'Venda de gado' },
+      { id: 't2', date: ANO + '-04-02', type: 'saida', amount: 1234.56, category: 'Ração/insumos' },
+      { id: 't3', date: ANO + '-04-03', type: 'saida', amount: 765.44, category: 'Ração/insumos' },
+      { id: 't4', date: ANO + '-04-04', type: 'saida', amount: 500, category: 'Sanidade' },
+      { id: 't5', date: PASSADO + '-04-04', type: 'saida', amount: 9999, category: 'Ano passado' }
     ];
     seg = 'financeiro'; $('bfin-period').value = 'all'; render();
     const ler = () => ({
@@ -420,17 +425,20 @@ export default async function () {
   // do que Bovinos e Aviários mostram. Se divergir, um dos três está mentindo.
   t.secao('aba Fazenda');
   const fz = await pagina.evaluate(() => {
+    // mesmo motivo do bloco acima: o filtro aqui é "este ano"
+    const ANO = todayISO().slice(0, 4);
+    const PASSADO = String(Number(ANO) - 1);
     bovT = [
-      { id: 'f1', date: '2026-04-01', type: 'entrada', amount: 50000, category: 'Venda de gado' },
-      { id: 'f2', date: '2026-04-02', type: 'saida', amount: 12000, category: 'Ração/insumos' },
-      { id: 'f3', date: '2026-04-03', type: 'saida', amount: 8000, category: 'Benfeitorias' },
-      { id: 'f4', date: '2026-04-04', type: 'saida', amount: 3000, category: 'Mão de obra', venc: '2026-05-04', pago: false },
-      { id: 'f5', date: '2025-04-04', type: 'entrada', amount: 99999, category: 'Ano passado' }
+      { id: 'f1', date: ANO + '-04-01', type: 'entrada', amount: 50000, category: 'Venda de gado' },
+      { id: 'f2', date: ANO + '-04-02', type: 'saida', amount: 12000, category: 'Ração/insumos' },
+      { id: 'f3', date: ANO + '-04-03', type: 'saida', amount: 8000, category: 'Benfeitorias' },
+      { id: 'f4', date: ANO + '-04-04', type: 'saida', amount: 3000, category: 'Mão de obra', venc: ANO + '-05-04', pago: false },
+      { id: 'f5', date: PASSADO + '-04-04', type: 'entrada', amount: 99999, category: 'Ano passado' }
     ];
     avT = [
-      { id: 'g1', date: '2026-04-01', type: 'entrada', amount: 20000, category: 'Pagamento Seara', aviary: '5' },
-      { id: 'g2', date: '2026-04-02', type: 'saida', amount: 25000, category: 'Energia elétrica', aviary: '5' },
-      { id: 'g3', date: '2026-04-03', type: 'saida', amount: 2000, category: 'Gás', aviary: '6', venc: '2026-05-10', pago: false }
+      { id: 'g1', date: ANO + '-04-01', type: 'entrada', amount: 20000, category: 'Pagamento Seara', aviary: '5' },
+      { id: 'g2', date: ANO + '-04-02', type: 'saida', amount: 25000, category: 'Energia elétrica', aviary: '5' },
+      { id: 'g3', date: ANO + '-04-03', type: 'saida', amount: 2000, category: 'Gás', aviary: '6', venc: ANO + '-05-10', pago: false }
     ];
     const ler = sel => document.querySelector(sel) ? document.querySelector(sel).textContent : null;
 

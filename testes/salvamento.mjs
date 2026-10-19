@@ -27,7 +27,7 @@
 // produz de verdade — sinal fraco em que a nuvem não responde nem recusa, um
 // registro que a nuvem RECUSA, e a memória do aparelho cheia.
 import { chromium } from 'playwright';
-import { servir, placar } from './apoio.mjs';
+import { servir, placar, fingirHoje } from './apoio.mjs';
 import { existsSync } from 'node:fs';
 
 const CHROMIUM = '/opt/pw-browsers/chromium';
@@ -79,6 +79,7 @@ export default async function () {
   // Service worker bloqueado de propósito: o pior caso é o aparelho que não
   // tem nem o SDK guardado. Se nada se perde aqui, não se perde em lugar nenhum.
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 900 }, locale: 'pt-BR', serviceWorkers: 'block' });
+  await fingirHoje(ctx);
   const pagina = await ctx.newPage();
   const errosJS = [];
   const avisos = [];

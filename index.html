@@ -856,14 +856,19 @@
       <button class="close-btn" data-close>×</button>
     </header>
     <div class="import-body">
-      <p>Arquivo <b>CSV</b> com 3 colunas: <span class="mono">identificacao, data, peso</span></p>
+      <p>Arquivo <b>CSV</b> com 3 colunas: <span class="mono">identificacao, data, peso</span> — e,
+        se quiser, <span class="mono">categoria</span> e <span class="mono">raca</span>.</p>
       <details>
         <summary>Ver formato esperado</summary>
-        <pre class="csv-example">identificacao,data,peso
-BR001,15/01/2025,320
-BR001,20/04/2025,415
-BR002,15/01/2025,340</pre>
+        <pre class="csv-example">identificacao,data,peso,categoria,raca
+BR001,15/01/2025,320,Novilha,Nelore
+BR001,20/04/2025,415,Novilha,Nelore
+BR002,15/01/2025,340,Bezerro,</pre>
         <p class="small">Datas: <b>DD/MM/AAAA</b> ou <b>AAAA-MM-DD</b>. Peso: vírgula ou ponto. Separador: vírgula ou ponto e vírgula. Animais não cadastrados são criados automaticamente.</p>
+        <p class="small">As colunas são achadas pelo <b>nome</b>, em qualquer ordem — inclusive
+          <span class="mono">tipo_animal</span>, que é como a balança chama a categoria. Categoria e raça
+          valem para o animal <b>criado agora</b>; em quem já está cadastrado, só preenchem o que
+          estiver <b>em branco</b> — nada é trocado por cima.</p>
         <button type="button" class="btn-link" id="btn-template">Baixar modelo</button>
       </details>
       <input type="file" id="csv-input" accept=".csv,text/csv,text/plain" />
