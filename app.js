@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 102;
+const VERSAO = 103;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1046,6 +1046,29 @@ const rotuloMesCurto = m => {
   const [a, mm] = String(m == null ? '' : m).split('-');
   return `${MES_CURTO[Number(mm) - 1] || mm || '—'}/${String(a || '').slice(2)}`;
 };
+// MÊS QUE AINDA NÃO FECHOU.
+//
+// O ganho de um intervalo é repartido pelos dias que ele durou. Enquanto a
+// próxima pesagem não acontece, o intervalo em curso não existe para a conta —
+// e o mês corrente aparece com SÓ A PARTE dele que já foi medida.
+//
+// Visto de fora, parece que o aplicativo mudou o passado: o dono anota "junho
+// 1,000" e, depois de pesar em agosto, junho virou 1,068. Não mudou nada: em
+// junho só havia medição até o dia 15, e a pesagem de agosto trouxe a notícia
+// do resto de junho. Mas, sem ninguém dizer isso, o número parece ter mudado
+// sozinho — e número que muda sozinho é número em que ninguém mais confia.
+//
+// Então o mês que ainda pode receber ganho é marcado. Ele é todo mês do mês da
+// última pesagem de algum animal DO REBANHO em diante: é desses animais que
+// ainda vai sair pesagem nova. Boi vendido não pesa mais, e por isso não
+// mantém mês nenhum em aberto.
+function mesesEmAberto(lista) {
+  const ultimas = (lista || animals).filter(noRebanho).map(a => {
+    const ws = wOf(a.id);
+    return ws.length ? String(ws[ws.length - 1].date).slice(0, 7) : null;
+  }).filter(Boolean).sort();
+  return ultimas.length ? ultimas[0] : null;
+}
 function gmdPorMes(lista) {
   const porMes = {};
   let intervalos = 0, misturados = 0;
@@ -1075,11 +1098,13 @@ function gmdPorMes(lista) {
   // O GMD do mês é o total de quilos dividido pelo total de dias-animal, e não
   // a média dos GMDs de cada bicho: um animal pesado em dois dias do mês não
   // pode pesar o mesmo que outro que ficou os trinta.
+  const desde = mesesEmAberto(lista);
   const meses = Object.entries(porMes)
     .map(([mes, e]) => ({ mes, kg: e.kg, dias: e.dias, animais: e.animais.size,
-      gmd: e.dias > 0 ? e.kg / e.dias : null }))
+      gmd: e.dias > 0 ? e.kg / e.dias : null,
+      aberto: desde != null && mes >= desde }))
     .sort((a, b) => b.mes.localeCompare(a.mes));
-  return { meses, intervalos, misturados };
+  return { meses, intervalos, misturados, abertoDesde: desde };
 }
 
 const movesOf = iid => moves.filter(m => m.itemId === iid).sort((a, b) => a.date < b.date ? 1 : -1);
@@ -1526,7 +1551,7 @@ function renderRebanho() {
     const linhasM = meses.map(m => {
       const larg = Math.max(2, Math.round(Math.abs(m.gmd) / maior * 100));
       return `<div class="gm-linha">
-        <span class="gm-mes">${esc(rotuloMesCurto(m.mes))}</span>
+        <span class="gm-mes${m.aberto ? ' gm-mes-aberto' : ''}"${m.aberto ? ' title="mês ainda não fechado: pode mudar na próxima pesagem"' : ''}>${esc(rotuloMesCurto(m.mes))}${m.aberto ? '…' : ''}</span>
         <span class="gm-barra"><i class="${m.gmd < 0 ? 'gm-neg' : gmdCls(m.gmd)}" style="width:${larg}%"></i></span>
         <span class="gm-val ${m.gmd < 0 ? 'gm-neg-txt' : ''}">${fmtN(m.gmd, 3)}</span>
         <span class="gm-n">${m.animais}</span>
@@ -1537,6 +1562,11 @@ function renderRebanho() {
       + 'O ganho de cada intervalo é espalhado pelos dias que ele durou — '
       + 'pesagem de janeiro a abril rende para os três meses, não só para abril. '
       + 'O número da direita é quantos animais entraram no mês.'
+      + (meses.some(m => m.aberto)
+        ? ' <b>Mês com … ainda não fechou:</b> só a parte já pesada entrou na conta, '
+          + 'e o número dele vai mudar na próxima pesagem — não é o passado mudando, '
+          + 'é o pedaço que faltava chegando.'
+        : '')
       + (gm.misturados ? ` <b>${gm.misturados} intervalo(s) comparando jejum com cheio ficaram de fora.</b>` : '')
       + '</p>';
     // Os dois últimos meses no cabeçalho: comparar é o que este bloco faz, e
@@ -5347,7 +5377,8 @@ function exportRelatorio(qual) {
     const gmes = gmdPorMes();
     gmes.meses.slice(0, 24).forEach(m => {
       info('GMD mês a mês', rotuloMesCurto(m.mes), numCsv(m.gmd, 3) + ' kg/dia',
-        `${m.animais} animal(is) · ${m.dias} dias-animal · ${numCsv(m.kg, 1)} kg`);
+        `${m.animais} animal(is) · ${m.dias} dias-animal · ${numCsv(m.kg, 1)} kg`
+        + (m.aberto ? ' · mês ainda não fechado: muda na próxima pesagem' : ''));
     });
     if (gmes.misturados) {
       info('GMD mês a mês', 'Intervalos fora da conta', String(gmes.misturados),

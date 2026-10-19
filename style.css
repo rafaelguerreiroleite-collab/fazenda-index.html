@@ -931,3 +931,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .cat-item:active { background: #ecfdf5; }
 .cat-item b { color: #15803d; }
 .cat-vazia { padding: 0.8rem; font-size: 0.82rem; color: #57534e; }
+
+/* Mês que ainda não fechou: só a parte já pesada entrou na conta, e o número
+   muda na próxima pesagem. Marcado de leve — é informação, não alarme. */
+.gm-mes-aberto { font-style: italic; opacity: .75; }
