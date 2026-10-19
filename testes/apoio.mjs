@@ -48,9 +48,16 @@ export async function fingirHoje(ctx) {
   await ctx.clock.setFixedTime(new Date(HOJE_FALSO + 'T09:00:00'));
 }
 
-export async function abrirApp(url, { locale = 'pt-BR' } = {}) {
+// O fuso do aparelho entra como opção porque a contagem de dias do GMD depende
+// dele: o aplicativo monta as datas no horário LOCAL, e um erro de meio-dia
+// vira um dia inteiro a mais ou a menos no divisor. O celular do curral está
+// em São Paulo, mas o conferidor roda em UTC — e um aparelho configurado em
+// outro fuso tem de dar o mesmo número.
+export async function abrirApp(url, { locale = 'pt-BR', fuso = null } = {}) {
   const navegador = await chromium.launch(opcoesNavegador);
-  const ctx = await navegador.newContext({ viewport: { width: 390, height: 900 }, locale, serviceWorkers: 'block' });
+  const ctx = await navegador.newContext(Object.assign(
+    { viewport: { width: 390, height: 900 }, locale, serviceWorkers: 'block' },
+    fuso ? { timezoneId: fuso } : {}));
   await fingirHoje(ctx);
   const pagina = await ctx.newPage();
   const errosJS = [];
