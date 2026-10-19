@@ -935,3 +935,15 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 /* Mês que ainda não fechou: só a parte já pesada entrou na conta, e o número
    muda na próxima pesagem. Marcado de leve — é informação, não alarme. */
 .gm-mes-aberto { font-style: italic; opacity: .75; }
+
+/* Conferência da última rodada de pesagem: quem entrou e quem ficou de fora. */
+.cr-resumo { padding: 2px 0 8px; }
+.cr-num { font-size: 15px; }
+.cr-det { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.cr-faltam { border-top: 1px solid var(--line); padding-top: 8px; }
+.cr-tit { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.cr-linha { display: flex; justify-content: space-between; align-items: baseline;
+  gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+.cr-linha:last-child { border-bottom: 0; }
+.cr-brinco { font-weight: 600; }
+.cr-quando { color: var(--muted); font-size: 12px; text-align: right; }

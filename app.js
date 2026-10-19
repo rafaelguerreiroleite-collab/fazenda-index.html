@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 103;
+const VERSAO = 104;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1023,6 +1023,55 @@ function gmdEntrePesagens(lista) {
   })).sort((a, b) => b.fim.localeCompare(a.fim));
   return { linhas, intervalos, misturados, rodadas: rodadas.length };
 }
+// QUEM ENTROU NA ÚLTIMA PESAGEM — E QUEM FICOU DE FORA.
+//
+// Depois de uma rodada de curral, a pergunta é sempre a mesma: entrou todo
+// mundo? O aplicativo sabia responder animal por animal e não sabia responder
+// isso. E é a pergunta que custa dinheiro: boi que não sobe na balança não tem
+// GMD, não entra na estimativa de arroba, não aparece em decisão de venda
+// nenhuma — ele some do acompanhamento sem sumir do pasto.
+//
+// A conta é simples e por isso mesmo precisa ser exata: os pesados da rodada
+// de uma ponta, o rebanho da outra, e a diferença com nome e sobrenome. Quem
+// ficou de fora vem com a data da última pesagem dele, porque "ficou de fora
+// hoje" e "não é pesado desde março" são dois problemas de tamanho diferente.
+function conferenciaDaRodada() {
+  const rodadas = rodadasDePesagem();
+  if (!rodadas.length) return null;
+  const ultima = rodadas[rodadas.length - 1];
+  const naRodada = new Set(weighings
+    .filter(w => w.date >= ultima.ini && w.date <= ultima.fim)
+    .map(w => w.animalId));
+  // Só o rebanho de hoje é cobrado: boi vendido ou morto antes da rodada não
+  // tinha por que subir na balança, e cobrá-lo encheria a lista de gente que
+  // não está mais aqui.
+  const rebanho = animals.filter(noRebanho);
+  const pesados = rebanho.filter(a => naRodada.has(a.id));
+  const faltaram = rebanho.filter(a => !naRodada.has(a.id)).map(a => {
+    const ws = wOf(a.id).filter(w => w.date < ultima.ini);
+    const u = ws.length ? ws[ws.length - 1] : null;
+    return { id: a.id, ident: a.ident, cat: a.cat || '',
+      ultima: u ? u.date : null,
+      dias: u ? daysBetween(u.date, ultima.fim) : null };
+  }).sort((x, y) => {
+    // O que está há mais tempo sem pesar vem primeiro: é o mais urgente, e
+    // quem nunca foi pesado vem na frente de todos.
+    if ((x.ultima === null) !== (y.ultima === null)) return x.ultima === null ? -1 : 1;
+    if (x.ultima && y.ultima && x.ultima !== y.ultima) return x.ultima.localeCompare(y.ultima);
+    return String(x.ident).localeCompare(String(y.ident), 'pt-BR', { numeric: true });
+  });
+  // Dos que entraram: quais ganharam ganho novo (tinham pesagem anterior) e
+  // quais foram a primeira pesagem da vida — esses ainda não têm GMD, e não
+  // ter GMD aqui não é defeito, é falta de uma segunda medida.
+  let comAnterior = 0, primeira = 0;
+  pesados.forEach(a => {
+    const antes = wOf(a.id).some(w => w.date < ultima.ini);
+    antes ? comAnterior++ : primeira++;
+  });
+  return { ini: ultima.ini, fim: ultima.fim, rodadas: rodadas.length,
+    rebanho: rebanho.length, pesados: pesados.length, faltaram,
+    comAnterior, primeira };
+}
 // Da PRIMEIRA pesagem de cada animal até a mais recente dele. Não é a primeira
 // data do rebanho até a última: cada bicho entrou num dia, e medir o tempo de
 // um pelo calendário do outro inventaria dias em que ele nem estava aqui.
@@ -1496,6 +1545,39 @@ function renderRebanho() {
   const temEst = Number.isFinite(gmdSim) && pesosEst.length > 0;
   const totalEst = pesosEst.reduce((s, p) => s + p, 0);
   const diasDesde = lastDates.length ? Math.max(0, daysBetween(lastDates[lastDates.length - 1], hoje)) : 0;
+  // ---- a última rodada de pesagem: quem entrou e quem ficou ----
+  const cr = conferenciaDaRodada();
+  const caixaR = $('bov-rodada');
+  caixaR.hidden = !cr;
+  if (cr) {
+    const rot = cr.ini === cr.fim ? fmtBR(cr.fim) : fmtBR(cr.ini) + '–' + fmtBR(cr.fim);
+    const lista = cr.faltaram.slice(0, 60).map(f => `<div class="cr-linha">
+        <span class="cr-brinco">${esc(f.ident)}</span>
+        <span class="cr-quando mono">${f.ultima
+          ? 'última em ' + fmtBR(f.ultima) + ' · há ' + f.dias + ' dia(s)'
+          : 'nunca foi pesado'}</span>
+      </div>`).join('');
+    const corpoR = `<div class="cr-resumo">
+        <div class="cr-num"><b>${cr.pesados}</b> de ${cr.rebanho} animais do rebanho entraram nesta pesagem</div>
+        <div class="cr-det mono">${cr.comAnterior} com pesagem anterior (ganharam GMD novo)`
+      + `${cr.primeira ? ' · ' + cr.primeira + ' na primeira pesagem (GMD só na próxima)' : ''}</div>
+      </div>`
+      + (cr.faltaram.length
+        ? `<div class="cr-faltam"><div class="cr-tit mono">Ficaram de fora — ${cr.faltaram.length} animal(is)</div>`
+          + lista
+          + (cr.faltaram.length > 60 ? `<div class="cr-quando mono">… e mais ${cr.faltaram.length - 60}</div>` : '')
+          + '</div>'
+        : '<p class="est-nota mono">Nenhum animal do rebanho ficou de fora desta pesagem.</p>')
+      + '<p class="est-nota mono">A rodada junta os dias seguidos de curral: pesar em três dias '
+      + 'conta como uma pesagem só. Animal vendido ou morto não é cobrado aqui — '
+      + 'não tinha por que subir na balança.</p>';
+    caixaR.innerHTML = dobravel('rodada',
+      cabecaDobra('Última pesagem', `${cr.pesados}/${cr.rebanho}`,
+        rot + (cr.faltaram.length ? ` · ${cr.faltaram.length} ficaram de fora` : ' · todos entraram'),
+        cr.faltaram.length > 0),
+      corpoR);
+  }
+
   // ---- GMD do rebanho: entre pesagens, e do começo até agora ----
   const ge = gmdGeralRebanho();
   const ep = gmdEntrePesagens();
@@ -5373,6 +5455,20 @@ function exportRelatorio(qual) {
         numCsv(gger.gmd, 3) + ' kg/dia',
         `${gger.n} animal(is) · ${numCsv(gger.kg, 1)} kg em ${gger.dias} dias-animal`
         + (gger.primeira ? ` · ${fmtBRfull(gger.primeira)} a ${fmtBRfull(gger.ultima)}` : ''));
+    }
+    // Quem entrou na última rodada e quem ficou no pasto. No relatório porque
+    // é conferência de auditoria: o sócio e o banco perguntam quantas cabeças
+    // foram medidas, e "oito de onze" é uma resposta diferente de "oito".
+    const cr = conferenciaDaRodada();
+    if (cr) {
+      info('Rebanho', 'Entraram na última pesagem', `${cr.pesados} de ${cr.rebanho}`,
+        `${cr.ini === cr.fim ? fmtBRfull(cr.fim) : fmtBRfull(cr.ini) + ' a ' + fmtBRfull(cr.fim)}`
+        + ` · ${cr.comAnterior} com pesagem anterior · ${cr.primeira} na primeira pesagem`);
+      info('Rebanho', 'Ficaram de fora da última pesagem', String(cr.faltaram.length),
+        cr.faltaram.length
+          ? cr.faltaram.slice(0, 40).map(f => f.ident + (f.ultima ? ' (há ' + f.dias + 'd)' : ' (nunca pesado)')).join(' · ')
+            + (cr.faltaram.length > 40 ? ' · …' : '')
+          : 'nenhum animal do rebanho ficou de fora');
     }
     const gmes = gmdPorMes();
     gmes.meses.slice(0, 24).forEach(m => {
