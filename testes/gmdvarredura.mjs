@@ -547,6 +547,71 @@ export default async function () {
   })()`);
   marcar(f4, 1);
 
+  // ================= 5. A FICHA DO ANIMAL, LINHA A LINHA =================
+  // Caso trazido do curral pelo dono: a novilha 661, três pesagens, e a linha
+  // mais antiga sem GMD. Não era defeito — ganho por DIA precisa de duas
+  // medidas, e na primeira pesagem não existe anterior para comparar. Mas a
+  // tela dizia isso com um travessão, e travessão num aplicativo de fazenda é
+  // sempre lido como "a conta não saiu".
+  t.secao('5. a ficha do animal: cada linha com a conta que a produziu');
+  const f5 = await pagina.evaluate(`(function () {
+    ${APOIO(SEMENTE + 53)}
+    settings.yield = 50;
+    animals = [{ id: 'x', ident: '661', cat: 'Novilha', entryDate: '2026-06-18', entryWeight: 223 }];
+    weighings = [
+      { id: 'w1', animalId: 'x', date: '2026-06-18', weight: 223, jejum: false },
+      { id: 'w2', animalId: 'x', date: '2026-08-13', weight: 243, jejum: false },
+      { id: 'w3', animalId: 'x', date: '2026-10-19', weight: 274, jejum: false }
+    ];
+    recomputarLivros();
+    tab = 'bovinos'; seg = 'rebanho'; detailAnimal = 'x'; render();
+    const linhas = [].slice.call(document.querySelectorAll('#weighings-table .wt-row'))
+      .map(r => r.innerText.replace(/\\s+/g, ' '));
+    const cartoes = document.querySelector('#view-bovinos .metrics').innerText.replace(/\\s+/g, ' ');
+
+    // a conta de cada intervalo, refeita aqui
+    regra('18/06 a 13/08 são 56 dias', dias2('2026-06-18', '2026-08-13') === 56,
+      String(dias2('2026-06-18', '2026-08-13')));
+    regra('13/08 a 19/10 são 67 dias', dias2('2026-08-13', '2026-10-19') === 67,
+      String(dias2('2026-08-13', '2026-10-19')));
+    regra('20 kg em 56 dias dá 0,357 na tela',
+      linhas[1] && linhas[1].indexOf('0,357') >= 0, linhas[1]);
+    regra('31 kg em 67 dias dá 0,463 na tela',
+      linhas[0] && linhas[0].indexOf('0,463') >= 0, linhas[0]);
+    regra('51 kg em 123 dias dá 0,415 no cartão de GMD total',
+      cartoes.indexOf('0,415') >= 0, cartoes);
+    regra('e o GMD recente do cartão é o do último intervalo',
+      cartoes.indexOf('0,463') >= 0, cartoes);
+
+    // a linha da primeira pesagem explica, em vez de mostrar travessão
+    regra('a primeira pesagem diz que é a primeira, e não mostra travessão',
+      linhas[2] && /1ª pesagem/.test(linhas[2]) && !/—/.test(linhas[2]), linhas[2]);
+    regra('e as outras linhas mostram número, não texto',
+      !/pesagem/.test(linhas[0] || '') && !/pesagem/.test(linhas[1] || ''),
+      (linhas[0] || '') + ' | ' + (linhas[1] || ''));
+
+    // com uma pesagem só, a tela explica a ausência em vez de calar
+    weighings = [weighings[0]]; recomputarLivros(); render();
+    const ficha = document.getElementById('view-bovinos').innerText.replace(/\\s+/g, ' ');
+    regra('com uma pesagem só, a ficha explica que o GMD começa na segunda',
+      /a partir da segunda pesagem/.test(ficha), ficha.slice(0, 200));
+
+    // duas no mesmo dia: não é primeira pesagem, é intervalo de zero dia
+    weighings = [
+      { id: 'a1', animalId: 'x', date: '2026-06-18', weight: 223, jejum: false },
+      { id: 'a2', animalId: 'x', date: '2026-06-18', weight: 225, jejum: false }
+    ];
+    recomputarLivros(); render();
+    const duas = [].slice.call(document.querySelectorAll('#weighings-table .wt-row'))
+      .map(r => r.innerText.replace(/\\s+/g, ' '));
+    regra('duas pesagens no mesmo dia dizem "mesmo dia", não "1ª pesagem"',
+      duas[0] && /mesmo dia/.test(duas[0]), duas[0]);
+    regra('e a de baixo continua sendo a primeira',
+      duas[1] && /1ª pesagem/.test(duas[1]), duas[1]);
+    return falhas;
+  })()`);
+  marcar(f5, 1);
+
   t.conferir('nenhum erro de JavaScript na varredura do GMD',
     errosJS.length === 0, errosJS.slice(0, 3).join(' | '));
 

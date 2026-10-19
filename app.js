@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 104;
+const VERSAO = 105;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2133,6 +2133,8 @@ function renderAnimalDetail() {
         <div class="metric"><div class="lbl">GMD total</div><div class="val ${gmdCls(gT)}">${Number.isFinite(gT) ? fmtN(gT, 3) : '—'}</div></div>
         <div class="metric"><div class="lbl">GMD recente</div><div class="val ${gmdCls(gR)}">${Number.isFinite(gR) ? fmtN(gR, 3) : '—'}</div></div>
       </div>
+      ${ws.length < 2 ? '<div class="meta">O ganho por dia aparece a partir da segunda pesagem: '
+        + 'com uma medida só não há período para dividir.</div>' : ''}
     </div>`;
   $('btn-edit-animal').onclick = () => openAnimal(a);
   renderChart(ws);
@@ -2145,7 +2147,14 @@ function renderAnimalDetail() {
       <span class="date">${fmtBR(w.date)}</span>
       <span class="weight">${fmtN(w.weight, 1)} kg</span>
       <span class="flag">${w.jejum ? 'jejum' : ''}</span>
-      <span class="gmd ${gmdCls(g)}" ${misto ? 'title="comparação entre jejum e cheio"' : ''}>${Number.isFinite(g) ? fmtN(g, 3) + (misto ? ' ⚠' : '') : '—'}</span>
+      <span class="gmd ${gmdCls(g)}" ${misto ? 'title="comparação entre jejum e cheio"' : ''}>${
+        Number.isFinite(g) ? fmtN(g, 3) + (misto ? ' ⚠' : '')
+        // Travessão na primeira linha parecia conta que não saiu. Não é: ganho
+        // por DIA precisa de duas medidas, e na primeira pesagem não existe
+        // anterior para comparar. A linha passa a dizer isso, porque "—" num
+        // aplicativo de fazenda é sempre lido como "o aplicativo falhou".
+        : !prev ? '<i class="wt-nota">1ª pesagem</i>'
+        : '<i class="wt-nota">mesmo dia</i>'}</span>
     </div>`;
   }).join('');
   $('weighings-table').innerHTML = `<div class="wt-header"><span>Data</span><span>Peso</span><span>Jejum</span><span style="text-align:right">GMD</span></div>` + (rows || '<div class="chart-empty">Sem pesagens</div>');

@@ -947,3 +947,6 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .cr-linha:last-child { border-bottom: 0; }
 .cr-brinco { font-weight: 600; }
 .cr-quando { color: var(--muted); font-size: 12px; text-align: right; }
+
+/* "1ª pesagem" não é um número: não pode ter a cara de um. */
+.wt-row .gmd .wt-nota { font-style: normal; font-size: 0.68rem; color: #a8a29e; }
