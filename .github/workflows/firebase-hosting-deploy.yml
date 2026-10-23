@@ -61,6 +61,25 @@ jobs:
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_FAZENDA_E3652 }}'
           channelId: live
           projectId: fazenda-e3652
+          # A VERSÃO DA FERRAMENTA DE PUBLICAÇÃO FICA PRESA, E ISTO NÃO É
+          # PRECIOSISMO: sem travar, a ação baixa sempre a última, e em
+          # 23/10/2026 a publicação parou sozinha, sem ninguém ter mexido em
+          # nada. A 15.34.1 (saída em 21/10) passou a perguntar ao Google se a
+          # API de Hosting está ligada antes de publicar, e a conta que publica
+          # não tem permissão para essa pergunta — 403, publicação abortada.
+          # A conta TEM permissão para publicar: o próprio registro mostra
+          # firebase.projects.get e firebasehosting.sites.update concedidas.
+          # É só a pergunta a mais que ela não pode fazer.
+          #
+          # A 15.34.0 é a que publicou a versão anterior do aplicativo, no dia
+          # 19, sem reclamar. Ficamos nela.
+          #
+          # O conserto definitivo é do lado do Google, e precisa do dono:
+          # dar à conta de serviço o papel "Consumidor do Service Usage"
+          # (roles/serviceusage.serviceUsageConsumer) no projeto fazenda-e3652.
+          # Feito isso, esta linha pode cair e a ferramenta volta a se
+          # atualizar sozinha.
+          firebaseToolsVersion: '15.34.0'
 
   # As regras do Firestore NUNCA eram publicadas: o arquivo ficava no
   # repositório como documentação, e o que valia em produção era o que
