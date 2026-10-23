@@ -950,3 +950,47 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 
 /* "1ª pesagem" não é um número: não pode ter a cara de um. */
 .wt-row .gmd .wt-nota { font-style: normal; font-size: 0.68rem; color: #a8a29e; }
+
+/* ============================================================
+   TELA GRANDE: COMPUTADOR
+   ============================================================
+   Tudo aqui dentro só existe acima de 900 px. No celular este bloco não é
+   lido pelo navegador, então a tela do curral continua exatamente como está —
+   não há como esta parte mexer nela.
+
+   A ideia não é redesenhar o aplicativo: é parar de desperdiçar a tela. Num
+   monitor, a coluna de 480 px no meio obriga a rolar para ver o que caberia
+   de uma vez, e rolar atrás de um animal numa lista de 165 é o oposto de
+   trabalhar no computador. */
+@media (min-width: 900px) {
+  main { max-width: 64rem; padding-bottom: 2rem; }
+
+  /* As listas passam a duas colunas: o dobro de animais, de lançamentos e de
+     movimentações por tela, sem mudar nada em cada linha. */
+  .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem; background: none; border: 0; }
+  .list > * { border-radius: 10px; border: 1px solid #e7e5e4; background: #fff; }
+  .list > *:last-child { border-bottom: 1px solid #e7e5e4; }
+
+  /* Os cartões do topo cabem todos numa linha só. */
+  .stats-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+
+  /* Período e regime lado a lado: são a mesma decisão — "o que eu estou
+     olhando" — e empilhados empurravam o saldo para baixo da dobra. */
+  .filter-row.one { grid-template-columns: 1fr 1fr; }
+
+  /* Formulário em janela de computador: mais largo, porque aqui sobra espaço
+     e campo apertado é onde se digita errado. */
+  .modal-content { max-width: 34rem; }
+
+  /* O dedo não passa por cima de nada; o ponteiro do mouse, sim. A linha
+     responde ao ponteiro para que se saiba onde o clique vai cair. */
+  .list-item:hover, .transaction-item:hover, .wt-row:hover,
+  .ap-linha:hover { background: #f5f5f4; }
+
+  /* O botão + flutuante sai de cima da lista e vai para a margem, ao lado da
+     coluna: no canto do monitor ele perderia a ligação com o conteúdo, e em
+     cima da coluna ele tapa uma ficha. O max() segura o caso da janela
+     estreita, em que não há margem — aí ele volta para o canto de sempre. */
+  .fab { right: max(1.25rem, calc((100vw - 64rem) / 2 - 4.5rem)); }
+}
