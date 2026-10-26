@@ -1005,3 +1005,13 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
      estreita, em que não há margem — aí ele volta para o canto de sempre. */
   .fab { right: max(1.25rem, calc((100vw - 64rem) / 2 - 4.5rem)); }
 }
+
+/* O rebanho em dinheiro. A conta aparece embaixo do número para que ninguém
+   precise acreditar: arrobas vezes preço, com o rendimento à vista. */
+.vr-conta { font-size: 0.8rem; color: #44403c; }
+.vr-base { font-size: 0.68rem; color: #78716c; margin-top: 0.15rem; }
+.vr-ganho { font-size: 0.82rem; margin-top: 0.5rem; padding-top: 0.5rem;
+  border-top: 1px solid #f5f5f4; line-height: 1.45; }
+/* O que a margem NÃO inclui, colado nela: lido como lucro, esse número leva a
+   decisão errada. */
+.mg-nota { display: block; font-size: 0.62rem; color: #78716c; margin-top: 0.3rem; line-height: 1.4; }

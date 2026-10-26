@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 108;
+const VERSAO = 109;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -66,6 +66,12 @@ const fmtBR = iso => { const t = soData(iso); if (!t) return '—'; const [y, m,
 const fmtBRfull = iso => { const t = soData(iso); if (!t) return ''; const [y, m, d] = t.split('-'); return `${d}/${m}/${y}`; };
 const fmtN = (n, c = 2) => Number.isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }) : '—';
 const fmtRS = n => 'R$ ' + fmtN(n, 2);
+// Dinheiro grande se lê sem centavos: em meio milhão de reais o centavo é
+// ruído. Mas ele não pode sumir da CONFERÊNCIA — por isso, onde o valor sai
+// arredondado, a conta ao lado sai com casas suficientes para a multiplicação
+// fechar na calculadora. "1.622 @ × R$ 340" dá R$ 551.480, e o valor exato é
+// R$ 551.571: quem confere acha erro onde há só arredondamento.
+const fmtRSgrande = n => Number.isFinite(n) ? 'R$ ' + fmtN(n, 0) : '—';
 const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 86400000);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const clean = o => JSON.parse(JSON.stringify(o));
@@ -1023,6 +1029,38 @@ function gmdEntrePesagens(lista) {
   })).sort((a, b) => b.fim.localeCompare(a.fim));
   return { linhas, intervalos, misturados, rodadas: rodadas.length };
 }
+// QUANTO VALE O REBANHO, EM DINHEIRO.
+//
+// "1.622 @" é a resposta certa para uma pergunta que ninguém faz. A pergunta é
+// quanto isso dá, e a conversão é uma multiplicação — mas uma multiplicação
+// que só pode ser feita com o preço QUE O DONO INFORMOU. Preço de arroba
+// chutado por um aplicativo é a pior espécie de número: parece cotação.
+//
+// Decisões que este número destrava: vale a pena vender agora, quanto o pasto
+// rendeu desde a última pesagem, e quanto o rebanho representa ao lado das
+// contas a pagar.
+//
+// Três honestidades obrigatórias, todas escritas na tela:
+//   · é valor BRUTO — não desconta frete, comissão nem imposto da venda;
+//   · sai do rendimento de carcaça do REBANHO (o mesmo que produziu as
+//     arrobas logo acima), e não do rendimento da aba Custos, que é outro;
+//   · animal sem pesagem não entra, e é contado à parte — senão o rebanho
+//     parece valer menos do que vale, sem nada explicando a diferença.
+function valorDoRebanho() {
+  const preco = Number.isFinite(custoParams.precoArroba) && custoParams.precoArroba > 0
+    ? custoParams.precoArroba : null;
+  const ativos = animals.filter(noRebanho);
+  const pesos = ativos.map(a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; })
+    .filter(v => Number.isFinite(v) && v > 0);
+  if (!pesos.length) return null;
+  const kg = pesos.reduce((x, v) => x + v, 0);
+  const arrobas = arrobasDe(kg, settings.yield);
+  return {
+    preco, rend: settings.yield, n: pesos.length, semPeso: ativos.length - pesos.length,
+    kg, arrobas, valor: preco == null ? null : arrobas * preco
+  };
+}
+
 // O MESMO NÚMERO, NA PESAGEM PASSADA.
 //
 // Número sozinho não decide nada. "Peso médio 295 kg" está certo e não responde
@@ -1637,6 +1675,39 @@ function renderRebanho() {
   const temEst = Number.isFinite(gmdSim) && pesosEst.length > 0;
   const totalEst = pesosEst.reduce((s, p) => s + p, 0);
   const diasDesde = lastDates.length ? Math.max(0, daysBetween(lastDates[lastDates.length - 1], hoje)) : 0;
+  // ---- quanto vale o rebanho ----
+  const vr = valorDoRebanho();
+  const caixaV = $('bov-valor');
+  caixaV.hidden = !vr;
+  if (vr) {
+    // Quanto o pasto rendeu desde a pesagem passada, em dinheiro: as arrobas
+    // ganhas pelos animais comparáveis vezes o mesmo preço. É a única linha da
+    // tela que liga o trabalho do período ao caixa.
+    const ganhoRS = vr.preco != null && cmp ? arrobaOf(cmp.kgTotal) * vr.preco : null;
+    const corpoV = vr.preco == null
+      ? '<p class="est-nota mono">Informe o <b>preço da arroba</b> na aba Custos, '
+        + 'na simulação de venda, e o rebanho passa a aparecer em dinheiro aqui.</p>'
+      : `<div class="vr-conta mono">${fmtN(vr.arrobas, 2)} @ × ${fmtRS(vr.preco)} por @</div>`
+        + `<div class="vr-base mono">${fmtN(vr.kg, 0)} kg de peso vivo — a última pesagem de `
+        + `cada um — em ${vr.n} animal(is) · rendimento de carcaça ${fmtN(vr.rend, 0)}%</div>`
+        + (ganhoRS != null
+          ? `<div class="vr-ganho">Desde a pesagem de ${fmtBR(cmp.de)} o lote ganhou `
+            + `<b>${fmtN(arrobaOf(cmp.kgTotal), 2)} @</b>, que a este preço são `
+            + `<b>${fmtRSgrande(ganhoRS)}</b>.</div>` : '')
+        + '<p class="est-nota mono">Valor <b>bruto</b>, ao preço que você informou: não desconta '
+        + 'frete, comissão nem impostos da venda. O rendimento é o do Rebanho, o mesmo que '
+        + 'produziu as arrobas dos cartões acima — a aba Custos tem um rendimento próprio, e '
+        + 'por isso o número de lá pode ser diferente.'
+        + (vr.semPeso ? ` <b>${vr.semPeso} ${vr.semPeso > 1 ? 'animais ainda não foram pesados e não entram' : 'animal ainda não foi pesado e não entra'} nesta conta.</b>` : '')
+        + '</p>';
+    caixaV.innerHTML = dobravel('valor',
+      cabecaDobra('Quanto vale o rebanho',
+        vr.preco != null ? fmtRSgrande(vr.valor) : '—',
+        vr.preco != null ? `${fmtN(vr.arrobas, 0)} @ a ${fmtRS(vr.preco)}`
+          : 'falta o preço da arroba'),
+      corpoV);
+  }
+
   // ---- a última rodada de pesagem: quem entrou e quem ficou ----
   const cr = conferenciaDaRodada();
   const caixaR = $('bov-rodada');
@@ -1914,8 +1985,18 @@ function arrobaDoAnimal(a, rend) {
   const arr = arrobasDe(a.soldWeight, rend == null ? rendDaVenda() : rend);
   return arr > 0 ? a.soldPrice / arr : null;
 }
-function precoArrobaVenda(lista) {
-  const rend = rendDaVenda();
+// O rendimento entra por fora quando quem pergunta usa outro.
+//
+// FURO ENCONTRADO NA AUDITORIA: a margem da aba Custos subtraía o custo da
+// arroba — calculado com o rendimento DAQUELA aba — do preço da arroba
+// vendida, calculado com o rendimento do Rebanho. Dois rendimentos, uma
+// subtração. Com 52% de um lado e 50% do outro, a diferença de 4% nas arrobas
+// entrava inteira na margem: a conta dizia sobrar ~R$ 13 a mais por arroba do
+// que sobra, e nada na tela denunciava, porque os dois números estavam certos
+// cada um na sua conta. Agora quem compara passa o rendimento que está usando.
+function precoArrobaVenda(lista, rendForcado) {
+  const rend = Number.isFinite(rendForcado) && rendForcado > 0 && rendForcado <= 100
+    ? rendForcado : rendDaVenda();
   const vendidos = (lista || animals).filter(vendidoDeVerdade);
   const naConta = vendidos.filter(temPrecoEPeso);
   // A média é o TOTAL recebido dividido pelo TOTAL de arrobas, e não a média
@@ -2118,18 +2199,37 @@ function renderCustos() {
   // rendeu nas vendas já feitas — e a diferença, que é a pergunta que decide
   // se o negócio está de pé. Só aparece quando existe venda com peso e preço:
   // inventar uma margem a partir de dado faltando seria pior que não mostrar.
-  const pav = precoArrobaVenda();
+  // O preço com que a arroba produzida é comparada, NO MESMO RENDIMENTO do
+  // custo — senão a subtração mistura duas réguas.
+  //
+  // Preferência pelo preço REALIZADO: o que entrou no bolso vale mais do que
+  // qualquer estimativa. Sem venda registrada, vale o preço informado na
+  // simulação — e a tela diz qual dos dois está usando, porque "sobra R$ 120"
+  // é uma frase muito diferente quando o preço é um palpite.
+  const pav = precoArrobaVenda(null, c.rendVenda);
+  const precoInformado = Number.isFinite(custoParams.precoArroba) && custoParams.precoArroba > 0
+    ? custoParams.precoArroba : null;
+  const preco = pav.porArroba != null ? pav.porArroba : precoInformado;
+  const daVenda = pav.porArroba != null;
   const elV = $('cst-venda');
-  if (!pav.porArroba) {
+  if (preco == null) {
     elV.hidden = true;
     elV.innerHTML = '';
   } else {
     elV.hidden = false;
-    const margem = c.custoArroba != null ? pav.porArroba - c.custoArroba : null;
-    elV.innerHTML = `Vendida a <b>${fmtRS(pav.porArroba)}</b> por @ · ${pav.n} venda(s)`
+    const margem = c.custoArroba != null ? preco - c.custoArroba : null;
+    elV.innerHTML = (daVenda
+      ? `Vendida a <b>${fmtRS(preco)}</b> por @ · ${pav.n} venda(s)`
+      : `Ao preço informado de <b>${fmtRS(preco)}</b> por @ · nenhuma venda registrada ainda`)
       + (margem == null ? ' · informe o GMD e os custos para ver a margem'
         : ` · <b class="${margem >= 0 ? 'mg-ok' : 'mg-ruim'}">${margem >= 0 ? 'sobra' : 'falta'} `
-          + `${fmtRS(Math.abs(margem))} por @</b>`);
+          + `${fmtRS(Math.abs(margem))} por @ produzida</b>`)
+      // O que NÃO está na conta, dito junto com ela. "Sobra R$ 120 por arroba"
+      // lido como lucro é o jeito mais rápido de tomar uma decisão errada: o
+      // que o animal custou, o frete, a comissão e os impostos ainda saem daí.
+      + (margem == null ? '' : '<span class="mg-nota mono">Conta do pasto: o que custa pôr '
+        + 'mais uma arroba e o que ela vale. Não entra aqui o que você pagou pelo animal, '
+        + 'nem frete, comissão e impostos da venda.</span>');
   }
 
   $('cst-stats').innerHTML = `
@@ -2210,7 +2310,12 @@ function renderAnimalDetail() {
         <h2>${esc(a.ident)}</h2>
         <button class="edit-link" id="btn-edit-animal">editar</button>
       </div>
-      <div class="meta">${esc(catERaca(a))}${a.entryDate ? ' · entrada ' + fmtBR(a.entryDate) : ''} · ${ws.length} pesagens${arro != null ? ' · ~' + fmtN(arro, 1) + ' @ (rend. ' + fmtN(settings.yield, 0) + '%)' : ''}</div>
+      <div class="meta">${esc(catERaca(a))}${a.entryDate ? ' · entrada ' + fmtBR(a.entryDate) : ''} · ${ws.length} pesagens${arro != null ? ' · ~' + fmtN(arro, 1) + ' @ (rend. ' + fmtN(settings.yield, 0) + '%)' : ''}${
+        // Quanto ESTE animal vale hoje, ao preço informado. Só aparece com
+        // preço e com peso: sem um dos dois não há conta, e estimar na falta
+        // de dado é inventar cotação.
+        arro != null && Number.isFinite(custoParams.precoArroba) && custoParams.precoArroba > 0
+          ? ' · ~' + fmtRSgrande(arro * custoParams.precoArroba) : ''}</div>
       ${a.manejoData ? `<div class="meta">Manejo sanitário: ${fmtBR(a.manejoData)}${a.manejoMedicamento ? ' — ' + esc(a.manejoMedicamento) : ''}</div>` : ''}
       ${(() => { const c = carenciaDoAnimal(a); if (!c) return '';
         return c.bloqueado
