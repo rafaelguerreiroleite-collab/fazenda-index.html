@@ -948,6 +948,17 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 .cr-brinco { font-weight: 600; }
 .cr-quando { color: var(--muted); font-size: 12px; text-align: right; }
 
+/* A COMPARAÇÃO DENTRO DO CARTÃO.
+   Menor que o número e menor que o rótulo: ela existe para dar referência ao
+   número, não para disputar a atenção com ele. Sobe em verde, desce em
+   vermelho, e o que não é variação (a faixa do GMD, "há 7 dias") fica cinza,
+   para que cor signifique sempre a mesma coisa. */
+.stat-delta { font-family: 'DM Mono', monospace; font-size: 0.62rem; line-height: 1.25;
+  margin-top: 0.15rem; letter-spacing: 0.02em; }
+.stat-delta.sobe { color: #86efac; }
+.stat-delta.desce { color: #fca5a5; }
+.stat-delta.igual, .stat-delta.nota { color: #cce2d5; }
+
 /* "1ª pesagem" não é um número: não pode ter a cara de um. */
 .wt-row .gmd .wt-nota { font-style: normal; font-size: 0.68rem; color: #a8a29e; }
 

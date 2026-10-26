@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 107;
+const VERSAO = 108;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1023,6 +1023,59 @@ function gmdEntrePesagens(lista) {
   })).sort((a, b) => b.fim.localeCompare(a.fim));
   return { linhas, intervalos, misturados, rodadas: rodadas.length };
 }
+// O MESMO NÚMERO, NA PESAGEM PASSADA.
+//
+// Número sozinho não decide nada. "Peso médio 295 kg" está certo e não responde
+// a única pergunta que importa no curral: subiu ou desceu? Para responder, o
+// dono tinha de lembrar do número do mês passado — e ninguém lembra.
+//
+// A comparação tem uma regra que não pode ser quebrada, senão ela mente com
+// cara de verdade: SÓ ENTRA QUEM SUBIU NA BALANÇA NAS DUAS PESAGENS. Comparar
+// a média de 158 animais com a média de 160 outros mistura duas populações, e
+// a diferença que aparece pode ser só a troca de quem foi pesado — um lote
+// novo e leve derruba a "média" sem nenhum animal ter emagrecido.
+//
+// Pelo mesmo motivo, par em condições diferentes (jejum contra cheio) fica de
+// fora: a diferença ali é rúmen, não ganho.
+function comparativoRebanho() {
+  const rodadas = rodadasDePesagem();
+  if (rodadas.length < 2) return null;
+  const atual = rodadas[rodadas.length - 1];
+  const anterior = rodadas[rodadas.length - 2];
+  // a pesagem do animal DENTRO de uma rodada; se ele foi pesado duas vezes nos
+  // dias daquele mutirão, vale a última
+  const daRodada = (aid, r) => wOf(aid).filter(w => w.date >= r.ini && w.date <= r.fim).pop();
+  let antes = 0, agora = 0, dias = 0, n = 0, fora = 0;
+  animals.filter(noRebanho).forEach(a => {
+    const b = daRodada(a.id, anterior), c = daRodada(a.id, atual);
+    if (!b || !c || !Number.isFinite(b.weight) || !Number.isFinite(c.weight)) return;
+    if (!mesmaCondicao(b, c)) { fora++; return; }
+    antes += b.weight; agora += c.weight; dias += daysBetween(b.date, c.date); n++;
+  });
+  if (!n) return null;
+  return {
+    n, fora, de: anterior.fim, ate: atual.fim,
+    pesoAntes: antes / n, pesoAgora: agora / n,
+    kgMedio: (agora - antes) / n, kgTotal: agora - antes,
+    dias: Math.round(dias / n)
+  };
+}
+// O GMD médio do rebanho — média simples do GMD de cada animal — calculado
+// como ele ERA numa data passada. É o mesmo número do cartão, só que parado no
+// tempo: é isso que o torna comparável com o de hoje.
+function gmdMedioDoRebanho(ate) {
+  const vals = animals.filter(noRebanho).map(a => {
+    const ws = ate ? wOf(a.id).filter(w => w.date <= ate) : wOf(a.id);
+    const g = gmdInfo(ws);
+    return Number.isFinite(g.gmd) && !g.misto ? g.gmd : null;
+  }).filter(v => v !== null);
+  return vals.length ? vals.reduce((x, g) => x + g, 0) / vals.length : null;
+}
+// A faixa do GMD em palavra. A cor já dizia isso, mas cor não se lê em voz
+// alta, não sobrevive ao sol na tela e não ajuda quem enxerga pouco — e a
+// pergunta "0,62 é bom?" continuava sem resposta escrita.
+const FAIXA_GMD = g => !Number.isFinite(g) ? '' : g < 0.4 ? 'fraco' : g < 0.8 ? 'regular' : g < 1.2 ? 'bom' : 'ótimo';
+
 // QUEM ENTROU NA ÚLTIMA PESAGEM — E QUEM FICOU DE FORA.
 //
 // Depois de uma rodada de curral, a pergunta é sempre a mesma: entrou todo
@@ -1497,9 +1550,11 @@ function renderRebanho() {
   // Média de GMD só pode somar números comparáveis entre si: a comparação
   // jejum↔cheio fica de fora, igual ao bloco do GMD do rebanho logo abaixo.
   const gmdsInfo = activeAnimals.map(a => gmdInfo(wOf(a.id)));
-  const gmds = gmdsInfo.filter(x => Number.isFinite(x.gmd) && !x.misto).map(x => x.gmd);
   const gmdsMistos = gmdsInfo.filter(x => Number.isFinite(x.gmd) && x.misto).length;
-  const avg = gmds.length ? gmds.reduce((s, g) => s + g, 0) / gmds.length : null;
+  // Uma conta só, usada aqui e na comparação com a pesagem passada: duas
+  // cópias da mesma média é como uma delas passa a mentir sem ninguém saber
+  // qual.
+  const avg = gmdMedioDoRebanho(null);
   const lastDates = weighings.filter(w => activeIds.has(w.animalId)).map(w => w.date).sort();
   const weightById = new Map(activeAnimals.map(a => { const ws = wOf(a.id); return [a.id, ws.length ? ws[ws.length - 1].weight : null]; }));
   const lastWeights = [...weightById.values()].filter(Number.isFinite);
@@ -1508,13 +1563,35 @@ function renderRebanho() {
   const arrobaOf = kg => kg * (settings.yield / 100) / 15;
   const avgArroba = avgWeight != null ? arrobaOf(avgWeight) : null;
   const totalArroba = lastWeights.length ? arrobaOf(totalWeight) : null;
+  // ---- a comparação com a pesagem passada ----
+  const cmp = comparativoRebanho();
+  const gmdAntes = cmp ? gmdMedioDoRebanho(cmp.de) : null;
+  // Seta só quando há diferença de verdade: "▲ +0 kg" é ruído com cara de
+  // notícia. Zero é zero e se escreve como "igual".
+  const delta = (v, txt) => {
+    if (!Number.isFinite(v)) return '';
+    const sinal = v > 0 ? 'sobe' : v < 0 ? 'desce' : 'igual';
+    const seta = v > 0 ? '▲ +' : v < 0 ? '▼ ' : '';
+    return `<div class="stat-delta ${sinal}">${v === 0 ? 'igual' : seta + txt}</div>`;
+  };
+  // todayISO() e não a constante "hoje": ela só é declarada mais abaixo nesta
+  // função, e ler antes da declaração derruba a tela inteira.
+  const diasDaUltima = lastDates.length
+    ? Math.max(0, daysBetween(lastDates[lastDates.length - 1], todayISO())) : null;
   $('bov-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${n}</div><div class="stat-label">Animais</div></div>
-    <div class="stat-card"><div class="stat-value">${avg != null ? fmtN(avg, 2) : '—'}</div><div class="stat-label">GMD médio</div></div>
-    <div class="stat-card"><div class="stat-value">${lastDates.length ? fmtBR(lastDates[lastDates.length - 1]) : '—'}</div><div class="stat-label">Últ. pesagem</div></div>
-    <div class="stat-card"><div class="stat-value">${avgWeight != null ? fmtN(avgWeight, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
-    <div class="stat-card"><div class="stat-value">${avgArroba != null ? fmtN(avgArroba, 1) + ' @' : '—'}</div><div class="stat-label">Média em @</div></div>
-    <div class="stat-card"><div class="stat-value">${totalArroba != null ? fmtN(totalArroba, 0) + ' @' : '—'}</div><div class="stat-label">Total do rebanho</div></div>`;
+    <div class="stat-card"><div class="stat-value">${avg != null ? fmtN(avg, 2) : '—'}</div><div class="stat-label">GMD médio</div>${
+      avg != null ? `<div class="stat-delta nota">${FAIXA_GMD(avg)}${
+        gmdAntes != null ? ' · antes ' + fmtN(gmdAntes, 2) : ''}</div>` : ''}</div>
+    <div class="stat-card"><div class="stat-value">${lastDates.length ? fmtBR(lastDates[lastDates.length - 1]) : '—'}</div><div class="stat-label">Últ. pesagem</div>${
+      Number.isFinite(diasDaUltima) ? `<div class="stat-delta nota">${
+        diasDaUltima === 0 ? 'hoje' : 'há ' + diasDaUltima + ' dia' + (diasDaUltima > 1 ? 's' : '')}</div>` : ''}</div>
+    <div class="stat-card"><div class="stat-value">${avgWeight != null ? fmtN(avgWeight, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div>${
+      cmp ? delta(cmp.kgMedio, fmtN(Math.abs(cmp.kgMedio), 0) + ' kg') : ''}</div>
+    <div class="stat-card"><div class="stat-value">${avgArroba != null ? fmtN(avgArroba, 1) + ' @' : '—'}</div><div class="stat-label">Média em @</div>${
+      cmp ? delta(cmp.kgMedio, fmtN(Math.abs(arrobaOf(cmp.kgMedio)), 1) + ' @') : ''}</div>
+    <div class="stat-card"><div class="stat-value">${totalArroba != null ? fmtN(totalArroba, 0) + ' @' : '—'}</div><div class="stat-label">Total do rebanho</div>${
+      cmp ? delta(cmp.kgTotal, fmtN(Math.abs(arrobaOf(cmp.kgTotal)), 0) + ' @') : ''}</div>`;
   // Número que saiu de uma média tem de ser contado em voz alta. Duas coisas
   // encolhem esses cartões em silêncio, e as duas mudam decisão de venda:
   //
@@ -1526,6 +1603,21 @@ function renderRebanho() {
   //    saía do bloco do GMD do rebanho.
   const semPeso = [...weightById.values()].filter(v => !Number.isFinite(v)).length;
   const ressalvas = [];
+  // De onde saiu a comparação. Sem esta linha, "▲ +31 kg" é um número que
+  // ninguém pode conferir — e número que não se confere não se usa para
+  // decidir. Aqui está a data, quantos animais entraram e quanto o lote ganhou.
+  if (cmp) {
+    // As duas médias vão escritas com uma casa: sem isso, 236,5 e 298,7
+    // apareceriam como 236 e 299, a diferença daria 63, e o cartão mostraria
+    // 62 — quem conferisse acharia erro onde há só arredondamento.
+    ressalvas.push(`Comparado com a pesagem de ${fmtBR(cmp.de)}, entre os ${cmp.n} `
+      + `${cmp.n > 1 ? 'animais que subiram' : 'animal que subiu'} na balança nas duas: `
+      + `de ${fmtN(cmp.pesoAntes, 1)} kg para ${fmtN(cmp.pesoAgora, 1)} kg por cabeça, `
+      + `${fmtN(cmp.kgTotal, 0)} kg (${fmtN(arrobaOf(cmp.kgTotal), 0)} @) no lote `
+      + `em ${cmp.dias} dias.`
+      + (cmp.fora ? ` ${cmp.fora} ${cmp.fora > 1 ? 'ficaram' : 'ficou'} de fora da comparação `
+        + '— jejum numa pesagem e cheio na outra.' : ''));
+  }
   if (semPeso) ressalvas.push(`${semPeso} ${semPeso > 1 ? 'animais' : 'animal'} sem pesagem `
     + `${semPeso > 1 ? 'não entram' : 'não entra'} no peso médio nem no total do rebanho.`);
   if (gmdsMistos) ressalvas.push(`GMD médio: ${gmdsMistos} ${gmdsMistos > 1 ? 'animais ficaram' : 'animal ficou'} `
