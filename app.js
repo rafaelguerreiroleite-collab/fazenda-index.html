@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 109;
+const VERSAO = 110;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2439,6 +2439,23 @@ function renderStockDetail() {
 // período continua contando tudo, e o que está em aberto ganha bloco próprio:
 // misturar as duas coisas num número só esconderia uma das duas.
 const AVISO_DIAS = 7;
+// VENCER HOJE NÃO É "EM BREVE".
+//
+// O boleto vence no fim do dia: pagar hoje ainda dá, pagar amanhã é multa. Um
+// aviso que diz "vence em breve" para uma conta de HOJE manda esperar — e o
+// atraso passa a ser culpa do aplicativo, não do esquecimento.
+//
+// Os quatro resumos da tela (o aviso do topo, o "A pagar" de cada livro, o da
+// fazenda inteira e o "A receber") olhavam só o que já tinha vencido. Hoje era
+// futuro para os quatro. Agora os dois números saem de um lugar só, para que
+// eles não voltem a divergir.
+const urgenciaDe = (lista, dias) => {
+  const ds = lista.map(dias);
+  const vencidas = ds.filter(d => d < 0).length;
+  const hoje = ds.filter(d => d === 0).length;
+  return { vencidas, hoje, alerta: vencidas > 0 || hoje > 0 };
+};
+const dizHoje = n => n ? ` · ${n} vence${n > 1 ? 'm' : ''} hoje` : '';
 // Divide o valor em N parcelas sem perder nem inventar centavo: o que sobra da
 // divisão vai para as primeiras, que vencem antes. Somadas, devolvem o total
 // exato — se sobrasse um centavo, a conta a pagar nunca fecharia com a compra.
@@ -2561,11 +2578,13 @@ function renderAReceber(book, el) {
   el.style.display = '';
   const soma = c => c.reduce((s, t) => s + t.amount, 0);
   const atrasadas = contas.filter(t => t.dias < 0);
+  const uR = urgenciaDe(contas, t => t.dias);
   el.innerHTML = dobravel('areceber-' + book,
     cabecaDobra('A receber', fmtRS(soma(contas)),
       `${contas.length} recebimento(s)`
-        + (atrasadas.length ? ` · ${atrasadas.length} atrasado(s) · ${fmtRS(soma(atrasadas))}` : ''),
-      atrasadas.length > 0),
+        + (atrasadas.length ? ` · ${atrasadas.length} atrasado(s) · ${fmtRS(soma(atrasadas))}` : '')
+        + dizHoje(uR.hoje),
+      uR.alerta),
     contas.map(t => {
       const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
       const quando = t.dias < 0 ? `atrasado ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
@@ -2588,6 +2607,7 @@ function renderAPagar(book) {
   el.style.display = '';
   const soma = c => c.reduce((s, t) => s + t.amount, 0);
   const vencidas = contas.filter(t => t.dias < 0);
+  const uP = urgenciaDe(contas, t => t.dias);
   const total = soma(contas);
   // Este era o bloco que mais empurrava a lista para baixo: 618 px em Bovinos e
   // 908 px na Fazenda. O que a pessoa precisa saber de relance — quanto deve e
@@ -2595,8 +2615,9 @@ function renderAPagar(book) {
   el.innerHTML = dobravel('apagar-' + book,
     cabecaDobra('A pagar', fmtRS(total),
       `${contas.length} conta(s)`
-        + (vencidas.length ? ` · ${vencidas.length} vencida(s) · ${fmtRS(soma(vencidas))}` : ''),
-      vencidas.length > 0),
+        + (vencidas.length ? ` · ${vencidas.length} vencida(s) · ${fmtRS(soma(vencidas))}` : '')
+        + dizHoje(uP.hoje),
+      uP.alerta),
     `${contas.map(t => {
       const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
       const quando = t.dias < 0 ? `venceu há ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`
@@ -2620,12 +2641,19 @@ function renderLembrete() {
     .filter(x => x.t.dias <= AVISO_DIAS)
     .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
   if (!todas.length || LS.g('fjs-lembrete-visto', '') === todayISO()) { el.hidden = true; return; }
-  const vencidas = todas.filter(x => x.t.dias < 0);
+  const u = urgenciaDe(todas, x => x.t.dias);
   const soma = todas.reduce((s, x) => s + x.t.amount, 0);
   const p = todas[0].t;
-  el.className = 'lembrete' + (vencidas.length ? ' urgente' : '');
+  el.className = 'lembrete' + (u.alerta ? ' urgente' : '');
+  // A manchete diz o que é mais urgente, e não esconde o resto: havendo
+  // vencida E vencendo hoje, as duas aparecem.
+  const plural = (n, s1, s2) => `${n} conta${n > 1 ? 's' : ''} ${n > 1 ? s2 : s1}`;
+  const titulo = u.vencidas
+    ? plural(u.vencidas, 'vencida', 'vencidas') + dizHoje(u.hoje)
+    : u.hoje ? plural(u.hoje, 'vence hoje', 'vencem hoje')
+    : 'Vence em breve';
   el.innerHTML = `<div class="lb-texto">
-      <b>${vencidas.length ? `${vencidas.length} conta${vencidas.length > 1 ? 's' : ''} vencida${vencidas.length > 1 ? 's' : ''}` : 'Vence em breve'}</b>
+      <b>${titulo}</b>
       <span class="mono">${todas.length > 1 ? `${todas.length} contas · ${fmtRS(soma)}` : `${esc(p.category || 'Conta')} · ${fmtRS(p.amount)} · ${fmtBR(p.venc)}`}</span>
     </div>
     <button type="button" class="lb-ver" id="lb-ver">Ver</button>
@@ -2957,12 +2985,14 @@ function renderFazenda() {
   else {
     elAp.style.display = '';
     const vencidas = contas.filter(x => x.t.dias < 0);
+    const uF = urgenciaDe(contas, x => x.t.dias);
     elAp.innerHTML = dobravel('apagar-fz',
       cabecaDobra('A pagar · fazenda inteira',
         fmtRS(contas.reduce((s, x) => s + x.t.amount, 0)),
         `${contas.length} conta(s)`
-          + (vencidas.length ? ` · ${vencidas.length} vencida(s) · ${fmtRS(vencidas.reduce((s, x) => s + x.t.amount, 0))}` : ''),
-        vencidas.length > 0),
+          + (vencidas.length ? ` · ${vencidas.length} vencida(s) · ${fmtRS(vencidas.reduce((s, x) => s + x.t.amount, 0))}` : '')
+          + dizHoje(uF.hoje),
+        uF.alerta),
       `${contas.map(({ t, livro, book }) => {
         const estado = t.dias < 0 ? 'venceu' : t.dias === 0 ? 'hoje' : t.dias <= AVISO_DIAS ? 'perto' : '';
         const quando = t.dias < 0 ? `venceu há ${-t.dias} dia${-t.dias > 1 ? 's' : ''}`

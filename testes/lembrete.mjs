@@ -157,6 +157,73 @@ export default async function () {
   t.conferir('a conta continua em aberto — dispensar não é pagar',
     dispensou.continuaDevendo === 1, String(dispensou.continuaDevendo));
 
+  // ---------- "em breve" não serve para o que vence HOJE ----------
+  // Relato do dono, com a tela na mão: o aviso dizia "Vence em breve" e a
+  // conta vencia naquele dia. O boleto vence no fim do dia — pagar hoje ainda
+  // dá, pagar amanhã é multa. Um aviso que manda esperar transforma o atraso
+  // em culpa do aplicativo. E o ponto cego era o mesmo nos QUATRO resumos da
+  // tela: hoje era tratado como futuro em todos eles.
+  t.secao('conta que vence hoje é dita como hoje, nos quatro resumos');
+  const comoDiz = async contas => pagina.evaluate(lista => {
+    LS.s('fjs-lembrete-visto', '');
+    bovT = lista.map((c, i) => ({ id: 'h' + i, date: '2026-01-01', type: 'saida',
+      amount: c.v, category: c.cat, venc: somarDias(todayISO(), c.d), pago: false }));
+    avT = []; gerT = []; recomputarLivros();
+    tab = 'fazenda'; $('fz-period').value = 'all'; render();
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
+    const cabFz = (document.querySelector('#fz-apagar .dobra-cab') || {}).innerText || '';
+    tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
+    const cabBov = (document.querySelector('#bfin-apagar .dobra-cab') || {}).innerText || '';
+    const alertaBov = !!document.querySelector('#bfin-apagar .dc-alerta');
+    return {
+      aviso: $('lembrete').hidden ? '' : $('lembrete').innerText.replace(/\s+/g, ' '),
+      urgente: /urgente/.test($('lembrete').className),
+      fz: cabFz.replace(/\s+/g, ' '), bov: cabBov.replace(/\s+/g, ' '), alertaBov
+    };
+  }, contas);
+
+  const hoje1 = await comoDiz([{ v: 1000, cat: 'Ração', d: 0 }]);
+  t.conferir('uma conta de hoje: o aviso diz "1 conta vence hoje"',
+    /1 conta vence hoje/.test(hoje1.aviso) && !/em breve/.test(hoje1.aviso), hoje1.aviso);
+  t.conferir('e o aviso fica em estado de urgência, como o de conta vencida',
+    hoje1.urgente, hoje1.aviso);
+  t.conferir('o bloco "A pagar" dos bovinos também diz que vence hoje',
+    /1 vence hoje/.test(hoje1.bov), hoje1.bov);
+  t.conferir('e o cabeçalho dele acende o alerta', hoje1.alertaBov, hoje1.bov);
+  t.conferir('o bloco da fazenda inteira diz o mesmo',
+    /1 vence hoje/.test(hoje1.fz), hoje1.fz);
+
+  const hoje2 = await comoDiz([{ v: 1000, cat: 'Ração', d: 0 }, { v: 2000, cat: 'Sal', d: 0 }]);
+  t.conferir('duas de hoje: o plural concorda — "2 contas vencem hoje"',
+    /2 contas vencem hoje/.test(hoje2.aviso), hoje2.aviso);
+
+  const mistura = await comoDiz([{ v: 900, cat: 'Vet', d: -3 }, { v: 1000, cat: 'Ração', d: 0 }]);
+  t.conferir('vencida e de hoje juntas: o aviso mostra as duas, sem esconder nenhuma',
+    /1 conta vencida/.test(mistura.aviso) && /1 vence hoje/.test(mistura.aviso), mistura.aviso);
+
+  const futuras = await comoDiz([{ v: 1000, cat: 'Ração', d: 3 }, { v: 700, cat: 'Luz', d: 6 }]);
+  t.conferir('só com contas futuras, aí sim é "Vence em breve"',
+    /Vence em breve/.test(futuras.aviso), futuras.aviso);
+  t.conferir('e nada de urgência: nenhuma delas é para hoje',
+    !futuras.urgente, futuras.aviso);
+  t.conferir('nem o bloco fala de hoje', !/hoje/.test(futuras.bov), futuras.bov);
+
+  // o recebimento de hoje também tem de aparecer
+  const receber = await pagina.evaluate(() => {
+    bovT = [{ id: 'r1', date: '2026-01-01', type: 'entrada', amount: 5000,
+      category: 'Venda de gado', venc: todayISO(), pago: false }];
+    avT = []; gerT = []; recomputarLivros();
+    tab = 'bovinos'; seg = 'financeiro'; $('bfin-period').value = 'all'; render();
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
+    const cab = (document.querySelector('#bfin-areceber .dobra-cab') || {}).innerText || '';
+    return { cab: cab.replace(/\s+/g, ' '),
+      alerta: !!document.querySelector('#bfin-areceber .dc-alerta') };
+  });
+  t.conferir('recebimento que vence hoje também é dito, e não fica para depois',
+    /1 vence hoje/.test(receber.cab), receber.cab);
+  t.conferir('com o alerta aceso no cabeçalho', receber.alerta, receber.cab);
+
   t.conferir('nenhum erro de JavaScript em todo o percurso',
     errosJS.length === 0, errosJS.join(' | '));
 
