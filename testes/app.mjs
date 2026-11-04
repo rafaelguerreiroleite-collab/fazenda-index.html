@@ -198,11 +198,18 @@ export default async function () {
   });
   t.conferir('pesado mais recentemente primeiro, nunca pesado por último',
     await ordem('data-desc') === '9,292,300,295', await ordem('data-desc'));
-  t.conferir('sem pesar há mais tempo primeiro, nunca pesado por último',
-    await ordem('data-asc') === '300,9,292,295', await ordem('data-asc'));
+  // Esta conferência cobrava o CONTRÁRIO do que o nome da ordem promete, e
+  // passou assim por muitas publicações: ela foi escrita olhando o que o código
+  // fazia, não o que o dono precisa. "Sem pesar há mais tempo" é a ordem com
+  // que se procura quem ficou no pasto — e quem NUNCA subiu na balança é o caso
+  // extremo dela, não o último da fila. A conferência da rodada de pesagem já
+  // o põe na frente desde o começo; as duas telas tinham de dizer a mesma coisa.
+  t.conferir('sem pesar há mais tempo: quem NUNCA foi pesado vem na frente',
+    await ordem('data-asc') === '295,300,9,292', await ordem('data-asc'));
+  await ordem('data-desc');
   const quando = await pagina.evaluate(() => [...document.querySelectorAll('#animal-list .item-quando')].map(e => e.textContent));
   t.conferir('cada linha mostra a data da última pesagem',
-    quando[0] === 'última 18/06/26' && quando.includes('nunca pesado'), quando.join(' | '));
+    quando[0] === 'última 13/08/26' && quando[quando.length - 1] === 'nunca pesado', quando.join(' | '));
 
   // ---------- financeiro ----------
   t.secao('financeiro');

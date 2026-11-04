@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 110;
+const VERSAO = 111;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -57,7 +57,14 @@ const todayISO = () => { const d = new Date(); const p = n => String(n).padStart
 // valor que não fosse lista passava pelo "|| []" (porque qualquer coisa
 // diferente de nulo é verdadeira) e estourava no .map logo adiante — derrubando
 // a exportação do financeiro inteira por causa de um registro torto.
-const anexosDe = t => Array.isArray(t && t.anexos) ? t.anexos : [];
+// E não basta a LISTA ser lista: cada elemento também tem de ser um registro
+// com id. Um nulo no meio derrubava anexosDeTudo() — "Cannot read properties of
+// null (reading 'id')" —, e com ele o BACKUP COMPLETO e a RESTAURAÇÃO, que são
+// justamente as duas operações que existem para proteger os dados. Anexo sem id
+// não tem como ser buscado na nuvem: ele não é nota, é sujeira no registro.
+const anexosDe = t => Array.isArray(t && t.anexos)
+  ? t.anexos.filter(a => a && typeof a === 'object' && typeof a.id === 'string' && a.id)
+  : [];
 const soData = v => {
   const txt = typeof v === 'string' ? v : (v == null ? '' : String(v));
   return /^\d{4}-\d{2}-\d{2}/.test(txt) ? txt.slice(0, 10) : '';
@@ -74,6 +81,23 @@ const fmtRS = n => 'R$ ' + fmtN(n, 2);
 const fmtRSgrande = n => Number.isFinite(n) ? 'R$ ' + fmtN(n, 0) : '—';
 const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 86400000);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Comparar brinco é a ordem padrão de TODAS as listas de animal, e era feita
+// direto em a.ident.localeCompare(b.ident). Um animal sem brinco — registro
+// estragado, importação com a coluna vazia, backup de outra origem — derrubava
+// o localeCompare, e com ele o render INTEIRO: a aba do rebanho parava de
+// desenhar, e a tela de "manter só quem foi pesado" parava de mostrar quem sai
+// ANTES de apagar. Medido: "Cannot read properties of undefined (reading
+// 'localeCompare')" com um único registro assim no meio do rebanho.
+// Um registro ruim não pode calar a tela. Ele vai para o fim da lista e
+// aparece como "sem brinco", que é o jeito de alguém poder consertá-lo.
+const brincoDe = a => a && typeof a.ident === 'string' ? a.ident : '';
+const cmpBrinco = (a, b) => {
+  const x = brincoDe(a), y = brincoDe(b);
+  if (!x && !y) return 0;
+  if (!x) return 1;
+  if (!y) return -1;
+  return x.localeCompare(y, 'pt-BR', { numeric: true });
+};
 const clean = o => JSON.parse(JSON.stringify(o));
 // Lê número digitado em português: aceita vírgula decimal e ponto de milhar.
 // Campos type="number" descartavam a vírgula em silêncio ("4,50" virava 450).
@@ -564,10 +588,24 @@ function aplicarAtividades(lista) {
     .map(a => ({ id: a.id, nome: a.nome }));
   const antes = atividades.map(a => a.id + '|' + a.nome).join(',');
   const depois = limpa.map(a => a.id + '|' + a.nome).join(',');
-  if (antes === depois) return false;
   const idsAntes = atividades.map(a => a.id).sort().join(',');
   atividades = limpa;
+  // recomputarLivros SEMPRE, e não só quando a lista mudou.
+  //
+  // Quem chama esta função zera extraT logo antes — a restauração de backup e a
+  // leitura da cópia local fazem isso de propósito, para que lançamento de
+  // atividade apagada não fique para trás —, e era recomputarLivros quem
+  // recriava a entrada de cada atividade dentro de extraT.
+  //
+  // Restaurando um backup da PRÓPRIA fazenda, a lista de atividades vem igual:
+  // a função devolvia false antes desta linha e extraT ficava VAZIO. Aí
+  // ehExtra passava a responder "não" para toda atividade, os lançamentos dela
+  // eram descartados na hora de reaplicar, a cópia local era gravada sem eles —
+  // e arrLivro, sem reconhecer o livro, caía em bovT: a aba da atividade
+  // passava a mostrar o dinheiro de BOVINOS. Medido, no caso de restauração
+  // mais comum que existe.
   recomputarLivros();
+  if (antes === depois) return false;
   return idsAntes !== limpa.map(a => a.id).sort().join(',');
 }
 
@@ -1841,7 +1879,7 @@ function renderRebanho() {
       <div class="stat-card est"><div class="stat-value">${fmtN(arrobaOf(totalEst), 0)} @</div><div class="stat-label">Total hoje (est.)</div></div>
       <div class="stat-card est"><div class="stat-value ${ganho < 0 ? 'neg' : ''}">${ganho >= 0 ? '+' : ''}${fmtN(ganho, 1)} @</div><div class="stat-label">Ganho em ${diasDesde} dias</div></div>`;
   } else $('bov-stats-est').innerHTML = '';
-  const byIdent = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true });
+  const byIdent = cmpBrinco;
   // A busca filtra a LISTA, e não os cartões: eles respondem "como está o
   // rebanho", que é um fato da fazenda e não muda porque alguém digitou um
   // brinco. Mudá-los faria o total de animais oscilar a cada letra.
@@ -1875,18 +1913,31 @@ function renderRebanho() {
       const ua = wOf(a.id), ub = wOf(b.id);
       const da = ua.length ? ua[ua.length - 1].date : null, dbb = ub.length ? ub[ub.length - 1].date : null;
       if (da == null && dbb == null) return byIdent(a, b);
-      if (da == null) return 1; // nunca pesado vai para o fim
-      if (dbb == null) return -1;
+      // "Sem pesar há mais tempo" é a ordem com que se procura quem ficou no
+      // pasto — e quem NUNCA subiu na balança é o caso extremo dela. Ele ia
+      // para o FIM da lista, atrás de todo mundo que pelo menos já foi pesado
+      // uma vez: justo o animal que ninguém está acompanhando, escondido na
+      // ordem feita para encontrá-lo. A conferência da rodada já o põe na
+      // frente; agora a lista diz a mesma coisa.
+      if (da == null) return bovSort === 'data-asc' ? -1 : 1;
+      if (dbb == null) return bovSort === 'data-asc' ? 1 : -1;
       if (da === dbb) return byIdent(a, b);
       return bovSort === 'data-desc' ? dbb.localeCompare(da) : da.localeCompare(dbb);
     }
+    // Registro sem brinco vai para o FIM nas DUAS direções: ele não é o
+    // primeiro brinco nem o último, é um registro para consertar. Invertendo a
+    // comparação inteira, como a ordem decrescente faz, ele subia para o topo
+    // da lista — o primeiro animal que o dono veria ao abrir a aba seria o
+    // registro quebrado. Medido, e corrigido aqui, fora da inversão.
+    const sa = brincoDe(a), sb = brincoDe(b);
+    if (!sa || !sb) return !sa && !sb ? 0 : (!sa ? 1 : -1);
     return bovSort === 'ident-desc' ? byIdent(b, a) : byIdent(a, b);
   });
   $('animal-list').innerHTML = sorted.map(a => {
     const ws = wOf(a.id); const last = ws[ws.length - 1]; const gi = gmdInfo(ws);
     return `<div class="list-item" data-animal="${a.id}">
       <div class="item-main">
-        <div class="item-title">${esc(a.ident)}</div>
+        <div class="item-title">${brincoDe(a) ? esc(a.ident) : '<span class="sem-identificacao">sem brinco</span>'}</div>
         <div class="item-subtitle">${esc(catERaca(a))} · ${ws.length} pesag.${a.manejoData ? ' · manejo ' + fmtBR(a.manejoData) : ''}</div>
         ${(() => { const c = carenciaDoAnimal(a); return c && c.bloqueado
           ? `<div class="car-tarja mono">⚠ carência até ${fmtBR(c.liberadoEm)} · faltam ${c.faltam} dia${c.faltam > 1 ? 's' : ''}</div>` : ''; })()}
@@ -2380,13 +2431,22 @@ function renderChart(ws) {
 function renderEstoque() {
   const termoEst = buscaDe('est-busca');
   const naBuscaEst = items.filter(it => casaItem(it, termoEst));
-  const sorted = [...naBuscaEst].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  // Mesma história do brinco do animal: a comparação era it.name.localeCompare
+  // direto, e um item sem nome — registro estragado, backup de outra origem —
+  // parava a aba do Estoque inteira. Sem nome vai para o fim e aparece escrito,
+  // para alguém poder consertá-lo.
+  const nomeItem = it => it && typeof it.name === 'string' ? it.name : '';
+  const sorted = [...naBuscaEst].sort((a, b) => {
+    const x = nomeItem(a), y = nomeItem(b);
+    if (!x || !y) return !x && !y ? 0 : (!x ? 1 : -1);
+    return x.localeCompare(y, 'pt-BR');
+  });
   $('stock-list').innerHTML = sorted.map(it => {
     const q = qtyOf(it.id); const ac = avgCostOf(it.id);
     const low = Number.isFinite(it.minQty) && it.minQty > 0 && q <= it.minQty;
     return `<div class="list-item" data-item="${it.id}">
       <div class="item-main">
-        <div class="item-title">${esc(it.name)}</div>
+        <div class="item-title">${nomeItem(it) ? esc(it.name) : '<span class="sem-identificacao">sem nome</span>'}</div>
         <div class="item-subtitle">${ac != null ? 'custo médio ' + fmtRS(ac) + '/' + esc(it.unit) : 'sem custo registrado'}${Number.isFinite(it.carencia) && it.carencia > 0 ? ' · carência ' + fmtN(it.carencia, 0) + 'd' : ''}</div>
       </div>
       <div class="item-side">
@@ -2564,7 +2624,9 @@ const comDias = (lista, filtro) => {
   const hoje = todayISO();
   return lista.filter(filtro)
     .map(t => Object.assign({}, t, { dias: daysBetween(hoje, t.venc) }))
-    .sort((a, b) => a.venc.localeCompare(b.venc));
+    // String() porque o vencimento manda na ordem de toda lista de conta em
+    // aberto: um venc que não é texto derrubava a tela em vez de uma linha.
+    .sort((a, b) => String(a.venc).localeCompare(String(b.venc)));
 };
 function contasAPagar(lista) { return comDias(lista, emAberto); }
 function contasAReceber(lista) { return comDias(lista, aReceber); }
@@ -2639,7 +2701,7 @@ function renderLembrete() {
   if (!el) return;
   const todas = LIVROS.flatMap(b => contasAPagar(arrLivro(b)).map(t => ({ t, livro: b })))
     .filter(x => x.t.dias <= AVISO_DIAS)
-    .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
+    .sort((a, b) => String(a.t.venc).localeCompare(String(b.t.venc)));
   if (!todas.length || LS.g('fjs-lembrete-visto', '') === todayISO()) { el.hidden = true; return; }
   const u = urgenciaDe(todas, x => x.t.dias);
   const soma = todas.reduce((s, x) => s + x.t.amount, 0);
@@ -2856,11 +2918,11 @@ function resumoFazenda(period, regime, termo, livros) {
   });
   const contas = noEscopo.flatMap(b => contasAPagar(arrLivro(b))
     .map(t => ({ t, livro: NOME_LIVRO[b], book: b })))
-    .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
+    .sort((a, b) => String(a.t.venc).localeCompare(String(b.t.venc)));
   // A fazenda recebe de um bolso só, igual ao que paga.
   const recebimentos = noEscopo.flatMap(b => contasAReceber(arrLivro(b))
     .map(t => ({ t, livro: NOME_LIVRO[b], book: b })))
-    .sort((a, b) => a.t.venc.localeCompare(b.t.venc));
+    .sort((a, b) => String(a.t.venc).localeCompare(String(b.t.venc)));
   const categorias = Object.entries(tudo.reduce((acc, x) => {
     const k = x.t.type + '|' + (x.t.category || 'Sem categoria');
     acc[k] = (acc[k] || 0) + x.t.amount;
@@ -3764,7 +3826,9 @@ function preencherMedicamentos() {
   if (!dl) return;
   const doEstoque = items.slice()
     .sort((x, y) => (Number.isFinite(y.carencia) ? 1 : 0) - (Number.isFinite(x.carencia) ? 1 : 0)
-      || x.name.localeCompare(y.name, 'pt-BR'));
+      // String() porque esta lista abre o formulário de manejo: um item sem
+      // nome no estoque não pode impedir o registro da vacina.
+      || String(x.name || '').localeCompare(String(y.name || ''), 'pt-BR'));
   const vistos = new Set();
   const linhas = [];
   doEstoque.forEach(it => {
@@ -5019,7 +5083,7 @@ function atualizarPreviaPesagem() {
 // que abre por cima atrapalha quem está com o gado na balança e ainda arrisca
 // gravar no animal errado por um toque sem querer. Quem confere o brinco é a
 // prévia abaixo, que mostra o peso anterior assim que o número está completo.
-const porBrinco = (a, b) => a.ident.localeCompare(b.ident, 'pt-BR', { numeric: true });
+const porBrinco = cmpBrinco;
 ['wm-ident', 'wm-peso'].forEach(id => $(id).addEventListener('input', atualizarPreviaPesagem));
 
 // ===== Teclado do curral =====
@@ -5929,7 +5993,7 @@ function eventoICS(c, livro, seq, carimbo, hoje) {
 // justamente o que não pode ser esquecido.
 function contasParaAgenda() {
   return LIVROS.flatMap(b => contasAPagar(arrLivro(b)).map(c => ({ c, livro: NOME_LIVRO[b] })))
-    .sort((a, b) => a.c.venc.localeCompare(b.c.venc));
+    .sort((a, b) => String(a.c.venc).localeCompare(String(b.c.venc)));
 }
 // Conta paga tem de PARAR de tocar no iPhone. Sem isto, o lembrete exportado
 // em setembro acorda ele no vencimento de uma conta que ele já quitou — e duas
@@ -6169,7 +6233,7 @@ function agendarMudanca(tocadas, book, removidos) {
   const contas = abertas
     .map(t => ({ c: Object.assign({}, t, { dias: daysBetween(hoje, t.venc) }),
                  livro: NOME_LIVRO[book] || 'Fazenda' }))
-    .sort((a, b) => a.c.venc.localeCompare(b.c.venc));
+    .sort((a, b) => String(a.c.venc).localeCompare(String(b.c.venc)));
   const texto = agendaICS(contas, { parcial: true, cancelar });
   const partes = [];
   if (contas.length) partes.push(`${contas.length} conta(s) a prazo`);
@@ -6353,7 +6417,9 @@ $('menu-backup').addEventListener('click', async () => {
   // backup na mão e sem conseguir entrar. O arquivo já continha a fazenda
   // inteira, então ele sempre foi tão secreto quanto o código — e agora
   // também serve para voltar.
-  const data = { app: 'fazendajs', v: 9, exportedAt: new Date().toISOString(), farm,
+  // A versão do formato sai do mesmo lugar que a restauração confere: duas
+  // constantes separadas acabariam divergindo, e a que manda é a de quem lê.
+  const data = { app: 'fazendajs', v: BACKUP_V, exportedAt: new Date().toISOString(), farm,
     animals, weighings, bovT, avT, gerT, items, moves, rebmov, atividades, extraT,
     anexos, settings, custo: custoParams };
   const corpo = JSON.stringify(data, null, 1);
@@ -6369,50 +6435,171 @@ $('menu-backup').addEventListener('click', async () => {
   } else toast(`Backup baixado · ${tam}${anexos.length ? ` · ${anexos.length} nota(s)` : ''} · guarda o código da fazenda`);
 });
 $('menu-restore').addEventListener('click', () => $('restore-input').click());
+// ===== Restaurar backup: a ÚNICA operação que pode apagar a fazenda =====
+//
+// Três defeitos moravam aqui, todos medidos, todos com o mesmo final — a nuvem
+// vazia e a tela dizendo "restaurado".
+//
+// 1. APAGAVA ANTES DE CONFERIR O ARQUIVO. O backup era aceito por UM campo
+//    ("app": "fazendajs") e nada mais. Um arquivo com `animals` vindo como
+//    objeto em vez de lista, ou com um registro nulo no meio, passava: o lote
+//    de apagamentos subia, a montagem dos registros novos quebrava na linha
+//    seguinte, e a tela dizia "Restaurado no aparelho; a nuvem recebe quando a
+//    internet voltar". A nuvem ficava VAZIA. E o snapshot seguinte do servidor
+//    — vazio, e não vindo do cache — limpava o aparelho também. Fazenda
+//    inteira, em todos os aparelhos, com mensagem de sucesso na tela.
+//
+// 2. APAGAMENTO QUE FALHAVA VIRAVA FILA DE APAGAMENTO. Se o lote de
+//    apagamentos caísse no meio — sinal, regra da nuvem, um lote entre vários —
+//    batchWrite põe tudo na fila de envio e devolve o erro. Medido: catorze
+//    apagamentos na fila, nenhum registro novo, e "Restaurado no aparelho" na
+//    tela. Quando a internet voltasse, a fila cumpriria o que ficou devendo.
+//
+// 3. GRAVAVA O NOVO DEPOIS DE APAGAR O VELHO. Entre os dois lotes existia um
+//    instante em que a fazenda não estava em lugar nenhum além do arquivo na
+//    mão do dono.
+//
+// Agora, nesta ordem: confere o arquivo INTEIRO, mostra os dois lados antes de
+// pedir confirmação, GRAVA O NOVO primeiro e só então apaga — e apaga apenas o
+// que o backup não traz. O pior caso virou fazenda com registro velho
+// sobrando: visível, conferível e resolvido repetindo a restauração. Fazenda
+// vazia deixou de ser um resultado possível.
+const BACKUP_V = 9;
+// Id que a nuvem não aceita não dá erro de arquivo: dá erro NO MEIO da
+// gravação, com parte da fazenda já no ar e parte não. Por isso a conferência é
+// feita toda antes, sobre o arquivo inteiro, e nenhum registro é tocado até ela
+// passar.
+const idDeBackup = x => x && typeof x === 'object' && !Array.isArray(x)
+  && typeof x.id === 'string' && x.id.trim() !== '' && x.id === x.id.trim()
+  && x.id.length <= 1000 && x.id.indexOf('/') < 0 && x.id !== '.' && x.id !== '..';
+const LISTAS_BACKUP = ['animals', 'weighings', 'bovT', 'avT', 'gerT', 'items',
+  'moves', 'rebmov', 'atividades', 'anexos'];
+function conferirBackup(d) {
+  const ruim = m => ({ erro: m });
+  if (!d || typeof d !== 'object' || Array.isArray(d) || d.app !== 'fazendajs')
+    return ruim('Este arquivo não é um backup do Fazenda JS.');
+  // Backup feito por versão MAIS NOVA do que este aparelho sabe ler: restaurar
+  // apagaria o que esta versão não entende, e sem jeito de voltar.
+  if (d.v != null && (!Number.isFinite(d.v) || d.v > BACKUP_V))
+    return ruim(`Este backup foi feito por uma versão mais nova do aplicativo (backup ${d.v}, este aparelho lê até ${BACKUP_V}).\n\n`
+      + 'Feche e abra o aplicativo para atualizar, e tente de novo. Restaurar assim apagaria o que esta versão não sabe ler.');
+  for (const k of LISTAS_BACKUP)
+    if (d[k] != null && !Array.isArray(d[k]))
+      return ruim(`O arquivo está estragado: "${k}" deveria ser uma lista.`);
+  for (const k of ['extraT', 'settings', 'custo'])
+    if (d[k] != null && (typeof d[k] !== 'object' || Array.isArray(d[k])))
+      return ruim(`O arquivo está estragado: "${k}" não veio como devia.`);
+  // Atividade sem id ou sem nome é descartada no caminho — e os lançamentos
+  // dela iriam junto, em silêncio. Recusar o arquivo é melhor do que restaurar
+  // uma fazenda com um livro a menos sem ninguém avisar.
+  const ats = d.atividades || [];
+  for (let i = 0; i < ats.length; i++) {
+    if (!idDeBackup(ats[i]) || typeof ats[i].nome !== 'string' || !ats[i].nome.trim())
+      return ruim(`O arquivo está estragado: a atividade ${i + 1} de ${ats.length} está sem nome ou sem identificação.`);
+    if (LIVROS_FIXOS.indexOf(ats[i].id) >= 0)
+      return ruim(`O arquivo está estragado: a atividade "${ats[i].nome}" usa a identificação de um livro fixo ("${ats[i].id}").`);
+  }
+  const grupos = [
+    ['Animais', d.animals], ['Pesagens', d.weighings],
+    ['Lançamentos de Bovinos', d.bovT], ['Lançamentos de Aviários', d.avT],
+    ['Lançamentos de Geral', d.gerT], ['Itens do estoque', d.items],
+    ['Movimentos do estoque', d.moves], ['Movimentos do rebanho', d.rebmov],
+    ['Notas fiscais', d.anexos], ['Atividades', ats]
+  ];
+  ats.forEach(a => grupos.push(['Lançamentos de ' + a.nome, (d.extraT || {})[a.id]]));
+  for (const [rot, lista] of grupos) {
+    if (lista == null) continue;
+    if (!Array.isArray(lista)) return ruim(`O arquivo está estragado.\n\n${rot}: não veio como lista.`);
+    const vistos = new Set();
+    for (let i = 0; i < lista.length; i++) {
+      if (!idDeBackup(lista[i]))
+        return ruim(`O arquivo está estragado.\n\n${rot}: o registro ${i + 1} de ${lista.length} está sem identificação válida.`);
+      // Id repetido não dá erro em lugar nenhum: a gravação é POR ID, e o
+      // segundo registro sobrescreve o primeiro na nuvem. Um dos dois sumiria
+      // sem rastro, sem aviso e sem nada na tela que denunciasse.
+      if (vistos.has(lista[i].id))
+        return ruim(`O arquivo está estragado.\n\n${rot}: a identificação "${lista[i].id}" aparece duas vezes. Restaurar assim perderia um dos dois registros.`);
+      vistos.add(lista[i].id);
+    }
+  }
+  // Lançamento de atividade que não está na lista de atividades não tem dono:
+  // ninguém o lê, ninguém o mostra. Não impede a restauração, mas o dono tem de
+  // saber, antes de confirmar, que ele fica de fora.
+  const semDono = Object.keys(d.extraT || {})
+    .filter(id => !ats.some(a => a.id === id))
+    .reduce((s, id) => s + (Array.isArray(d.extraT[id]) ? d.extraT[id].length : 0), 0);
+  return { ok: true,
+    animais: (d.animals || []).length,
+    pesagens: (d.weighings || []).length,
+    lanc: (d.bovT || []).length + (d.avT || []).length + (d.gerT || []).length
+      + ats.reduce((s, a) => s + (((d.extraT || {})[a.id]) || []).length, 0),
+    notas: (d.anexos || []).filter(x => x.dados).length,
+    semDono };
+}
+// Substituição irreversível não se autoriza no escuro. A pergunta mostra os
+// DOIS lados — o que entra e o que sai — e avisa quando o backup é de outra
+// fazenda, que é o jeito mais fácil de apagar a fazenda certa com os dados da
+// errada.
+function textoRestaurar(d, c) {
+  const agora = { animais: animals.length, pesagens: weighings.length,
+    lanc: LIVROS.reduce((s, b) => s + arrLivro(b).length, 0),
+    notas: anexosDeTudo().length };
+  const linha = x => `${x.animais} animais · ${x.pesagens} pesagens · ${x.lanc} lançamentos`
+    + (x.notas ? ` · ${x.notas} nota(s)` : '');
+  let t = 'Substituir TODOS os dados da fazenda (em todos os aparelhos) pelo backup?\n\n';
+  if (d.farm && farm && d.farm !== farm)
+    t += `⚠️ ATENÇÃO: este backup é da fazenda "${d.farm}" e você está na fazenda "${farm}".\n\n`;
+  t += `O BACKUP${d.exportedAt ? ' (de ' + fmtBRfull(d.exportedAt) + ')' : ''} tem:\n  ${linha(c)}\n\n`
+    + `ESTE APARELHO tem agora:\n  ${linha(agora)}\n\n`;
+  if (c.semDono) t += `${c.semDono} lançamento(s) de atividade que o backup não tem ficam de fora.\n\n`;
+  return t + 'O que está agora é substituído.';
+}
 $('restore-input').addEventListener('change', e => {
   const f = e.target.files[0]; if (!f) return;
   const reader = new FileReader();
   reader.onload = async () => {
     let d = null;
+    try { d = JSON.parse(String(reader.result)); } catch (err) {
+      alert('⚠️ Backup NÃO restaurado\n\nO arquivo não pôde ser lido — pode ter sido baixado pela metade, ou aberto e salvo por outro programa.\n\nNada foi apagado.');
+      return;
+    }
+    const c = conferirBackup(d);
+    if (c.erro) { alert('⚠️ Backup NÃO restaurado\n\n' + c.erro + '\n\nNada foi apagado.'); return; }
+    if (!confirm(textoRestaurar(d, c))) return;
     try {
-      d = JSON.parse(String(reader.result));
-      if (d.app !== 'fazendajs') { toast('Arquivo não é um backup do Fazenda JS'); return; }
-      if (!confirm('Substituir TODOS os dados da fazenda (em todos os aparelhos) pelo backup?')) return;
       toast('Restaurando…');
-      const delOps = [
-        ...animals.map(x => ({ col: 'animals', del: x.id })),
-        ...weighings.map(x => ({ col: 'weighings', del: x.id })),
-        ...bovT.map(x => ({ col: 'bovtrans', del: x.id })),
-        ...avT.map(x => ({ col: 'avtrans', del: x.id })),
-        ...gerT.map(x => ({ col: 'gertrans', del: x.id })),
-        // Os lançamentos das atividades criadas saem também: sem isto, a
-        // fazenda restaurada ficaria com o financeiro antigo delas por baixo.
-        ...atividades.flatMap(a => arrLivro(a.id).map(x => ({ col: colLivro(a.id), del: x.id }))),
-        // As notas do que está sendo substituído saem junto: senão ficariam na
-        // nuvem para sempre, sem lançamento que as alcance.
-        ...anexosDeTudo().map(id => ({ col: 'anexos', del: id })),
-        ...items.map(x => ({ col: 'items', del: x.id })),
-        ...moves.map(x => ({ col: 'moves', del: x.id })),
-        ...rebmov.map(x => ({ col: 'rebmov', del: x.id }))
+      // O que o backup TRAZ, por coleção.
+      const novos = [
+        ['animals', d.animals || []], ['weighings', d.weighings || []],
+        ['bovtrans', d.bovT || []], ['avtrans', d.avT || []], ['gertrans', d.gerT || []],
+        ['items', d.items || []], ['moves', d.moves || []], ['rebmov', d.rebmov || []],
+        // Nota sem o arquivo dentro não é nota: o backup feito sem sinal já
+        // avisa quais ficaram de fora, e gravar a carcaça vazia aqui só criaria
+        // lançamento anunciando nota que não abre.
+        ['anexos', (d.anexos || []).filter(x => x.dados)]
       ];
-      await batchWrite(delOps);
-      const addOps = [
-        ...(d.animals || []).map(x => ({ col: 'animals', obj: x })),
-        ...(d.weighings || []).map(x => ({ col: 'weighings', obj: x })),
-        ...(d.bovT || []).map(x => ({ col: 'bovtrans', obj: x })),
-        ...(d.avT || []).map(x => ({ col: 'avtrans', obj: x })),
-        ...(d.gerT || []).map(x => ({ col: 'gertrans', obj: x })),
-        ...(d.atividades || []).flatMap(a => ((d.extraT || {})[a.id] || [])
-          .map(x => ({ col: 'at_' + a.id, obj: x }))),
-        ...(d.items || []).map(x => ({ col: 'items', obj: x })),
-        ...(d.moves || []).map(x => ({ col: 'moves', obj: x })),
-        ...(d.rebmov || []).map(x => ({ col: 'rebmov', obj: x })),
-        // As notas fiscais do backup voltam para a coleção delas. Sem isto, os
-        // lançamentos restaurados anunciariam notas que não existem mais.
-        ...(d.anexos || []).filter(x => x && x.id && x.dados).map(x => ({ col: 'anexos', obj: x }))
+      (d.atividades || []).forEach(a => novos.push(['at_' + a.id, ((d.extraT || {})[a.id]) || []]));
+      const addOps = novos.flatMap(([col, lista]) => lista.map(x => ({ col, obj: x })));
+      // O que está AQUI agora, lido antes de qualquer troca — inclusive os
+      // lançamentos das atividades que o backup não tem mais.
+      const aqui = [
+        ['animals', animals.map(x => x.id)], ['weighings', weighings.map(x => x.id)],
+        ['bovtrans', bovT.map(x => x.id)], ['avtrans', avT.map(x => x.id)],
+        ['gertrans', gerT.map(x => x.id)], ['items', items.map(x => x.id)],
+        ['moves', moves.map(x => x.id)], ['rebmov', rebmov.map(x => x.id)],
+        ['anexos', anexosDeTudo()]
       ];
+      atividades.forEach(a => aqui.push([colLivro(a.id), arrLivro(a.id).map(x => x.id)]));
+      // Apaga só o que o backup NÃO traz. Antes, o mesmo id era apagado e
+      // regravado: se o apagamento subia e a regravação não, o registro sumia
+      // das duas pontas — e ele existia nos dois arquivos.
+      const traz = new Map(novos.map(([col, lista]) => [col, new Set(lista.map(x => x.id))]));
+      const delOps = aqui.flatMap(([col, ids]) => ids
+        .filter(id => !(traz.get(col) || new Set()).has(id))
+        .map(id => ({ col, del: id })));
+
       // Já disponíveis nesta sessão, sem precisar buscar na nuvem de novo
-      (d.anexos || []).forEach(x => { if (x && x.id && x.dados) anexoCache.set(x.id, x.dados); });
+      (d.anexos || []).forEach(x => { if (x.dados) anexoCache.set(x.id, x.dados); });
       // A tela tem de mostrar o backup JÁ. Antes isto dependia da nuvem
       // responder: sem internet a restauração parecia não ter feito nada, e o
       // aparelho seguia com os dados velhos enquanto a fila carregava os novos.
@@ -6422,32 +6609,58 @@ $('restore-input').addEventListener('change', e => {
       // A lista de atividades entra antes dos lançamentos delas, pelo mesmo
       // motivo do espelho: sem dono, extraT não é lido por ninguém.
       extraT = {};
-      aplicarAtividades(d.atividades);
+      const mudouAtividade = aplicarAtividades(d.atividades);
       Object.keys(d.extraT || {}).forEach(id => { if (ehExtra(id)) extraT[id] = d.extraT[id] || []; });
       if (d.settings && Number.isFinite(d.settings.yield)) settings.yield = d.settings.yield;
       if (d.custo) custoParams = Object.assign({}, CUSTO_VAZIO, d.custo);
       detailAnimal = null; detailItem = null; closeAllM();
       salvarEspelho(true); render();
+      // Atividade que só existe no backup precisa de escuta própria. Sem isto,
+      // o lançamento que outro aparelho fizesse nela nunca chegava neste — e o
+      // defeito só sumia quando alguém fechava e abria o aplicativo.
+      if (mudouAtividade && db && farm) subscribe();
 
-      await batchWrite(addOps);
-      const farmDoc = {};
+      // 1) GRAVA O NOVO. Até este lote terminar, nada é apagado: falhar aqui
+      //    deixa a fazenda com os dois conjuntos, nunca sem nenhum.
+      let nuvem = 'ok';
+      try { await batchWrite(addOps); } catch (err) { nuvem = 'gravacao'; }
+      // 2) E SÓ ENTÃO apaga o que o backup não traz. Se a gravação não
+      //    confirmou, não se apaga NADA: o registro antigo é a única cópia que
+      //    sobrou na nuvem.
+      if (nuvem === 'ok' && delOps.length) {
+        try { await batchWrite(delOps); } catch (err) { nuvem = 'limpeza'; }
+      }
+      const farmDoc = { atividades };
       if (d.settings && Number.isFinite(d.settings.yield)) farmDoc.yield = d.settings.yield;
       if (d.custo) farmDoc.custo = Object.assign({}, CUSTO_VAZIO, d.custo);
-      farmDoc.atividades = atividades;
       // salvarFazenda em vez da nuvem direta: sem internet os ajustes entram na
       // fila em vez de derrubar a restauração inteira num "arquivo inválido".
-      if (Object.keys(farmDoc).length) salvarFazenda(farmDoc);
-      toast(db ? 'Backup restaurado' : 'Backup restaurado no aparelho — sobe quando a internet voltar');
+      salvarFazenda(farmDoc);
       // O backup troca TODOS os lançamentos, com ids próprios: as contas que
       // estavam no calendário antes não existem mais. Cancelar o que não é
       // mais conta em aberto evita o pior caso — avisos de uma fazenda que
       // este aparelho não tem mais, sem nenhum jeito de descobrir de onde vêm.
       const aindaAberto = new Set(LIVROS.flatMap(b2 => arrLivro(b2)).filter(emAberto).map(x => x.id));
       agendarMudanca([], 'bov', Object.keys(enviadosICS()).filter(x => !aindaAberto.has(x)));
+      // Cada final tem a sua mensagem, e nenhuma delas diz "restaurado" quando
+      // não está: a mensagem errada aqui é o que transformava um tropeço de
+      // rede em fazenda apagada sem ninguém perceber.
+      if (nuvem === 'ok') {
+        toast(db ? 'Backup restaurado' : 'Backup restaurado no aparelho — sobe quando a internet voltar');
+      } else if (nuvem === 'gravacao') {
+        alert('⚠️ Backup restaurado NESTE APARELHO — a nuvem ainda não confirmou\n\n'
+          + 'Os registros do backup estão na fila de envio (o ponto ao lado do título) e sobem quando a internet voltar.\n\n'
+          + 'NADA foi apagado: os registros antigos continuam na nuvem e podem reaparecer na lista quando ela responder.\n\n'
+          + 'Guarde o arquivo do backup e repita a restauração com internet para terminar.');
+      } else {
+        alert('⚠️ Backup restaurado — faltou tirar o que era antigo\n\n'
+          + 'Todos os dados do backup estão gravados. Os registros antigos que o backup não tem ficaram na fila e saem quando a internet voltar.\n\n'
+          + 'Se algum registro velho aparecer na lista, repita a restauração com internet.');
+      }
     } catch (err) {
-      // Separar as duas causas: arquivo estragado é problema do arquivo, falha
-      // de rede não é — e a segunda já ficou guardada na fila.
-      toast(d ? 'Restaurado no aparelho; a nuvem recebe quando a internet voltar' : 'Arquivo de backup inválido');
+      // Não se sabe onde parou: dizer qualquer coisa além disso seria inventar.
+      alert('⚠️ A restauração parou no meio\n\n' + (err && err.message ? err.message + '\n\n' : '')
+        + 'Feche e abra o aplicativo para ver como a fazenda ficou, guarde o arquivo do backup e tente de novo.');
     }
   };
   reader.readAsText(f, 'utf-8');

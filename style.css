@@ -105,6 +105,10 @@ main { padding: 1rem 1.25rem 0; max-width: 30rem; margin: 0 auto; }
 .list-item:active { border-color: #225437; background: #f5f5f4; }
 .item-main { flex: 1; min-width: 0; }
 .item-title { font-weight: 600; font-size: 1rem; }
+/* Registro sem o campo que o identifica: animal sem brinco, item sem nome.
+   Antes a linha saía em branco — ninguém acha na tela o que não tem nome. Em
+   vermelho porque é registro para consertar, não categoria de coisa nenhuma. */
+.sem-identificacao { color: #b91c1c; font-style: italic; font-weight: 500; }
 .item-subtitle { font-size: 0.72rem; color: #78716c; margin-top: 0.15rem; font-family: 'DM Mono', monospace; }
 .item-side { text-align: right; margin-left: 0.5rem; }
 .item-side .value { font-weight: 700; font-size: 1.05rem; }
