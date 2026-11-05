@@ -6,6 +6,16 @@ import { servir, abrirApp, placar, perto } from './apoio.mjs';
 const DIAS_MES = 365 / 12;
 
 // Implementação de referência — independente da do aplicativo de propósito.
+//
+// LIÇÃO ESCRITA AQUI DEPOIS DE ELA CUSTAR CARO: segunda implementação só pega
+// erro de DIGITAÇÃO. Ela foi escrita lendo o código, então concordava com o
+// código também naquilo em que ele estava errado de regra — e passou 5.000
+// cenários por publicação nenhuma acusando que, sem os dois pesos, a arroba do
+// dia saía por um rendimento e era comparada com um preço medido por outro.
+// Quem achou isso foi a conferência de AMARRAÇÃO, em testes/custos.mjs: a
+// arroba que o custo precifica tem de ser a mesma que o preço precifica, e a
+// base que a tela declara tem de reproduzir o número que ela mostra.
+// As duas baterias ficam: esta pega typo, aquela pega regra errada.
 function referencia(P) {
   const num = x => typeof x === 'number' && isFinite(x);
   const rendOk = v => num(v) && v > 0 && v <= 100;
@@ -26,7 +36,9 @@ function referencia(P) {
   const engordaValida = num(pc) && pc > 0 && num(pv) && pv > pc && num(g) && g > 0;
   let arrobaDia = null;
   if (num(g) && g > 0) {
-    arrobaDia = engordaValida ? (arroba(pv, rV) - arroba(pc, rC)) / ((pv - pc) / g) : g * rend / 1500;
+    // Sem os dois pesos, pelo rendimento da VENDA: é a arroba que vai ser
+    // vendida, e é com o preço dela que este custo é comparado na tela.
+    arrobaDia = engordaValida ? (arroba(pv, rV) - arroba(pc, rC)) / ((pv - pc) / g) : g * rV / 1500;
   }
   const R = {
     rend, rendCompra: rC, rendVenda: rV, salPct: pct, pesoMedio, salKgDia, salDia, sanDia, moDia,
@@ -49,6 +61,10 @@ function referencia(P) {
     valorKgCompra: temCompra ? P.valorCompra / pc : null,
     valorKgVenda: receita !== null ? receita / pv : null,
     retornoMensal: margem !== null && meses > 0 ? margem / meses : null,
+    // Composto só de um mês para cima: abaixo disso é extrapolação, e a tela
+    // não mostra.
+    retornoMensalComposto: margem !== null && meses >= 1 && 1 + margem / 100 > 0
+      ? (Math.pow(1 + margem / 100, 1 / meses) - 1) * 100 : null,
     lucroMensal: resultado !== null && meses > 0 ? resultado / meses : null,
     precoArrobaCompra: temCompra && aC > 0 ? P.valorCompra / aC : null,
     custoArrobaProduzida: aP > 0 ? custoPeriodo / aP : null,
@@ -62,7 +78,8 @@ const CAMPOS_CUSTO = ['rend', 'rendCompra', 'rendVenda', 'salPct', 'pesoMedio', 
   'sanDia', 'moDia', 'terraDia', 'custoDia', 'arrobaDia', 'custoArroba'];
 const CAMPOS_SIM = ['ganhoKg', 'dias', 'meses', 'custoPeriodo', 'arrobasCompra', 'arrobasVenda',
   'arrobasProduzidas', 'rendCompra', 'rendVenda', 'investido', 'receita', 'resultado', 'margem',
-  'valorKgCompra', 'valorKgVenda', 'retornoMensal', 'lucroMensal', 'precoArrobaCompra',
+  'valorKgCompra', 'valorKgVenda', 'retornoMensal', 'retornoMensalComposto',
+  'lucroMensal', 'precoArrobaCompra',
   'custoArrobaProduzida', 'lucroArrobaProduzida', 'lucroArrobaVendida'];
 
 const N = Number(process.env.CENARIOS || 5000);

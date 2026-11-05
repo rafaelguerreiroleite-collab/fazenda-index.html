@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 111;
+const VERSAO = 112;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -2143,19 +2143,59 @@ function calcCusto() {
   // direto pelo GMD e pelo rendimento geral.
   const { rendCompra, rendVenda } = rendimentosDe(p, rend);
   let arrobaDia = null;
+  let usouDuasPontas = false;
   if (Number.isFinite(p.gmd) && p.gmd > 0) {
     const pc = p.pesoCompra, pv = p.pesoVenda;
     if (Number.isFinite(pc) && pc > 0 && Number.isFinite(pv) && pv > pc) {
       arrobaDia = (arrobasDe(pv, rendVenda) - arrobasDe(pc, rendCompra)) / ((pv - pc) / p.gmd);
+      usouDuasPontas = true;
     } else {
-      arrobaDia = (p.gmd * rend / 100) / 15;
+      // Sem os dois pesos, a arroba ganha sai do GMD — e sai pelo rendimento da
+      // VENDA, não pelo rendimento geral dos parâmetros.
+      //
+      // Porque a arroba produzida é a arroba que vai ser VENDIDA, e é com o
+      // preço da arroba vendida que este custo é subtraído na linha da margem
+      // logo abaixo. Com 52% nos parâmetros e 60% na venda, medido: o custo
+      // saía R$ 55,79 contra um preço medido a 60%, quando na mesma régua ele
+      // é R$ 48,35 — R$ 7,44 por arroba de margem que não existia. É a mesma
+      // mistura de réguas de antes, que tinha sobrado só neste caminho.
+      //
+      // Deixando as duas pontas em branco, rendVenda É o rendimento geral:
+      // para quem não preenche os dois campos, nada muda.
+      arrobaDia = (p.gmd * rendVenda / 100) / 15;
     }
   }
+  // Custo informado PELA METADE é pior do que custo não informado: não entra na
+  // conta e não aparece na composição, então nada na tela denuncia a falta.
+  // Medido: consumo de sal preenchido e preço do sal em branco deixava o custo
+  // da arroba em R$ 55,79 onde o número cheio é R$ 216,14 — QUATRO VEZES menos,
+  // com o sal valendo 74% do custo do dia e sumindo em silêncio.
+  const faltaSalPreco = salKgDia != null && salKgDia > 0 && !Number.isFinite(p.salPreco);
   return {
     rend, rendCompra, rendVenda, salPct, pesoMedio, salKgDia, salDia, sanDia, moDia, terraDia,
-    custoDia, arrobaDia,
+    custoDia, arrobaDia, usouDuasPontas, faltaSalPreco,
     custoArroba: arrobaDia > 0 && custoDia > 0 ? custoDia / arrobaDia : null
   };
+}
+// A BASE do número, numa frase só, para a tela e o relatório dizerem a mesma
+// coisa. Declarar base errada é pior do que não declarar nada: quem confere na
+// calculadora erra junto, e confia no resultado. A tela dizia "52% na compra e
+// 60% na venda" em cima de uma conta que havia usado 52% e ponto.
+function baseDoRendimento(c) {
+  if (c.usouDuasPontas && c.rendCompra !== c.rendVenda)
+    return `rendimento ${fmtN(c.rendCompra, 1)}% na compra e ${fmtN(c.rendVenda, 1)}% na venda`;
+  return `rendimento ${fmtN(c.usouDuasPontas ? c.rendCompra : c.rendVenda, 1)}%`;
+}
+// Reparte porcentagens inteiras que somam EXATAMENTE o total: arredonda para
+// baixo e devolve o que sobrou a quem mais perdeu no arredondamento. Três
+// pedaços iguais davam 33% + 33% + 33% = 99% ao lado de um total que é 100% —
+// medido, e é o tipo de número que faz o dono desconfiar da tela inteira.
+function inteirosQueSomam(valores, total) {
+  const base = valores.map(v => Math.floor(v));
+  let resto = Math.round(total - base.reduce((a, b) => a + b, 0));
+  const ordem = valores.map((v, i) => ({ i, r: v - Math.floor(v) })).sort((a, b) => b.r - a.r);
+  for (let k = 0; k < ordem.length && resto > 0; k++, resto--) base[ordem[k].i]++;
+  return base;
 }
 
 // Simulação da operação: compra o animal, engorda até o peso alvo pagando o
@@ -2189,8 +2229,19 @@ function calcSimulacao(c) {
     rendCompra, rendVenda, investido, receita, resultado, margem,
     valorKgCompra: temCompra && pc > 0 ? p.valorCompra / pc : null,
     valorKgVenda: receita != null && pv > 0 ? receita / pv : null,
-    // Retorno ao mês: o retorno do período dividido pelos meses da operação
+    // Retorno ao mês: o retorno do período dividido pelos meses da operação.
+    // É JURO SIMPLES, e por isso sai mais alto do que o retorno equivalente de
+    // uma aplicação — 19,7% em 10,1 meses dá 1,96% por divisão e 1,80% ao mês
+    // compondo. Os dois ficam na tela: este, que é o da boiada, e o composto,
+    // que é o que se compara com aplicação financeira. Dizer só "1,96% ao mês"
+    // é oferecer um número de pecuária para uma decisão de banco.
     retornoMensal: margem != null && meses > 0 ? margem / meses : null,
+    // Só a partir de um mês. Compor uma operação mais curta do que um mês é
+    // extrapolação, não medida: medido, um "engorde" de 1,4 dia com −72% no
+    // período vira −100% ao mês composto — um número que não diz nada sobre
+    // nada, e que a conta de volta nem reproduz, por perda de precisão.
+    retornoMensalComposto: margem != null && meses >= 1 && 1 + margem / 100 > 0
+      ? (Math.pow(1 + margem / 100, 1 / meses) - 1) * 100 : null,
     lucroMensal: resultado != null && meses > 0 ? resultado / meses : null,
     precoArrobaCompra: temCompra && arrobasCompra > 0 ? p.valorCompra / arrobasCompra : null,
     custoArrobaProduzida: arrobasProduzidas > 0 ? custoPeriodo / arrobasProduzidas : null,
@@ -2209,12 +2260,21 @@ function renderSimulacao(c) {
       ? 'Informe o GMD nos parâmetros acima'
       : 'Informe peso de compra e peso de venda (maior que o de compra)';
     $('sim-stats').innerHTML = '';
+    // A nota sai JUNTO com os cartões. Esquecê-la aqui deixava na tela a frase
+    // de uma simulação que não existe mais — número velho é pior que número
+    // nenhum, porque quem lê não tem como saber que está velho.
+    if ($('sim-nota')) { $('sim-nota').hidden = true; $('sim-nota').textContent = ''; }
     return;
   }
   if (s.resultado != null) {
     el.textContent = fmtRS(s.resultado);
     el.classList.add(s.resultado >= 0 ? 'positive' : 'negative');
-    hint.textContent = `${s.resultado >= 0 ? 'Compensa' : 'Não compensa'} · ${fmtN(s.margem, 1)}% no período · ${fmtN(s.retornoMensal, 2)}% ao mês · ${fmtN(s.dias, 0)} dias`;
+    // Sem investimento não há percentual de retorno, e a frase saía com
+    // "—% no período · —% ao mês" no meio dela. Travessão dentro de frase não
+    // é informação: é defeito com cara de dado.
+    hint.textContent = `${s.resultado >= 0 ? 'Compensa' : 'Não compensa'}`
+      + (s.margem != null ? ` · ${fmtN(s.margem, 1)}% no período · ${fmtN(s.retornoMensal, 2)}% ao mês` : '')
+      + ` · ${fmtN(s.dias, 0)} dias`;
   } else {
     el.textContent = '—';
     hint.textContent = 'Informe o valor pago e o preço da arroba na venda';
@@ -2227,24 +2287,49 @@ function renderSimulacao(c) {
     <div class="stat-card"><div class="stat-value">${s.valorKgCompra != null ? fmtRS(s.valorKgCompra) : '—'}</div><div class="stat-label">Kg na compra</div></div>
     <div class="stat-card"><div class="stat-value">${s.valorKgVenda != null ? fmtRS(s.valorKgVenda) : '—'}</div><div class="stat-label">Kg na venda</div></div>
     <div class="stat-card"><div class="stat-value">${s.precoArrobaCompra != null ? fmtRS(s.precoArrobaCompra) : '—'}</div><div class="stat-label">@ paga na compra</div></div>
-    <div class="stat-card"><div class="stat-value">${s.custoArrobaProduzida != null ? fmtRS(s.custoArrobaProduzida) : '—'}</div><div class="stat-label">@ produzida custa</div></div>
+    <div class="stat-card"><div class="stat-value">${s.custoPeriodo > 0 && s.custoArrobaProduzida != null ? fmtRS(s.custoArrobaProduzida) : '—'}</div><div class="stat-label">@ produzida custa</div></div>
     <div class="stat-card"><div class="stat-value ${s.lucroArrobaProduzida < 0 ? 'neg' : ''}">${s.lucroArrobaProduzida != null ? fmtRS(s.lucroArrobaProduzida) : '—'}</div><div class="stat-label">Lucro por @ produzida</div></div>
     <div class="stat-card"><div class="stat-value ${s.lucroArrobaVendida < 0 ? 'neg' : ''}">${s.lucroArrobaVendida != null ? fmtRS(s.lucroArrobaVendida) : '—'}</div><div class="stat-label">Lucro por @ vendida</div></div>
     <div class="stat-card"><div class="stat-value ${s.retornoMensal < 0 ? 'neg' : ''}">${s.retornoMensal != null ? fmtN(s.retornoMensal, 2) + '%' : '—'}</div><div class="stat-label">Retorno ao mês</div></div>
     <div class="stat-card"><div class="stat-value ${s.lucroMensal < 0 ? 'neg' : ''}">${s.lucroMensal != null ? fmtRS(s.lucroMensal) : '—'}</div><div class="stat-label">Lucro por mês</div></div>`;
+  // "Retorno ao mês" é divisão simples, e por isso sai mais alto do que o
+  // retorno que se compara com aplicação financeira. O número fica — é o da
+  // pecuária —, mas a tela passa a dizer de onde ele vem e qual é o composto,
+  // porque é com esse que se decide entre engordar o boi e deixar o dinheiro
+  // aplicado.
+  const nota = $('sim-nota');
+  if (nota) {
+    const temRet = s.retornoMensal != null && s.retornoMensalComposto != null;
+    nota.hidden = !temRet;
+    nota.textContent = !temRet ? ''
+      : `"Retorno ao mês" é juros simples: ${fmtN(s.margem, 1)}% ÷ ${fmtN(s.meses, 1)} meses.`
+        + ` Compondo, o mesmo ganho dá ${fmtN(s.retornoMensalComposto, 2)}% ao mês —`
+        + ` é esse que se compara com aplicação financeira.`;
+  }
 }
 
 function renderCustos() {
   const c = calcCusto();
   $('cst-arroba').textContent = c.custoArroba != null ? fmtRS(c.custoArroba) : '—';
-  const rendTxt = c.rendCompra === c.rendVenda
-    ? `rendimento ${fmtN(c.rendCompra, 1)}%`
-    : `rendimento ${fmtN(c.rendCompra, 1)}% na compra e ${fmtN(c.rendVenda, 1)}% na venda`;
   $('cst-hint').textContent = c.custoArroba != null
-    ? `por @ produzida · ${rendTxt}`
+    ? `por @ produzida · ${baseDoRendimento(c)}`
     : (c.arrobaDia == null ? 'Informe o GMD para calcular'
       : c.arrobaDia <= 0 ? 'O rendimento da compra está alto demais em relação ao da venda'
       : 'Informe ao menos um custo');
+  // O aviso do custo pela metade fica COLADO no número grande, e não escondido
+  // numa nota: o sal costuma ser o maior custo do dia, e sem o preço dele o
+  // número grande sai várias vezes menor sem nada na tela denunciando.
+  // Só avisa quando há conta sendo mostrada: sem nenhum custo informado, a
+  // dica acima já pede para informar algum, e dois avisos dizendo a mesma
+  // coisa ensinam a ignorar os dois.
+  const avisaSal = c.faltaSalPreco && c.custoDia > 0;
+  const elF = $('cst-falta');
+  if (elF) {
+    elF.hidden = !avisaSal;
+    elF.textContent = !avisaSal ? ''
+      : `⚠ O sal NÃO está neste custo: falta o preço do sal (R$ por kg). `
+        + `O consumo já está calculado — ${fmtN(c.salKgDia, 3)} kg por dia.`;
+  }
 
   // O custo da arroba sozinho é meia conta. Ao lado dele, o que ela REALMENTE
   // rendeu nas vendas já feitas — e a diferença, que é a pergunta que decide
@@ -2283,11 +2368,16 @@ function renderCustos() {
         + 'nem frete, comissão e impostos da venda.</span>');
   }
 
+  // Custo zero é uma AFIRMAÇÃO, e sem nenhum custo informado ninguém pode
+  // afirmar isso. Estes dois cartões diziam "R$ 0,00" ao lado de um número
+  // grande que dizia "—" e de uma dica pedindo para informar algum custo:
+  // três lugares da mesma tela contando histórias diferentes.
+  const temCusto = c.custoDia > 0;
   $('cst-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${c.pesoMedio != null ? fmtN(c.pesoMedio, 0) + ' kg' : '—'}</div><div class="stat-label">Peso médio</div></div>
     <div class="stat-card"><div class="stat-value">${c.salKgDia != null ? fmtN(c.salKgDia, 3) + ' kg' : '—'}</div><div class="stat-label">Sal por dia</div></div>
-    <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia)}</div><div class="stat-label">Custo por dia</div></div>
-    <div class="stat-card"><div class="stat-value">${fmtRS(c.custoDia * DIAS_MES)}</div><div class="stat-label">Custo por mês</div></div>
+    <div class="stat-card"><div class="stat-value">${temCusto ? fmtRS(c.custoDia) : '—'}</div><div class="stat-label">Custo por dia</div></div>
+    <div class="stat-card"><div class="stat-value">${temCusto ? fmtRS(c.custoDia * DIAS_MES) : '—'}</div><div class="stat-label">Custo por mês</div></div>
     <div class="stat-card"><div class="stat-value">${c.arrobaDia > 0 ? fmtN(c.arrobaDia * DIAS_MES, 2) + ' @' : '—'}</div><div class="stat-label">Ganho por mês</div></div>
     <div class="stat-card"><div class="stat-value">${c.arrobaDia > 0 ? fmtN(1 / c.arrobaDia, 0) : '—'}</div><div class="stat-label">Dias por @</div></div>`;
 
@@ -2307,9 +2397,12 @@ function renderCustos() {
   bd.style.display = partes.length ? '' : 'none';
   if (partes.length) {
     const maxV = partes[0].v;
-    bd.innerHTML = '<div class="cb-header">Composição do custo diário</div>' + partes.map(x => `
+    // As porcentagens somam 100 por construção: arredondada uma por uma, a
+    // composição mostrava 33% + 33% + 33% ao lado de um custo que é o todo.
+    const pcts = inteirosQueSomam(partes.map(x => x.v / c.custoDia * 100), 100);
+    bd.innerHTML = '<div class="cb-header">Composição do custo diário</div>' + partes.map((x, i) => `
       <div class="cb-row">
-        <div class="cb-line"><span>${x.nome}</span><span class="value">${fmtRS(x.v)} · ${fmtN(x.v / c.custoDia * 100, 0)}%</span></div>
+        <div class="cb-line"><span>${x.nome}</span><span class="value">${fmtRS(x.v)} · ${pcts[i]}%</span></div>
         <div class="cb-bar"><div class="cb-fill saida" style="width:${Math.max(4, x.v / maxV * 100)}%"></div></div>
       </div>`).join('');
   }
@@ -5830,8 +5923,10 @@ function exportRelatorio(qual) {
       info('Custo da arroba', 'Custo por arroba produzida', fmtN(c.custoArroba, 2), '');
       info('Custo da arroba', 'Custo por dia por animal', fmtN(c.custoDia, 2),
         `sal ${fmtN(c.salDia, 2)} · sanidade ${fmtN(c.sanDia, 2)} · mão de obra ${fmtN(c.moDia, 2)} · terra ${fmtN(c.terraDia, 2)}`);
+      // A base vem da mesma função da tela: o relatório declarava sempre o
+      // rendimento dos parâmetros, mesmo quando a conta usou o das pontas.
       info('Custo da arroba', 'Arrobas ganhas por dia', fmtN(c.arrobaDia, 4),
-        `GMD ${custoParams.gmd != null ? fmtN(custoParams.gmd, 3) : '—'} kg/dia · rendimento ${fmtN(c.rend, 0)}%`);
+        `GMD ${custoParams.gmd != null ? fmtN(custoParams.gmd, 3) : '—'} kg/dia · ${baseDoRendimento(c)}`);
     }
   } else {
     // Dizer que não entra é diferente de omitir: omitido, parece que faltou.

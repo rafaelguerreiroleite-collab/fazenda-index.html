@@ -692,6 +692,11 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 
 /* O que a arroba rendeu, ao lado do que ela custa: a diferença é a conta que
    decide, e ela precisa de cor para ser lida de relance. */
+/* Custo informado pela metade. Fica dentro do cartão escuro do número grande,
+   e por isso é amarelo de aviso e não vermelho de erro: o número não está
+   errado, está incompleto — e quem lê precisa saber disso antes de decidir. */
+.cr-falta { margin-top: 0.5rem; font-size: 0.72rem; color: #fde047; line-height: 1.5;
+  background: rgba(0, 0, 0, 0.22); border-radius: 0.4rem; padding: 0.4rem 0.55rem; }
 .cr-venda { margin-top: 0.5rem; font-size: 0.72rem; color: #d6e4da; line-height: 1.5; }
 .cr-venda .mg-ok { color: #86efac; }
 .cr-venda .mg-ruim { color: #fca5a5; }
@@ -1019,3 +1024,7 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
 /* O que a margem NÃO inclui, colado nela: lido como lucro, esse número leva a
    decisão errada. */
 .mg-nota { display: block; font-size: 0.62rem; color: #78716c; margin-top: 0.3rem; line-height: 1.4; }
+/* De onde vem o "Retorno ao mês" dos cartões da simulação. Fora do cartão
+   escuro, então na cor das notas de rodapé das outras telas. */
+.sim-nota { font-size: 0.64rem; color: #78716c; line-height: 1.45;
+  margin: 0.45rem 0 0; padding: 0 0.15rem; }
