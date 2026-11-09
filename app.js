@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 114;
+const VERSAO = 115;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1358,11 +1358,67 @@ const movesOf = iid => moves.filter(m => m.itemId === iid).sort((a, b) => a.date
 // porque NaN contamina toda soma que encosta nele.
 const qtyOf = iid => moves.filter(m => m.itemId === iid)
   .reduce((s, m) => Number.isFinite(m.qty) ? s + (m.type === 'entrada' ? m.qty : -m.qty) : s, 0);
+// CUSTO MÉDIO DO QUE ESTÁ EM ESTOQUE — média MÓVEL, e não a média de tudo o
+// que já se comprou na vida.
+//
+// Era a média ponderada de TODAS as entradas de sempre, inclusive as de lotes
+// consumidos há muito tempo, e as saídas não entravam na conta. Com 100 kg
+// comprados a R$ 2 — já gastos — e 10 kg a R$ 8, que são os que estão no
+// galpão, ela dizia R$ 2,55. O relatório multiplica o saldo por ela e avaliava
+// em R$ 25 um estoque que custou R$ 80: três vezes menos, no número que vira
+// custo de produção.
+//
+// A média móvel é a regra de inventário de sempre: a entrada mistura o preço
+// novo com o saldo que já existia, e a saída sai pelo preço médio do momento
+// SEM mexer na média. Assim "saldo × custo médio" volta a ser o que o estoque
+// que está lá dentro custou.
+//
+// Entrada sem preço informado entra pela média do momento: ela não tem preço
+// próprio para misturar, e tratá-la como zero baixaria a média de quem tem.
+// Item que nunca teve preço nenhum segue devolvendo nada — custo que ninguém
+// informou não se inventa.
 function avgCostOf(iid) {
-  const ins = moves.filter(m => m.itemId === iid && m.type === 'entrada' && Number.isFinite(m.unitCost) && m.unitCost > 0);
-  const q = ins.reduce((s, m) => s + m.qty, 0);
-  if (!q) return null;
-  return ins.reduce((s, m) => s + m.qty * m.unitCost, 0) / q;
+  const lista = moves.filter(m => m.itemId === iid && Number.isFinite(m.qty))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date))
+      || String(a.id).localeCompare(String(b.id)));
+  let qtd = 0, valor = 0, viuPreco = false;
+  for (const m of lista) {
+    if (m.type === 'entrada') {
+      const temPreco = Number.isFinite(m.unitCost) && m.unitCost > 0;
+      if (temPreco) { viuPreco = true; qtd += m.qty; valor += m.qty * m.unitCost; continue; }
+      // Entrada SEM preço: custo desconhecido. Entra pela média do momento, que
+      // é a melhor hipótese e não mexe no resultado. Mas quando ainda não há
+      // média nenhuma — ela é a primeira — não entra na base de custo: tratá-la
+      // como zero puxava a média para BAIXO do preço mais barato já pago, e a
+      // varredura por propriedades pegou isso também, com R$ 12 numa faixa que
+      // começava em R$ 21. O saldo continua contando essa quantidade; o que ela
+      // não faz é inventar um custo que ninguém informou.
+      if (qtd > 0) { const media = valor / qtd; qtd += m.qty; valor += m.qty * media; }
+    } else {
+      const media = qtd > 0 ? valor / qtd : 0;
+      const sai = Math.min(m.qty, Math.max(qtd, 0));
+      qtd -= m.qty; valor -= sai * media;
+      // Saiu mais do que entrou: não há estoque que um valor represente. A tela
+      // já acusa o saldo negativo em vermelho; aqui a conta do custo volta ao
+      // zero, QUANTIDADE E VALOR.
+      //
+      // Zerar só o valor e deixar a quantidade negativa quebrava a conta: a
+      // entrada seguinte somava o valor cheio sobre uma base negativa, e a
+      // média saía ACIMA do preço mais caro já pago. A varredura por
+      // propriedades pegou isso na hora — R$ 331 numa faixa que ia até R$ 146.
+      // Média ponderada tem de ficar sempre entre o mais barato e o mais caro,
+      // e com a base limpa ela fica.
+      if (qtd <= 0) { qtd = 0; valor = 0; }
+    }
+  }
+  if (!viuPreco) return null;
+  // Saldo zerado ou negativo não tem custo médio próprio — mas o item teve
+  // compras, então o que vale dizer é o preço da última entrada misturada, e
+  // não "sem preço de compra".
+  if (qtd > 0) return valor / qtd;
+  const ultima = lista.filter(m => m.type === 'entrada'
+    && Number.isFinite(m.unitCost) && m.unitCost > 0).pop();
+  return ultima ? ultima.unitCost : null;
 }
 
 // Além dos períodos móveis, o filtro aceita um mês ("2026-03") ou um ano
@@ -4099,7 +4155,17 @@ function syncAnimalSaleTrans(a) {
     }
     // A venda já pode ter sido lançada à mão no Financeiro — não lança de novo
     // sem perguntar.
-    const dup = findDupTrans(bovT, saleData, null);
+    //
+    // Mas lançamento que JÁ nasceu de outra venda de animal não é duplicidade:
+    // vender dez bois do mesmo lote, no mesmo dia e pelo mesmo preço é rotina
+    // de fazenda, e o aviso disparava nove vezes seguidas. Alarme que toca no
+    // trabalho normal é alarme que ninguém lê quando é de verdade.
+    //
+    // E a consequência estava medida: respondendo "já está lançado" por reflexo
+    // no segundo boi, a aba Vendidas ficava com R$ 12.000 recebidos e o
+    // Financeiro com R$ 6.000 — duas telas, dois números, nada explicando.
+    // O aviso continua para o que ele foi feito: o lançamento digitado à mão.
+    const dup = findDupTrans(bovT.filter(x => x.lock !== 'animal'), saleData, null);
     if (dup && !askDuplicate(`Esta venda de ${fmtRS(saleData.amount)} em ${fmtBRfull(saleData.date)} já parece estar lançada no Financeiro${dup.notes ? `\nDescrição: ${dup.notes}` : ''}.\n\nO animal será marcado como vendido de qualquer forma.`)) {
       a.linkTrans = null;
       return;
@@ -4108,6 +4174,12 @@ function syncAnimalSaleTrans(a) {
     bovT.push(t); upsert('bovtrans', t);
     a.linkTrans = t.id;
   } else if (a.linkTrans) {
+    // A nota fiscal presa ao lançamento sai junto com ele — igual ao movimento
+    // do estoque de gado, ao item e ao lançamento avulso. Faltava só aqui, e
+    // anexo órfão não aparece em tela nenhuma, não é alcançado por lançamento
+    // nenhum e mesmo assim fica na nuvem e dentro de todo backup, pesando.
+    const t = bovT.find(x => x.id === a.linkTrans);
+    if (t) apagarAnexosDe(t);
     bovT = bovT.filter(x => x.id !== a.linkTrans);
     remove('bovtrans', a.linkTrans);
     a.linkTrans = null;
@@ -4208,6 +4280,10 @@ $('btn-delete-animal').addEventListener('click', () => {
   const a = animals.find(x => x.id === id);
   const ws = weighings.filter(w => w.animalId === id);
   const linkTrans = a && a.linkTrans;
+  // Mesma regra do desmarcar "vendido" logo acima: a nota fiscal do lançamento
+  // da venda sai junto com ele, senão fica na nuvem sem nada que a alcance.
+  const lancVenda = linkTrans ? bovT.find(x => x.id === linkTrans) : null;
+  if (lancVenda) apagarAnexosDe(lancVenda);
   animals = animals.filter(x => x.id !== id);
   weighings = weighings.filter(w => w.animalId !== id);
   if (linkTrans) bovT = bovT.filter(x => x.id !== linkTrans);

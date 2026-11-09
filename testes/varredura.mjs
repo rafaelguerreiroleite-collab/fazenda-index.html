@@ -103,8 +103,14 @@ export default async function () {
         Math.abs(qtyOf(iid) - (somaEnt - somaSai)) < 1e-6, `${qtyOf(iid)} vs ${somaEnt - somaSai}`);
       const med = avgCostOf(iid);
       if (qtdComCusto > 0) {
-        regra('custo médio é a média ponderada das compras',
-          Math.abs(med - custoTotal / qtdComCusto) < 1e-6, `${med} vs ${custoTotal / qtdComCusto}`);
+        // O custo médio passou a ser MÓVEL — o custo do que está em estoque, e
+        // não a média de tudo o que já se comprou na vida. Esta regra cobrava a
+        // conta antiga porque foi escrita lendo o código; a propriedade que
+        // vale para as duas, e que não depende de implementação nenhuma, é a de
+        // baixo: média ponderada de preços fica SEMPRE entre o menor e o maior
+        // preço pago. Foi ela que pegou o defeito do conserto, antes de ele sair
+        // daqui — a média estava subindo acima do preço mais caro quando o
+        // saldo tinha ficado negativo no meio do caminho.
         regra('custo médio fica entre o mais barato e o mais caro',
           med >= menorCusto - 1e-9 && med <= maiorCusto + 1e-9, `${med} fora de [${menorCusto}, ${maiorCusto}]`);
       } else {

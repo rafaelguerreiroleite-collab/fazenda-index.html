@@ -631,9 +631,22 @@ export default async function () {
       }
       regra('o saldo do estoque é entradas menos saídas',
         perto(qtyOf('i1'), saldo), qtyOf('i1') + ' vs ' + saldo);
-      const med = avgCostOf('i1'), medEsp = qComp ? vComp / qComp : null;
-      regra('o custo médio é valor comprado sobre quantidade comprada',
-        (med === null) === (medEsp === null) && (med === null || perto(med, medEsp)), med + ' vs ' + medEsp);
+      // O custo médio é MÓVEL: o custo do que está em estoque, e não a média de
+      // todas as compras de sempre. A conferência deixa de reimplementar a
+      // fórmula — isso só pegaria erro de digitação — e passa a cobrar as
+      // propriedades que valem para qualquer método de custeio honesto.
+      const med = avgCostOf('i1');
+      const precos = moves.filter(m => m.type === 'entrada'
+        && Number.isFinite(m.unitCost) && m.unitCost > 0).map(m => m.unitCost);
+      regra('só há custo médio quando houve compra com preço',
+        (med === null) === (precos.length === 0), med + ' com ' + precos.length + ' compras com preço');
+      if (precos.length) {
+        regra('o custo médio fica entre o menor e o maior preço pago',
+          med >= Math.min.apply(null, precos) - 1e-9 && med <= Math.max.apply(null, precos) + 1e-9,
+          med + ' fora de [' + Math.min.apply(null, precos) + ', ' + Math.max.apply(null, precos) + ']');
+        regra('e nunca é negativo nem infinito',
+          med > 0 && Number.isFinite(med), String(med));
+      }
 
       // --- busca aplicada aos totais ---
       limpar();
