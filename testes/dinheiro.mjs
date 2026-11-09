@@ -244,6 +244,120 @@ export default async function () {
     Math.abs(dois.resultado - (dois.receita - dois.investido)) < 1e-9, `${dois.resultado}`);
 
   // ---------- varredura ----------
+  // ---------- o valor de HOJE, e não o da balança de semanas atrás ----------
+  //
+  // Relato do dono, com a tela na mão: o bloco da estimativa dizia 1.222 @ hoje
+  // e o valor logo abaixo contava 1.176 @. Quarenta e seis arrobas — ao preço
+  // dele, mais de dezoito mil reais — que o valor não somava, com os dois
+  // blocos na MESMA tela e nada explicando a diferença.
+  //
+  // As datas saem todas de hoje: fixtura com data escrita à mão vira alarme
+  // falso sozinha quando o calendário anda, e alarme falso é o pior defeito
+  // que um conferidor pode ter.
+  t.secao('o valor acompanha a estimativa de hoje, não para na última balança');
+  const montarHoje = gmd => `(function () {
+    const diasAtras = n => { const d = new Date(todayISO() + 'T12:00');
+      d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+    animals = []; weighings = []; bovT = []; items = []; moves = []; rebmov = [];
+    settings.yield = 50;
+    custoParams = Object.assign({}, CUSTO_VAZIO, { precoArroba: 400 });
+    // Dez pesados há 21 dias e dois pesados há 40: cada um projeta os SEUS
+    // dias. É o que impede a conta de virar "peso médio vezes dias médios",
+    // que daria outro número.
+    for (let i = 1; i <= 10; i++) {
+      animals.push({ id: 'n' + i, ident: '70' + i, cat: 'Novilha' });
+      weighings.push({ id: 'w' + i, animalId: 'n' + i, date: diasAtras(21), weight: 210, jejum: false });
+    }
+    for (let i = 1; i <= 2; i++) {
+      animals.push({ id: 'v' + i, ident: '80' + i, cat: 'Novilha' });
+      weighings.push({ id: 'x' + i, animalId: 'v' + i, date: diasAtras(40), weight: 190, jejum: false });
+    }
+    animals.push({ id: 'sp', ident: '999', cat: 'Novilha' });   // sem pesagem nenhuma
+    recomputarLivros();
+    document.getElementById('bov-gmd-sim').value = ${JSON.stringify(gmd)};
+    tab = 'bovinos'; seg = 'rebanho'; detailAnimal = null; render();
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
+    const cartao = rot => { const e = [...document.querySelectorAll('#bov-stats-est .stat-card')]
+      .find(x => x.querySelector('.stat-label').textContent === rot);
+      return e ? e.querySelector('.stat-value').textContent.trim() : null; };
+    const cx = document.getElementById('bov-valor');
+    const g = parseNum(${JSON.stringify(gmd)});
+    // A soma animal por animal, feita aqui fora da função que está sendo
+    // conferida: é ela que diz se o bloco somou os mesmos bichos.
+    const somaMao = animals.filter(noRebanho)
+      .map(a => projetar(a, g, todayISO())).filter(Boolean)
+      .reduce((s2, p) => s2 + p.peso, 0);
+    return {
+      v: valorDoRebanho(g), somaMao,
+      totalHojeCartao: cartao('Total hoje (est.)'),
+      pesoHojeCartao: cartao('Peso médio hoje (est.)'),
+      cab: cx.hidden ? '' : cx.querySelector('.dobra-cab').innerText.replace(/\\s+/g, ' '),
+      corpo: cx.hidden ? '' : cx.querySelector('.dobra-corpo').innerText.replace(/\\s+/g, ' ')
+    };
+  })()`;
+
+  const semGmd = await pagina.evaluate(montarHoje(''));
+  const kgMedido = 10 * 210 + 2 * 190;
+  t.conferir('sem GMD informado, o bloco segue contando a última balança',
+    !semGmd.v.temProjecao && semGmd.v.kg === kgMedido && semGmd.v.kgHoje === kgMedido,
+    `${semGmd.v.kg} kg · hoje ${semGmd.v.kgHoje}`);
+  t.conferir('e o cabeçalho não promete estimativa nenhuma',
+    !/estimado hoje/.test(semGmd.cab), semGmd.cab);
+  t.conferir('o animal sem pesagem fica de fora dos dois totais',
+    semGmd.v.n === 12 && semGmd.v.semPeso === 1, `${semGmd.v.n} · ${semGmd.v.semPeso}`);
+
+  const comGmd = await pagina.evaluate(montarHoje('0,350'));
+  const kgHojeEsperado = 10 * (210 + 0.35 * 21) + 2 * (190 + 0.35 * 40);
+  t.conferir('com GMD, o peso de hoje é a projeção de CADA animal pelos SEUS dias',
+    Math.abs(comGmd.v.kgHoje - kgHojeEsperado) < 1e-6,
+    `${comGmd.v.kgHoje} vs ${kgHojeEsperado}`);
+  t.conferir('e é exatamente a soma feita animal por animal, fora da função',
+    Math.abs(comGmd.v.kgHoje - comGmd.somaMao) < 1e-9,
+    `${comGmd.v.kgHoje} vs ${comGmd.somaMao}`);
+  t.conferir('as arrobas de hoje são peso projetado × rendimento ÷ 15',
+    Math.abs(comGmd.v.arrobasHoje - kgHojeEsperado * 0.5 / 15) < 1e-9,
+    String(comGmd.v.arrobasHoje));
+  t.conferir('o valor de hoje é arrobas de hoje × preço',
+    Math.abs(comGmd.v.valorHoje - comGmd.v.arrobasHoje * 400) < 1e-9,
+    String(comGmd.v.valorHoje));
+  // A amarração que o dono cobrou: os DOIS blocos da mesma tela contando o
+  // mesmo rebanho. Era aqui que a tela se contradizia.
+  t.conferir('o bloco do valor mostra as MESMAS arrobas do cartão da estimativa',
+    comGmd.totalHojeCartao === `${Math.round(comGmd.v.arrobasHoje).toLocaleString('pt-BR')} @`,
+    `cartão ${comGmd.totalHojeCartao} · valor ${comGmd.v.arrobasHoje}`);
+  t.conferir('o cabeçalho passa a mostrar o valor de hoje, marcado como estimativa',
+    /estimado hoje/.test(comGmd.cab)
+    && comGmd.cab.indexOf('R$ ' + Math.round(comGmd.v.valorHoje).toLocaleString('pt-BR')) >= 0,
+    comGmd.cab);
+  t.conferir('a diferença entre os dois valores é o ganho projetado × preço',
+    Math.abs((comGmd.v.valorHoje - comGmd.v.valor) - comGmd.v.ganhoArrobas * 400) < 1e-9,
+    `${comGmd.v.valorHoje - comGmd.v.valor} vs ${comGmd.v.ganhoArrobas * 400}`);
+  t.conferir('o corpo mostra o número da balança ao lado do estimado',
+    /Na última balança eram/.test(comGmd.corpo)
+    && comGmd.corpo.indexOf('R$ ' + Math.round(comGmd.v.valor).toLocaleString('pt-BR')) >= 0,
+    comGmd.corpo.slice(0, 260));
+  t.conferir('e diz, com todas as letras, que o valor de hoje é estimativa',
+    /estimativa/.test(comGmd.corpo) && /não de balança/.test(comGmd.corpo),
+    comGmd.corpo.slice(-240));
+  t.conferir('a base declara o GMD usado e até que dia projetou',
+    /com GMD 0,350/.test(comGmd.corpo) && /projetado da última balança de cada um/.test(comGmd.corpo),
+    comGmd.corpo.slice(0, 220));
+
+  // Rebanho emagrecendo: a estimativa cai, e o bloco tem de acompanhar em vez
+  // de fingir que o rebanho parou no dia da balança.
+  const magro = await pagina.evaluate(montarHoje('-0,200'));
+  t.conferir('com GMD negativo o valor de hoje é MENOR que o da balança',
+    magro.v.temProjecao && magro.v.valorHoje < magro.v.valor,
+    `${magro.v.valorHoje} vs ${magro.v.valor}`);
+  t.conferir('e a frase diz que tira, em vez de somar',
+    /Menos/.test(magro.corpo) && /tiram/.test(magro.corpo),
+    magro.corpo.slice(0, 260));
+
+  // Deixa a tela como encontrou: campo preenchido aqui mudaria o cabeçalho das
+  // seções seguintes, e conferidor que suja o estado do próximo é o mesmo
+  // defeito que esta bateria cobra do aplicativo.
+  await pagina.evaluate(() => { document.getElementById('bov-gmd-sim').value = ''; });
+
   t.secao(`a conta fecha em qualquer rebanho e qualquer preço (${QTD.toLocaleString('pt-BR')} sorteios)`);
   const f = await pagina.evaluate(`(function (N) {
     let _s = ${SEMENTE} >>> 0;

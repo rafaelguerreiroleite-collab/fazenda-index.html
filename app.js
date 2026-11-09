@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 112;
+const VERSAO = 113;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1084,18 +1084,55 @@ function gmdEntrePesagens(lista) {
 //     arrobas logo acima), e não do rendimento da aba Custos, que é outro;
 //   · animal sem pesagem não entra, e é contado à parte — senão o rebanho
 //     parece valer menos do que vale, sem nada explicando a diferença.
-function valorDoRebanho() {
+// QUANTO VALE O REBANHO — pela última balança e, com um GMD informado para a
+// estimativa, também HOJE.
+//
+// Relato do dono, com a tela na mão: o bloco da estimativa logo acima dizia
+// 1.222 @ hoje e o valor aqui embaixo contava 1.176 @. Quarenta e seis arrobas
+// — ao preço dele, mais de dezoito mil reais — que o valor não somava, com os
+// dois blocos na MESMA tela e nada explicando a diferença.
+//
+// Os cartões de cima mostram a última pesagem. Entre uma pesagem e a próxima o
+// gado continuou ganhando, e esse ganho é dinheiro: é justamente o número que
+// se leva para uma negociação, e era o que faltava.
+//
+// A projeção sai de projetar(), a MESMA função dos cartões e da linha de cada
+// animal. Segunda cópia da conta é como uma delas passa a mentir sem ninguém
+// descobrir qual.
+//
+// E os dois totais somam exatamente os MESMOS animais — os que têm pesagem.
+// Sem isso, a diferença entre eles deixaria de ser ganho e passaria a ser troca
+// de população, que é o erro que o comparativo de pesagens existe para evitar.
+function valorDoRebanho(gmdSim) {
   const preco = Number.isFinite(custoParams.precoArroba) && custoParams.precoArroba > 0
     ? custoParams.precoArroba : null;
   const ativos = animals.filter(noRebanho);
-  const pesos = ativos.map(a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; })
-    .filter(v => Number.isFinite(v) && v > 0);
-  if (!pesos.length) return null;
-  const kg = pesos.reduce((x, v) => x + v, 0);
+  const hoje = todayISO();
+  let kg = 0, kgHoje = 0, n = 0;
+  ativos.forEach(a => {
+    const ws = wOf(a.id);
+    const ultima = ws.length ? ws[ws.length - 1] : null;
+    if (!ultima || !Number.isFinite(ultima.weight) || ultima.weight <= 0) return;
+    n++;
+    kg += ultima.weight;
+    const p = projetar(a, gmdSim, hoje);
+    // Sem GMD informado, hoje é a própria balança: o bloco segue mostrando só
+    // o que foi medido, como sempre mostrou.
+    kgHoje += p ? p.peso : ultima.weight;
+  });
+  if (!n) return null;
   const arrobas = arrobasDe(kg, settings.yield);
+  const arrobasHoje = arrobasDe(kgHoje, settings.yield);
   return {
-    preco, rend: settings.yield, n: pesos.length, semPeso: ativos.length - pesos.length,
-    kg, arrobas, valor: preco == null ? null : arrobas * preco
+    preco, rend: settings.yield, n, semPeso: ativos.length - n, hoje, gmd: gmdSim,
+    kg, arrobas, valor: preco == null ? null : arrobas * preco,
+    // Vale para os dois lados: com GMD negativo — seca, por exemplo — a
+    // estimativa cai, e o bloco tem de acompanhar em vez de fingir que o
+    // rebanho parou no dia da balança.
+    temProjecao: Number.isFinite(gmdSim) && kgHoje !== kg,
+    kgHoje, arrobasHoje, valorHoje: preco == null ? null : arrobasHoje * preco,
+    ganhoArrobas: arrobasHoje - arrobas,
+    ganhoRS: preco == null ? null : (arrobasHoje - arrobas) * preco
   };
 }
 
@@ -1714,7 +1751,7 @@ function renderRebanho() {
   const totalEst = pesosEst.reduce((s, p) => s + p, 0);
   const diasDesde = lastDates.length ? Math.max(0, daysBetween(lastDates[lastDates.length - 1], hoje)) : 0;
   // ---- quanto vale o rebanho ----
-  const vr = valorDoRebanho();
+  const vr = valorDoRebanho(gmdSim);
   const caixaV = $('bov-valor');
   caixaV.hidden = !vr;
   if (vr) {
@@ -1722,12 +1759,29 @@ function renderRebanho() {
     // ganhas pelos animais comparáveis vezes o mesmo preço. É a única linha da
     // tela que liga o trabalho do período ao caixa.
     const ganhoRS = vr.preco != null && cmp ? arrobaOf(cmp.kgTotal) * vr.preco : null;
+    // Com GMD informado, o bloco conta o rebanho de HOJE — o mesmo número da
+    // estimativa logo acima. Sem GMD, segue sendo a última balança.
+    const arrobasAgora = vr.temProjecao ? vr.arrobasHoje : vr.arrobas;
+    const valorAgora = vr.temProjecao ? vr.valorHoje : vr.valor;
+    const subiu = vr.ganhoArrobas >= 0;
     const corpoV = vr.preco == null
       ? '<p class="est-nota mono">Informe o <b>preço da arroba</b> na aba Custos, '
         + 'na simulação de venda, e o rebanho passa a aparecer em dinheiro aqui.</p>'
-      : `<div class="vr-conta mono">${fmtN(vr.arrobas, 2)} @ × ${fmtRS(vr.preco)} por @</div>`
-        + `<div class="vr-base mono">${fmtN(vr.kg, 0)} kg de peso vivo — a última pesagem de `
-        + `cada um — em ${vr.n} animal(is) · rendimento de carcaça ${fmtN(vr.rend, 0)}%</div>`
+      : `<div class="vr-conta mono">${fmtN(arrobasAgora, 2)} @ × ${fmtRS(vr.preco)} por @</div>`
+        + `<div class="vr-base mono">${fmtN(vr.temProjecao ? vr.kgHoje : vr.kg, 0)} kg de peso vivo `
+        + (vr.temProjecao
+          ? `estimado hoje — projetado da última balança de cada um até ${fmtBR(vr.hoje)}, `
+            + `com GMD ${fmtN(vr.gmd, 3)} — `
+          : '— a última pesagem de cada um — ')
+        + `em ${vr.n} animal(is) · rendimento de carcaça ${fmtN(vr.rend, 0)}%</div>`
+        // A ponte entre o medido e o estimado, com a subtração à vista: sem ela
+        // o dono vê dois valores na mesma tela e não tem como saber qual é qual.
+        + (vr.temProjecao
+          ? `<div class="vr-hoje mono">Na última balança eram <b>${fmtN(vr.arrobas, 2)} @</b> `
+            + `— ${fmtRSgrande(vr.valor)}. ${subiu ? 'Mais' : 'Menos'} `
+            + `<b>${fmtN(Math.abs(vr.ganhoArrobas), 2)} @</b> estimados desde então, que a este `
+            + `preço ${subiu ? 'somam' : 'tiram'} <b>${fmtRSgrande(Math.abs(vr.ganhoRS))}</b>.</div>`
+          : '')
         + (ganhoRS != null
           ? `<div class="vr-ganho">Desde a pesagem de ${fmtBR(cmp.de)} o lote ganhou `
             + `<b>${fmtN(arrobaOf(cmp.kgTotal), 2)} @</b>, que a este preço são `
@@ -1736,12 +1790,15 @@ function renderRebanho() {
         + 'frete, comissão nem impostos da venda. O rendimento é o do Rebanho, o mesmo que '
         + 'produziu as arrobas dos cartões acima — a aba Custos tem um rendimento próprio, e '
         + 'por isso o número de lá pode ser diferente.'
+        + (vr.temProjecao ? ' O valor de hoje é <b>estimativa</b>: vem do GMD que você digitou '
+          + 'acima, não de balança.' : '')
         + (vr.semPeso ? ` <b>${vr.semPeso} ${vr.semPeso > 1 ? 'animais ainda não foram pesados e não entram' : 'animal ainda não foi pesado e não entra'} nesta conta.</b>` : '')
         + '</p>';
     caixaV.innerHTML = dobravel('valor',
       cabecaDobra('Quanto vale o rebanho',
-        vr.preco != null ? fmtRSgrande(vr.valor) : '—',
-        vr.preco != null ? `${fmtN(vr.arrobas, 0)} @ a ${fmtRS(vr.preco)}`
+        vr.preco != null ? fmtRSgrande(valorAgora) : '—',
+        vr.preco != null ? `${fmtN(arrobasAgora, 0)} @ a ${fmtRS(vr.preco)}`
+          + (vr.temProjecao ? ' · estimado hoje' : '')
           : 'falta o preço da arroba'),
       corpoV);
   }
