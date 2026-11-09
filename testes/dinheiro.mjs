@@ -255,22 +255,30 @@ export default async function () {
   // falso sozinha quando o calendário anda, e alarme falso é o pior defeito
   // que um conferidor pode ter.
   t.secao('o valor acompanha a estimativa de hoje, não para na última balança');
-  const montarHoje = gmd => `(function () {
+  const montarHoje = (gmd, umaRodada) => `(function () {
     const diasAtras = n => { const d = new Date(todayISO() + 'T12:00');
       d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
     animals = []; weighings = []; bovT = []; items = []; moves = []; rebmov = [];
     settings.yield = 50;
     custoParams = Object.assign({}, CUSTO_VAZIO, { precoArroba: 400 });
-    // Dez pesados há 21 dias e dois pesados há 40: cada um projeta os SEUS
-    // dias. É o que impede a conta de virar "peso médio vezes dias médios",
-    // que daria outro número.
+    // Dez pesados há 21 dias e dois há 25: cada um projeta os SEUS dias, que é
+    // o que impede a conta de virar "peso médio vezes dias médios". Os quatro
+    // dias de diferença cabem na janela da rodada, então os doze estão na
+    // MESMA rodada — e é isso que permite medir o GMD do rebanho, que só conta
+    // quem subiu na balança nas duas.
+    //
+    // E todos têm uma pesagem ANTERIOR, há 81 e há 100 dias: sem a segunda
+    // rodada não há GMD medido, e é justamente o GMD medido que faz o valor
+    // andar sozinho quando o campo está em branco.
     for (let i = 1; i <= 10; i++) {
       animals.push({ id: 'n' + i, ident: '70' + i, cat: 'Novilha' });
+      if (!${umaRodada ? 'true' : 'false'}) weighings.push({ id: 'p' + i, animalId: 'n' + i, date: diasAtras(81), weight: 192, jejum: false });
       weighings.push({ id: 'w' + i, animalId: 'n' + i, date: diasAtras(21), weight: 210, jejum: false });
     }
     for (let i = 1; i <= 2; i++) {
       animals.push({ id: 'v' + i, ident: '80' + i, cat: 'Novilha' });
-      weighings.push({ id: 'x' + i, animalId: 'v' + i, date: diasAtras(40), weight: 190, jejum: false });
+      if (!${umaRodada ? 'true' : 'false'}) weighings.push({ id: 'q' + i, animalId: 'v' + i, date: diasAtras(85), weight: 172, jejum: false });
+      weighings.push({ id: 'x' + i, animalId: 'v' + i, date: diasAtras(25), weight: 190, jejum: false });
     }
     animals.push({ id: 'sp', ident: '999', cat: 'Novilha' });   // sem pesagem nenhuma
     recomputarLivros();
@@ -288,7 +296,7 @@ export default async function () {
       .map(a => projetar(a, g, todayISO())).filter(Boolean)
       .reduce((s2, p) => s2 + p.peso, 0);
     return {
-      v: valorDoRebanho(g), somaMao,
+      v: valorDoRebanho(g), somaMao, gmdMedido: gmdMedidoDoRebanho(),
       totalHojeCartao: cartao('Total hoje (est.)'),
       pesoHojeCartao: cartao('Peso médio hoje (est.)'),
       cab: cx.hidden ? '' : cx.querySelector('.dobra-cab').innerText.replace(/\\s+/g, ' '),
@@ -296,18 +304,54 @@ export default async function () {
     };
   })()`;
 
-  const semGmd = await pagina.evaluate(montarHoje(''));
+  // ---- campo em branco: o valor anda sozinho, com o GMD que o rebanho mediu ----
+  // O dono respondeu ao primeiro conserto: "com isto o valor do rebanho fica
+  // travado à data da última pesagem". Estava certo — campo em branco é o
+  // estado normal de quem abre o aplicativo, e nesse estado o rebanho valia o
+  // que valia no dia do curral, por mais semanas que tivessem passado.
+  const auto = await pagina.evaluate(montarHoje(''));
   const kgMedido = 10 * 210 + 2 * 190;
-  t.conferir('sem GMD informado, o bloco segue contando a última balança',
-    !semGmd.v.temProjecao && semGmd.v.kg === kgMedido && semGmd.v.kgHoje === kgMedido,
-    `${semGmd.v.kg} kg · hoje ${semGmd.v.kgHoje}`);
-  t.conferir('e o cabeçalho não promete estimativa nenhuma',
-    !/estimado hoje/.test(semGmd.cab), semGmd.cab);
+  // O GMD medido sai do comparativo entre as duas últimas rodadas: dez animais
+  // ganharam 18 kg em 60 dias e dois ganharam 18 kg em 60 dias.
+  const gmdEsperado = ((10 * (210 - 192) + 2 * (190 - 172)) / 12) / 60;  // 18 kg / 60 dias
+  t.conferir('com o campo em branco, o GMD vem MEDIDO do próprio rebanho',
+    auto.v.origemGmd === 'medido' && Math.abs(auto.v.gmd - gmdEsperado) < 1e-9,
+    `${auto.v.origemGmd} · ${auto.v.gmd} vs ${gmdEsperado}`);
+  t.conferir('e é o mesmo número da função que o bloco do GMD do rebanho usa',
+    Math.abs(auto.v.gmd - auto.gmdMedido) < 1e-12, `${auto.v.gmd} vs ${auto.gmdMedido}`);
+  t.conferir('o valor deixa de ficar travado na data da última balança',
+    auto.v.temProjecao && auto.v.valorHoje > auto.v.valor,
+    `${auto.v.valor} → ${auto.v.valorHoje}`);
+  t.conferir('a projeção continua animal por animal, pelos dias de cada um',
+    Math.abs(auto.v.kgHoje - (10 * (210 + gmdEsperado * 21) + 2 * (190 + gmdEsperado * 25))) < 1e-6,
+    String(auto.v.kgHoje));
+  t.conferir('e o peso medido continua intacto ao lado dele',
+    auto.v.kg === kgMedido, `${auto.v.kg} vs ${kgMedido}`);
+  t.conferir('a tela diz que o GMD foi MEDIDO, e entre quais pesagens',
+    /medido entre as duas últimas pesagens/.test(auto.corpo), auto.corpo.slice(0, 280));
+  t.conferir('e diz há quantos dias foi a balança mais antiga da projeção',
+    /25 dia\(s\) desde a última pesagem/.test(auto.corpo), auto.corpo.slice(-280));
   t.conferir('o animal sem pesagem fica de fora dos dois totais',
-    semGmd.v.n === 12 && semGmd.v.semPeso === 1, `${semGmd.v.n} · ${semGmd.v.semPeso}`);
+    auto.v.n === 12 && auto.v.semPeso === 1, `${auto.v.n} · ${auto.v.semPeso}`);
 
+  // ---- rebanho com UMA rodada só: não há ritmo medido, e a tela explica ----
+  const umaSo = await pagina.evaluate(montarHoje('', true));
+  t.conferir('com uma pesagem só não há GMD para medir, e o valor é o da balança',
+    umaSo.v.origemGmd === null && !umaSo.v.temProjecao && umaSo.v.kgHoje === umaSo.v.kg,
+    `${umaSo.v.origemGmd} · ${umaSo.v.kgHoje}/${umaSo.v.kg}`);
+  t.conferir('e a tela explica por quê, em vez de deixar o número parado sem motivo',
+    /Ainda não há duas pesagens/.test(umaSo.corpo), umaSo.corpo.slice(-280));
+  t.conferir('aí sim o cabeçalho não promete estimativa nenhuma',
+    !/estimado hoje/.test(umaSo.cab), umaSo.cab);
+
+  // ---- o GMD digitado manda, porque aí é o dono simulando ----
   const comGmd = await pagina.evaluate(montarHoje('0,350'));
-  const kgHojeEsperado = 10 * (210 + 0.35 * 21) + 2 * (190 + 0.35 * 40);
+  t.conferir('o GMD digitado ganha do medido',
+    comGmd.v.origemGmd === 'informado' && comGmd.v.gmd === 0.35,
+    `${comGmd.v.origemGmd} · ${comGmd.v.gmd}`);
+  t.conferir('e a tela diz que esse veio de você, não da balança',
+    /que você informou acima/.test(comGmd.corpo), comGmd.corpo.slice(0, 280));
+  const kgHojeEsperado = 10 * (210 + 0.35 * 21) + 2 * (190 + 0.35 * 25);
   t.conferir('com GMD, o peso de hoje é a projeção de CADA animal pelos SEUS dias',
     Math.abs(comGmd.v.kgHoje - kgHojeEsperado) < 1e-6,
     `${comGmd.v.kgHoje} vs ${kgHojeEsperado}`);

@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 113;
+const VERSAO = 114;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -1103,33 +1103,62 @@ function gmdEntrePesagens(lista) {
 // E os dois totais somam exatamente os MESMOS animais — os que têm pesagem.
 // Sem isso, a diferença entre eles deixaria de ser ganho e passaria a ser troca
 // de população, que é o erro que o comparativo de pesagens existe para evitar.
+// O GMD que o REBANHO mostrou na última virada de pesagem: quilo ganho por
+// cabeça dividido pelos dias, entre as duas últimas rodadas, contando só quem
+// subiu na balança nas DUAS e na mesma condição. É o mesmo número que o bloco
+// "GMD do rebanho" já mostra como "última pesagem" — vive aqui, numa função
+// só, para o valor do rebanho e aquele bloco nunca divergirem.
+function gmdMedidoDoRebanho() {
+  const c = comparativoRebanho();
+  if (!c || !(c.dias > 0)) return null;
+  const g = c.kgMedio / c.dias;
+  return Number.isFinite(g) ? g : null;
+}
 function valorDoRebanho(gmdSim) {
   const preco = Number.isFinite(custoParams.precoArroba) && custoParams.precoArroba > 0
     ? custoParams.precoArroba : null;
   const ativos = animals.filter(noRebanho);
   const hoje = todayISO();
-  let kg = 0, kgHoje = 0, n = 0;
+  // DE ONDE VEM O GMD DA PROJEÇÃO.
+  //
+  // Primeiro conserto, o valor só andava se o dono digitasse um GMD no campo da
+  // estimativa. Ele respondeu na hora: "com isto o valor do rebanho fica travado
+  // à data da última pesagem" — e estava certo. Campo em branco é o estado
+  // normal de quem abre o aplicativo, e nesse estado o rebanho valia o que
+  // valia no dia do curral, por mais semanas que tivessem passado.
+  //
+  // Agora, em branco, vale o GMD que o PRÓPRIO REBANHO mediu entre as duas
+  // últimas pesagens. Não é palpite: é balança, com a disciplina do comparativo
+  // — mesmos animais nas duas rodadas, mesma condição de jejum. O número
+  // digitado continua mandando quando existe, porque aí é o dono simulando.
+  const informado = Number.isFinite(gmdSim) ? gmdSim : null;
+  const medido = informado == null ? gmdMedidoDoRebanho() : null;
+  const gmd = informado != null ? informado : medido;
+  const origemGmd = informado != null ? 'informado' : (medido != null ? 'medido' : null);
+  let kg = 0, kgHoje = 0, n = 0, diasMax = 0;
   ativos.forEach(a => {
     const ws = wOf(a.id);
     const ultima = ws.length ? ws[ws.length - 1] : null;
     if (!ultima || !Number.isFinite(ultima.weight) || ultima.weight <= 0) return;
     n++;
     kg += ultima.weight;
-    const p = projetar(a, gmdSim, hoje);
-    // Sem GMD informado, hoje é a própria balança: o bloco segue mostrando só
-    // o que foi medido, como sempre mostrou.
+    const p = projetar(a, gmd, hoje);
+    // Sem GMD nenhum — rebanho com uma pesagem só — hoje é a própria balança, e
+    // a tela diz por quê em vez de inventar um ritmo de ganho.
     kgHoje += p ? p.peso : ultima.weight;
+    if (p && p.dias > diasMax) diasMax = p.dias;
   });
   if (!n) return null;
   const arrobas = arrobasDe(kg, settings.yield);
   const arrobasHoje = arrobasDe(kgHoje, settings.yield);
   return {
-    preco, rend: settings.yield, n, semPeso: ativos.length - n, hoje, gmd: gmdSim,
+    preco, rend: settings.yield, n, semPeso: ativos.length - n, hoje,
+    gmd, origemGmd, dias: diasMax,
     kg, arrobas, valor: preco == null ? null : arrobas * preco,
     // Vale para os dois lados: com GMD negativo — seca, por exemplo — a
     // estimativa cai, e o bloco tem de acompanhar em vez de fingir que o
     // rebanho parou no dia da balança.
-    temProjecao: Number.isFinite(gmdSim) && kgHoje !== kg,
+    temProjecao: gmd != null && kgHoje !== kg,
     kgHoje, arrobasHoje, valorHoje: preco == null ? null : arrobasHoje * preco,
     ganhoArrobas: arrobasHoje - arrobas,
     ganhoRS: preco == null ? null : (arrobasHoje - arrobas) * preco
@@ -1673,7 +1702,9 @@ function renderRebanho() {
   const lastWeights = [...weightById.values()].filter(Number.isFinite);
   const totalWeight = lastWeights.reduce((s, w) => s + w, 0);
   const avgWeight = lastWeights.length ? totalWeight / lastWeights.length : null;
-  const arrobaOf = kg => kg * (settings.yield / 100) / 15;
+  // Uma função só decide o que é uma arroba. Esta é um apelido local com o
+  // rendimento do Rebanho já aplicado — a conta em si mora em arrobasDe.
+  const arrobaOf = kg => arrobasDe(kg, settings.yield);
   const avgArroba = avgWeight != null ? arrobaOf(avgWeight) : null;
   const totalArroba = lastWeights.length ? arrobaOf(totalWeight) : null;
   // ---- a comparação com a pesagem passada ----
@@ -1771,7 +1802,12 @@ function renderRebanho() {
         + `<div class="vr-base mono">${fmtN(vr.temProjecao ? vr.kgHoje : vr.kg, 0)} kg de peso vivo `
         + (vr.temProjecao
           ? `estimado hoje — projetado da última balança de cada um até ${fmtBR(vr.hoje)}, `
-            + `com GMD ${fmtN(vr.gmd, 3)} — `
+            + `com GMD ${fmtN(vr.gmd, 3)} `
+            // De onde veio o GMD, sempre escrito: é a diferença entre um número
+            // que saiu da balança e um que o dono digitou para simular.
+            + (vr.origemGmd === 'medido'
+              ? 'medido entre as duas últimas pesagens' : 'que você informou acima')
+            + ' — '
           : '— a última pesagem de cada um — ')
         + `em ${vr.n} animal(is) · rendimento de carcaça ${fmtN(vr.rend, 0)}%</div>`
         // A ponte entre o medido e o estimado, com a subtração à vista: sem ela
@@ -1790,8 +1826,16 @@ function renderRebanho() {
         + 'frete, comissão nem impostos da venda. O rendimento é o do Rebanho, o mesmo que '
         + 'produziu as arrobas dos cartões acima — a aba Custos tem um rendimento próprio, e '
         + 'por isso o número de lá pode ser diferente.'
-        + (vr.temProjecao ? ' O valor de hoje é <b>estimativa</b>: vem do GMD que você digitou '
-          + 'acima, não de balança.' : '')
+        + (vr.temProjecao
+          ? ' O valor de hoje é <b>estimativa</b>: o peso vem de projeção, não de balança'
+            + (vr.dias > 0 ? ` — são ${vr.dias} dia(s) desde a última pesagem` : '')
+            + '. Pese o lote para trocar a estimativa por medida.'
+          : (vr.gmd == null
+            // Rebanho com uma rodada só não tem ritmo medido. Dizer isso é
+            // melhor do que deixar o dono achando que o número parou sozinho.
+            ? ' Ainda não há duas pesagens para medir o ganho do rebanho, '
+              + 'então o valor é o da última balança. Informe um GMD acima para estimar hoje.'
+            : ''))
         + (vr.semPeso ? ` <b>${vr.semPeso} ${vr.semPeso > 1 ? 'animais ainda não foram pesados e não entram' : 'animal ainda não foi pesado e não entra'} nesta conta.</b>` : '')
         + '</p>';
     caixaV.innerHTML = dobravel('valor',
@@ -2042,7 +2086,7 @@ function renderMortes() {
   const pesoDe = a => { const ws = wOf(a.id); return ws.length ? ws[ws.length - 1].weight : null; };
   const pesos = mortos.map(pesoDe).filter(Number.isFinite);
   const kgPerdidos = pesos.reduce((s, w) => s + w, 0);
-  const arrobasPerdidas = kgPerdidos * (settings.yield / 100) / 15;
+  const arrobasPerdidas = arrobasDe(kgPerdidos, settings.yield);
   $('mortes-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${mortos.length}</div><div class="stat-label">Mortes</div></div>
     <div class="stat-card"><div class="stat-value">${taxa != null ? fmtN(taxa, 1) + '%' : '—'}</div><div class="stat-label">Taxa</div></div>
@@ -2062,7 +2106,7 @@ function renderMortes() {
       </div>
       <div class="item-side">
         <div class="value">${peso != null ? fmtN(peso, 0) + ' kg' : '—'}</div>
-        <div class="aux">${peso != null ? fmtN(peso * (settings.yield / 100) / 15, 1) + ' @' : ''}</div>
+        <div class="aux">${peso != null ? fmtN(arrobasDe(peso, settings.yield), 1) + ' @' : ''}</div>
       </div>
     </div>`;
   }).join('');
@@ -2168,6 +2212,12 @@ function renderVendidas() {
 // Custo de produzir uma arroba: gasto diário por animal ÷ arrobas ganhas por dia.
 // Arroba = 15 kg de carcaça, então o ganho de peso vivo (GMD) entra corrigido
 // pelo rendimento de carcaça.
+// A ÚNICA definição de arroba do aplicativo: peso vivo × rendimento de carcaça
+// ÷ 15. Ela estava escrita à mão em mais cinco lugares — o cartão do rebanho, a
+// mortalidade em dois pontos, a ficha do animal e a prévia do curral. As seis
+// cópias concordavam, o que é sorte mantida à mão: a regra escrita no próprio
+// código diz que duas cópias da conta é como uma delas passa a mentir sem
+// ninguém descobrir qual. Agora todas chamam esta.
 const arrobasDe = (kg, rend) => kg * (rend / 100) / 15;
 // Rendimento de cada ponta: o informado, ou o geral quando em branco/inválido
 function rendimentosDe(p, rendGeral) {
@@ -2219,7 +2269,9 @@ function calcCusto() {
       //
       // Deixando as duas pontas em branco, rendVenda É o rendimento geral:
       // para quem não preenche os dois campos, nada muda.
-      arrobaDia = (p.gmd * rendVenda / 100) / 15;
+      // Mesma conta de arroba, aplicada ao quilo ganho EM UM DIA: a arroba que
+      // o dia produziu. Passa pela função única pelo mesmo motivo que as outras.
+      arrobaDia = arrobasDe(p.gmd, rendVenda);
     }
   }
   // Custo informado PELA METADE é pior do que custo não informado: não entra na
@@ -2504,7 +2556,7 @@ function renderAnimalDetail() {
   if (!a) { detailAnimal = null; render(); return; }
   const ws = wOf(a.id); const last = ws[ws.length - 1];
   const gT = gmdTotal(ws), gR = gmdRecent(ws);
-  const arro = last ? last.weight * (settings.yield / 100) / 15 : null;
+  const arro = last ? arrobasDe(last.weight, settings.yield) : null;
   $('animal-header').innerHTML = `
     <div class="animal-header">
       <div class="hrow">
@@ -4088,6 +4140,18 @@ $('form-animal').addEventListener('submit', e => {
         + 'Abater antes disso deixa resíduo de medicamento na carne, e quem responde é você.\n\n'
         + 'Registrar a venda mesmo assim?')) return;
   }
+  // O peso de ENTRADA é a quarta porta: ele vira uma pesagem de verdade no
+  // histórico, e entrava sem passar por trava nenhuma. Aqui a conferência é
+  // pela faixa do bovino — na entrada quase nunca há pesagem anterior com que
+  // comparar um ganho por dia.
+  const entradaPeso = parseNum($('an-entry-weight').value);
+  if (Number.isFinite(entradaPeso) && entradaPeso > 0) {
+    const sus = pesagemSuspeita(ident, entradaPeso, null, null, 0);
+    if (sus && !confirm(`⚠️ CONFIRA O PESO DE ENTRADA\n\n${sus}\n\nGravar assim mesmo?`)) {
+      $('an-entry-weight').select(); $('an-entry-weight').focus();
+      return;
+    }
+  }
   const soldPriceRaw = parseNum($('an-sold-price').value);
   const data = {
     ident, cat: $('an-cat').value.trim(),
@@ -4177,6 +4241,25 @@ $('form-weighing').addEventListener('submit', e => {
   if (dupW) {
     const an = animals.find(x => x.id === animalId);
     if (!askDuplicate(`${an ? an.ident : 'Este animal'} já tem pesagem em ${fmtBRfull(dupW.date)}: ${fmtN(dupW.weight, 1)} kg.\n\nPara corrigir o peso, edite a pesagem existente em vez de criar outra.`)) return;
+  }
+  // A MESMA TRAVA DO CURRAL, que faltava aqui.
+  //
+  // A trava contra erro de digitação existia em duas das QUATRO portas por onde
+  // um peso entra no aplicativo — o curral e a importação de planilha. Pela
+  // ficha do animal, medido: 2.100 kg numa novilha de 210 entravam em silêncio,
+  // com "Pesagem salva" na tela. Oito quilos também.
+  //
+  // E um peso errado não erra sozinho: ele vira GMD, vira arroba, vira o valor
+  // do rebanho e vira decisão de venda. É o número mais digitado do aplicativo
+  // e o que tem a consequência mais longa.
+  const antSus = wOf(animalId).filter(x => x.id !== id && x.date < date).pop();
+  const diasSus = antSus ? daysBetween(antSus.date, date) : 0;
+  const gmdSus = antSus && diasSus > 0 ? (weight - antSus.weight) / diasSus : null;
+  const anSus = animals.find(x => x.id === animalId);
+  const suspeita = pesagemSuspeita(anSus ? anSus.ident : 'Este animal', weight, gmdSus, antSus, diasSus);
+  if (suspeita && !confirm(`⚠️ CONFIRA ESTA PESAGEM\n\n${suspeita}\n\nGravar assim mesmo?`)) {
+    $('w-weight').select(); $('w-weight').focus();
+    return;
   }
   // Esta fazenda pesa SEMPRE sem jejum, e a caixa de marcar saiu da tela: era a
   // última porta por onde um "jejum" entrava sem querer, e um clique errado ali
@@ -5188,7 +5271,7 @@ function atualizarPreviaPesagem() {
     el.hidden = true; el.innerHTML = ''; return;
   }
 
-  const arrobas = peso * (settings.yield / 100) / 15;
+  const arrobas = arrobasDe(peso, settings.yield);
   const pesoTxt = `${fmtN(peso, peso % 1 ? 1 : 0)} kg · ${fmtN(arrobas, 1)} @`;
   const animal = animalDoBrinco(ident);
   // Mesma regra do salvamento: compara com a última pesagem anterior a esta data
