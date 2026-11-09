@@ -166,6 +166,99 @@ export default async function () {
   t.conferir('trocar de atividade fecha a lista, para não mostrar a lista errada',
     porAtividade.fechouAoTrocar === true);
 
+  // ---------- a categoria nova, do começo ao fim ----------
+  //
+  // Regra do dono, dada depois de eu publicar esta alteração apoiado só no
+  // portão do servidor: NUNCA DAR MARGEM PARA ERRO — toda alteração passa por
+  // varredura criteriosa antes de sair. "A opção existe na lista" não é
+  // varredura: o que importa é se o lançamento feito com ela chega inteiro em
+  // todas as telas que somam dinheiro.
+  t.secao('"Insumos" dos Aviários, do lançamento ao relatório');
+  const fim = await pagina.evaluate(`(function () {
+    animals = []; weighings = []; bovT = []; avT = []; gerT = [];
+    items = []; moves = []; rebmov = []; extraT = {}; atividades = [];
+    settings.yield = 50;
+    recomputarLivros();
+    // Um gasto com insumo e uma receita da Seara, no mesmo mês.
+    avT = [
+      { id: 'i1', date: '2026-10-05', type: 'saida', amount: 1800, category: 'Insumos',
+        notes: 'maravalha do lote 7' },
+      { id: 'i2', date: '2026-10-06', type: 'saida', amount: 200, category: 'Insumos',
+        notes: 'cal', venc: '2026-11-30', pago: false },
+      { id: 's1', date: '2026-10-20', type: 'entrada', amount: 9000, category: 'Pagamento Seara' }
+    ];
+    recomputarLivros();
+    tab = 'aviarios'; $('av-period').value = 'all'; render();
+    // O detalhamento por categoria nasce dobrado, para a lista não começar a
+    // duas telas do topo. Ler só o cabeçalho é ler o resumo, não o conteúdo.
+    document.querySelectorAll('details[data-dobra]').forEach(d => { d.open = true; });
+    const txtDe = sel => { const e = document.querySelector(sel);
+      return e ? e.innerText.replace(/\\s+/g, ' ').trim() : ''; };
+    const quebraAv = txtDe('#av-cats');
+    const apagarAv = txtDe('#av-apagar');
+    tab = 'fazenda'; if ($('fz-period')) $('fz-period').value = 'all'; render();
+    const fazenda = document.body.innerText.replace(/\\s+/g, ' ');
+    // o arquivo do contador: uma linha por lançamento, com a natureza
+    let contabil = '';
+    const orig = window.download;
+    window.download = (n, c) => { contabil = String(c); };
+    try { exportFin('av'); } catch (e) { contabil = 'ERRO: ' + e.message; }
+    let relatorio = '';
+    window.download = (n, c) => { relatorio = String(c); };
+    exportRelatorio('av');
+    window.download = orig;
+    tab = 'aviarios'; render();
+    return { quebraAv, apagarAv, fazenda, contabil, relatorio,
+      classe: classOf('Insumos', 'saida'),
+      somaInsumos: avT.filter(x => x.category === 'Insumos').reduce((a, x) => a + x.amount, 0) };
+  })()`);
+  t.conferir('o gasto aparece no detalhamento por categoria do aviário',
+    /Insumos/.test(fim.quebraAv) && /2\.000/.test(fim.quebraAv),
+    fim.quebraAv.slice(0, 160) || 'bloco vazio');
+  t.conferir('a conta a pagar em Insumos entra no "A pagar" do aviário',
+    /Insumos/.test(fim.apagarAv) || /200/.test(fim.apagarAv),
+    fim.apagarAv.slice(0, 160) || 'bloco vazio');
+  t.conferir('a aba Fazenda enxerga o mesmo gasto',
+    /2\.000|9\.000/.test(fim.fazenda), 'consolidado');
+  t.conferir('o relatório leva a categoria e o valor somado',
+    /Insumos/.test(fim.relatorio) && /2000|2\.000/.test(fim.relatorio.replace(/"/g, '')),
+    (fim.relatorio.split('\n').filter(l => /Insumos/.test(l))[0] || 'linha ausente').slice(0, 140));
+  t.conferir('o arquivo do contador classifica Insumos como Custeio',
+    /Insumos/.test(fim.contabil) && /Custeio/.test(fim.contabil),
+    (fim.contabil.split('\n').filter(l => /Insumos/.test(l))[0] || 'linha ausente').slice(0, 140));
+  t.conferir('e a soma dos dois lançamentos de Insumos é a que a tela mostra',
+    fim.somaInsumos === 2000 && fim.classe === 'Custeio',
+    `${fim.somaInsumos} · ${fim.classe}`);
+
+  // A categoria nova não pode ter vazado para os outros livros, nem aparecer
+  // duas vezes na lista do próprio aviário.
+  const vazou = await pagina.evaluate(() => {
+    const ops = id => [...document.getElementById(id).options].map(o => o.value);
+    const av = ops('cats-av');
+    return { noBov: ops('cats-bov').includes('Insumos'),
+      noGeral: ops('cats-geral').includes('Insumos'),
+      repetida: av.filter(v => v === 'Insumos').length,
+      total: av.length };
+  });
+  t.conferir('"Insumos" não vazou para a lista dos Bovinos nem para a do Geral',
+    !vazou.noBov && !vazou.noGeral, JSON.stringify(vazou));
+  t.conferir('e aparece uma vez só na lista do aviário',
+    vazou.repetida === 1, `${vazou.repetida} vez(es) em ${vazou.total} opções`);
+
+  // Achar sem acento e sem maiúscula, que é como se digita no celular.
+  const achou = await pagina.evaluate(`(function () {
+    const itens = ${itens.toString()};
+    openTrans('av');
+    $('t-cat-abrir').click();
+    $('t-category').value = 'insumo';
+    $('t-category').dispatchEvent(new Event('input'));
+    const lista = itens();
+    closeAllM();
+    return lista;
+  })()`);
+  t.conferir('digitando "insumo" em minúscula a categoria é encontrada',
+    achou.includes('Insumos'), achou.join(' · ') || 'nada encontrado');
+
   // ---------- não nasce aberta ----------
   const reabriu = await pagina.evaluate(() => { openTrans('bov'); return $('t-cat-lista').hidden; });
   t.conferir('abrir um lançamento novo começa com a lista fechada', reabriu === true);
