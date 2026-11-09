@@ -31,6 +31,20 @@ export default async function () {
   t.conferir('"Mão de obra" está na lista dos Bovinos',
     existe.bov.includes('Mão de obra'), existe.bov.join(' · '));
   t.conferir('e na dos Aviários também', existe.av.includes('Mão de obra'));
+  // Pedido do dono: os Aviários também gastam com insumo — maravalha, cal,
+  // desinfetante. Os Bovinos tinham "Ração/insumos" e os Aviários não tinham
+  // nada equivalente, então esse gasto caía em "Outros" e sumia dentro dele.
+  t.conferir('"Insumos" está na lista dos Aviários',
+    existe.av.includes('Insumos'), existe.av.join(' · '));
+  t.conferir('e a lista continua em ordem alfabética, para achar com o dedo',
+    existe.av.every((v, i, a) => i === 0 || a[i - 1].localeCompare(v, 'pt-BR') <= 0),
+    existe.av.join(' · '));
+  const classeInsumos = await pagina.evaluate(() => ({
+    saida: classOf('Insumos', 'saida'), entrada: classOf('Insumos', 'entrada') }));
+  t.conferir('saída em Insumos é Custeio — gasto que some dentro do lote',
+    classeInsumos.saida === 'Custeio', classeInsumos.saida);
+  t.conferir('e entrada continua sendo Receita, porque quem manda é o sentido do dinheiro',
+    classeInsumos.entrada === 'Receita', classeInsumos.entrada);
 
   // ---------- abre com um toque ----------
   t.secao('abre com um toque');

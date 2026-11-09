@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 115;
+const VERSAO = 116;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -668,6 +668,11 @@ const CLASSIF = {
   'Ração/insumos': 'Custeio', 'Sal mineral/suplemento': 'Custeio', 'Medicamentos/vacinas': 'Custeio', 'Medicamentos': 'Custeio',
   'Mão de obra': 'Custeio', 'Combustível': 'Custeio', 'Manutenção': 'Custeio', 'Energia elétrica': 'Custeio',
   'Gás': 'Custeio', 'Frete': 'Custeio', 'Impostos/Funrural': 'Custeio',
+  // Insumos do aviário — maravalha, cal, desinfetante, o que se gasta no lote.
+  // Custeio: some dentro do ciclo, como a ração do boi. Sem esta linha a
+  // classificação já cairia em Custeio pelo padrão, mas padrão não é decisão:
+  // escrito aqui, ele sobrevive a qualquer mudança no que o padrão faz.
+  'Insumos': 'Custeio',
   // Comissão de leilão é despesa da VENDA, não investimento: entra como
   // custeio no livro-caixa, ao lado do frete do caminhão que levou o boi.
   'Comissão de leilão': 'Custeio', 'Arrendamento': 'Custeio', 'Contador/serviços': 'Custeio',
