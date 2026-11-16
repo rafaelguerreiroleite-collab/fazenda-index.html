@@ -743,6 +743,16 @@
         <button type="button" class="btn-primary" id="ag-share" hidden>Compartilhar / Salvar</button>
         <a class="btn-secondary ag-link" id="ag-baixar">Baixar para o app Arquivos</a>
       </div>
+      <!-- O PASSO SEGUINTE, ESCRITO ANTES DO TOQUE E COLADO NO BOTÃO.
+           Estava no rodapé da tela, depois do diagnóstico e da explicação do
+           automático: para lê-lo era preciso rolar a tela inteira. O dono tocou
+           em Compartilhar, a folha do iPhone abriu, e ele achou que tinha
+           falhado por não ir direto ao Calendário. Não tinha falhado — faltava
+           o passo que a tela só contava lá embaixo, onde ninguém vai. -->
+      <div id="ag-so-agenda" hidden>
+        <p class="small ag-passo" id="ag-passo"></p>
+        <p class="small"><button type="button" class="link-btn" id="ag-rever">Rever como separar do calendário pessoal</button></p>
+      </div>
       <p class="small" id="ag-share-nao" hidden>Este aparelho não oferece a folha
          de compartilhar — use "Abrir".</p>
       <p class="small">Baixando: abra o app <b>Arquivos</b> → <b>Transferências</b>
@@ -764,11 +774,6 @@
       <div id="ag-auto" hidden>
         <p class="small ag-destaque" id="ag-auto-motivo"></p>
         <p class="small"><button type="button" class="link-btn" id="ag-auto-desligar">Não abrir sozinho</button></p>
-      </div>
-      <div id="ag-so-agenda" hidden>
-        <p class="small">Na folha de compartilhar, escolha <b>Calendário</b> — e
-           dentro dele o calendário <b>Fazenda J.S</b>, não o pessoal.</p>
-        <p class="small"><button type="button" class="link-btn" id="ag-rever">Rever como separar do calendário pessoal</button></p>
       </div>
     </div>
   </div>

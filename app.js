@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 118;
+const VERSAO = 119;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -6650,6 +6650,26 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico, motivo })
   };
   $('ag-diag').textContent = diagEmTexto(d);
   $('ag-so-agenda').hidden = !ehAgenda;
+  // O TOQUE A MAIS NÃO É DEFEITO — MAS VIRAVA UM, POR NÃO ESTAR ESCRITO.
+  //
+  // Relato do dono com o compartilhar já funcionando: "vai, mas precisa clicar,
+  // não vai direto". O botão abriu a folha do iPhone e ele esperava cair no
+  // Calendário; como não caiu, pareceu que tinha falhado de novo.
+  //
+  // Escolher o destino na folha é exigência da Apple: nenhum aplicativo, web ou
+  // não, põe evento no calendário do iPhone sem esse toque. Então o que a tela
+  // pode fazer é avisar ANTES, para o passo ser esperado em vez de descoberto —
+  // e dizer que ele é do iPhone, não do aplicativo, senão vira desconfiança.
+  //
+  // O texto acompanha o caminho que ESTE aparelho aceita: prometer a folha de
+  // compartilhar a quem vai abrir o arquivo é o mesmo erro de novo, do outro
+  // lado.
+  if (ehAgenda) $('ag-passo').textContent = promover
+    ? 'O Compartilhar abre a folha do iPhone — ele não vai direto ao Calendário, '
+      + 'e isso é do iPhone, não do aplicativo: escolha o Calendário ali dentro, '
+      + 'e dentro dele o calendário Fazenda J.S, e não o pessoal.'
+    : 'Ao abrir o arquivo, o aparelho pergunta em qual calendário entrar: '
+      + 'escolha Fazenda J.S, e não o pessoal.';
   // A tela que apareceu sozinha precisa dizer POR QUE apareceu e como fazer
   // parar: tela que surge sem ser chamada e sem saída vira estorvo.
   $('ag-auto').hidden = !automatico;

@@ -1036,3 +1036,8 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
    o toast some em dois segundos e meio e "recusou" ficava indistinguível de
    "não aconteceu nada" — que foi a dúvida que trouxe o dono até aqui. */
 .ag-falhou { color: #b91c1c; font-weight: 600; }
+/* O passo seguinte ao toque fica colado no botão e destacado: é a informação
+   que faltava quando o dono achou que o compartilhar tinha falhado por abrir a
+   folha do iPhone em vez de ir direto ao Calendário. */
+.ag-passo { background: #f5f5f4; border-left: 3px solid #166534;
+  padding: 0.5rem 0.7rem; margin-top: 0 !important; color: #292524; }

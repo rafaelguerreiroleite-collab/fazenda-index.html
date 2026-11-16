@@ -213,6 +213,55 @@ export default async function () {
     / \(agenda-fazendajs\.ics · text\/calendar · /.test(aceita.diag),
     aceita.diag.split(' | ')[4]);
 
+  // ---------- o passo seguinte, escrito antes do toque ----------
+  //
+  // Relato do dono com o compartilhar JÁ FUNCIONANDO: "vai, mas precisa clicar,
+  // não vai direto". A folha do iPhone abriu e ele esperava cair no Calendário;
+  // como não caiu, pareceu ter falhado outra vez.
+  //
+  // Escolher o destino na folha é exigência da Apple e não dá para tirar. O que
+  // dava para consertar era a tela ter deixado isso ser surpresa: a instrução
+  // existia, mas morava no RODAPÉ, depois do diagnóstico e da explicação do
+  // automático — para lê-la era preciso rolar a tela inteira.
+  t.secao('o passo seguinte ao toque');
+  const passo = await pagina.evaluate(() => {
+    noIOS = () => true; instalado = () => true;
+    Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} });
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => true });
+    mostrarSaida({ nome: 'agenda-fazendajs.ics',
+      blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+      resumo: '1 conta', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    const texto = document.getElementById('ag-passo').textContent;
+    // Posição no documento: o passo tem de vir ANTES da caixa do diagnóstico.
+    const ordem = e => [...document.querySelectorAll('#modal-agenda-saida *')].indexOf(e);
+    return { texto, visivel: !document.getElementById('ag-so-agenda').hidden,
+      antesDoDiag: ordem(document.getElementById('ag-passo'))
+                 < ordem(document.getElementById('ag-diag')),
+      logoAposOsBotoes: ordem(document.getElementById('ag-passo'))
+                 > ordem(document.querySelector('.ag-acoes')) };
+  });
+  t.conferir('a tela avisa que o Compartilhar abre a folha, e não vai direto',
+    /não vai direto ao Calendário/.test(passo.texto), passo.texto.slice(0, 110));
+  t.conferir('e diz de quem é a exigência, para não virar desconfiança do aplicativo',
+    /é do iPhone, não do aplicativo/.test(passo.texto), passo.texto.slice(0, 140));
+  t.conferir('com o calendário certo a escolher: Fazenda J.S, não o pessoal',
+    /Fazenda J\.S, e não o pessoal/.test(passo.texto));
+  t.conferir('o passo fica junto do botão, ANTES do diagnóstico, sem rolar a tela',
+    passo.visivel && passo.antesDoDiag && passo.logoAposOsBotoes,
+    'visível: ' + passo.visivel + ' · antes do diagnóstico: ' + passo.antesDoDiag);
+  // Prometer a folha de compartilhar a quem vai ABRIR o arquivo é o mesmo erro
+  // de novo, do outro lado — por isso o texto segue o caminho do aparelho.
+  const passoAbrir = await pagina.evaluate(() => {
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false });
+    mostrarSaida({ nome: 'agenda-fazendajs.ics',
+      blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+      resumo: '1 conta', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    return document.getElementById('ag-passo').textContent;
+  });
+  t.conferir('quem vai abrir o arquivo não recebe instrução sobre a folha',
+    !/folha do iPhone/.test(passoAbrir) && /Fazenda J\.S/.test(passoAbrir),
+    passoAbrir.slice(0, 110));
+
   // ---------- o aparelho que não responde ----------
   //
   // Há navegador com a folha de compartilhar e SEM a checagem (navigator.
