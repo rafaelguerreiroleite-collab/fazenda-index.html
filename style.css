@@ -1031,3 +1031,8 @@ details summary { cursor: pointer; padding: 0.5rem 0; font-family: 'DM Mono', mo
    escuro, então na cor das notas de rodapé das outras telas. */
 .sim-nota { font-size: 0.64rem; color: #78716c; line-height: 1.45;
   margin: 0.45rem 0 0; padding: 0 0.15rem; }
+
+/* O compartilhar foi recusado pelo aparelho. Fica na tela, em vermelho, porque
+   o toast some em dois segundos e meio e "recusou" ficava indistinguível de
+   "não aconteceu nada" — que foi a dúvida que trouxe o dono até aqui. */
+.ag-falhou { color: #b91c1c; font-weight: 600; }

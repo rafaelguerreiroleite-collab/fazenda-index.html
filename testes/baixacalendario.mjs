@@ -99,6 +99,120 @@ export default async function () {
   t.conferir('e o botão fala em ATUALIZAR, que é o que vai acontecer',
     texto.botao === 'Atualizar o Calendário', texto.botao);
 
+  // ---------- a linha de diagnóstico descreve o arquivo DA TELA ----------
+  //
+  // O dono mandou a linha pedindo ajuda e ela não servia: testava sempre um
+  // "a.ics" do tipo text/calendar, que é um arquivo que o aplicativo nunca
+  // oferece. Os de verdade saem com charset no tipo — text/calendar;charset=
+  // utf-8, text/csv;charset=utf-8, application/json;charset=utf-8 — e o iPhone
+  // decide se aceita compartilhar OLHANDO O TIPO. A resposta podia ser "sim"
+  // para o arquivo de mentira e "não" para o que estava na mão da pessoa.
+  //
+  // E a linha não dizia QUAL arquivo estava na tela, nem o tamanho dele. Sem
+  // isso não dá para saber se o problema é na agenda, no relatório ou no
+  // backup, e um backup de 30 MB não se comporta como um .ics de 2 KB.
+  t.secao('o diagnóstico fala do arquivo que está na tela');
+  const diag = await pagina.evaluate(`(async function () {
+    const vendo = () => document.getElementById('ag-diag').textContent;
+    const r = {};
+    mostrarSaida({ nome: 'agenda-fazendajs.ics',
+      blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+      resumo: '2 contas', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    r.agenda = vendo();
+    // O BOTÃO, e não a variável: o que importa é o texto que chega na conversa.
+    // Conferindo a variável, a mutação que fazia o botão recalcular sobre o
+    // arquivo de mentira passava batida — o conferidor olhava para o lado certo
+    // da tela e para o lado errado do problema.
+    let copiado = null;
+    const origCb = navigator.clipboard && navigator.clipboard.writeText;
+    try {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true,
+        value: { writeText: async t => { copiado = t; } } });
+    } catch (e) { copiado = 'SEM ACESSO'; }
+    document.getElementById('ag-diag-copiar').click();
+    await new Promise(ok => setTimeout(ok, 30));
+    r.copiado = copiado;
+    r.copiadoIgual = copiado === vendo();
+    mostrarSaida({ nome: 'lancamentos.csv',
+      blob: new Blob(['a;b;c'], { type: 'text/csv;charset=utf-8' }),
+      resumo: '10 linhas', cru: 'a;b;c' });
+    r.csv = vendo();
+    mostrarSaida({ nome: 'backup-fazendajs.json',
+      blob: new Blob([new Uint8Array(3 * 1024 * 1024)], { type: 'application/json;charset=utf-8' }),
+      resumo: 'tudo', cru: null });
+    r.backup = vendo();
+    r.generico = diagEmTexto(diagnostico());
+    closeAllM();
+    document.getElementById('modal-agenda-saida').hidden = true;
+    return r;
+  })()`);
+  // O tipo que a linha mostra é o do arquivo QUE VAI SER COMPARTILHADO, e esse
+  // sai sem o ";charset=utf-8": o charset fica no blob, que precisa dele para o
+  // programa que abrir o arquivo ler os acentos, e sai do File, onde não serve
+  // para nada e podia ser o motivo de o iPhone recusar.
+  t.conferir('a agenda aparece com nome e tipo de verdade na linha',
+    /agenda-fazendajs\.ics/.test(diag.agenda) && /· text\/calendar ·/.test(diag.agenda),
+    diag.agenda.slice(0, 150));
+  t.conferir('o arquivo do contador também, com o tipo dele',
+    /lancamentos\.csv/.test(diag.csv) && /· text\/csv ·/.test(diag.csv),
+    diag.csv.slice(0, 150));
+  t.conferir('o backup também, e com o tamanho, que no iPhone muda tudo',
+    /backup-fazendajs\.json/.test(diag.backup) && /3\.0 MB/.test(diag.backup),
+    diag.backup.slice(0, 160));
+  t.conferir('cada tela traz o SEU arquivo, e não o da tela anterior',
+    !/agenda/.test(diag.csv) && !/lancamentos/.test(diag.backup),
+    `${diag.csv.slice(60, 120)} | ${diag.backup.slice(60, 120)}`);
+  t.conferir('o botão de copiar manda a MESMA linha que está na tela',
+    diag.copiadoIgual === true, `copiado: ${String(diag.copiado).slice(0, 120)}`);
+  // Sem arquivo na mão a conta é genérica, e tem de se declarar genérica: é a
+  // diferença entre medida e palpite.
+  t.conferir('sem arquivo na tela, a linha diz que o teste é genérico',
+    /teste a\.ics/.test(diag.generico), diag.generico.slice(0, 150));
+
+  // ---------- quem decide a ordem dos botões é o aparelho ----------
+  //
+  // A tela dizia, fixo: "No iPhone, é o PRIMEIRO" — e o primeiro era "Abrir o
+  // arquivo". Dentro do aplicativo instalado na tela de início, abrir um
+  // endereço blob: não faz nada: sem arquivo, sem erro, sem aviso. O dono tocou
+  // e não aconteceu nada, exatamente como a frase não previa. Ela tinha sido
+  // escrita como certeza e nunca passou por um iPhone de verdade.
+  t.secao('a tela aponta o caminho que ESTE aparelho aceita');
+  const palco = (podeArquivo, temShare, ios) => `(function () {
+    Object.defineProperty(navigator, 'share', { configurable: true,
+      value: ${temShare} ? (async () => {}) : undefined });
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => ${podeArquivo} });
+    noIOS = () => ${ios}; instalado = () => ${ios};
+    mostrarSaida({ nome: 'agenda-fazendajs.ics',
+      blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+      resumo: '2 contas', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    const acoes = document.getElementById('ag-share').parentElement;
+    return { primeiro: acoes.children[0].id,
+      ordem: [...acoes.children].map(e => e.id).join('>'),
+      sharePrimario: document.getElementById('ag-share').classList.contains('btn-primary'),
+      como: document.getElementById('ag-como').textContent,
+      diag: document.getElementById('ag-diag').textContent };
+  })()`;
+  const aceita = await pagina.evaluate(palco('true', 'true', 'true'));
+  t.conferir('iPhone instalado que aceita o arquivo: Compartilhar vem primeiro',
+    aceita.primeiro === 'ag-share' && aceita.sharePrimario, aceita.ordem);
+  t.conferir('e a tela diz que os outros dois costumam não fazer nada ali dentro',
+    /não fazer nada/.test(aceita.como) && /Compartilhar/.test(aceita.como),
+    aceita.como.slice(0, 130));
+  t.conferir('com a saída pelo Safari escrita, para quem precisar dos outros',
+    /Safari/.test(aceita.como), aceita.como.slice(0, 160));
+  const recusa = await pagina.evaluate(palco('false', 'true', 'true'));
+  t.conferir('iPhone que NÃO aceita o arquivo: a tela diz isso, em vez de prometer',
+    recusa.primeiro === 'ag-abrir' && /não aceita compartilhar/.test(recusa.como),
+    recusa.como.slice(0, 130));
+  const pc = await pagina.evaluate(palco('false', 'false', 'false'));
+  t.conferir('no computador, qualquer caminho serve, e a tela não assusta ninguém',
+    pc.primeiro === 'ag-abrir' && /qualquer um dos caminhos/.test(pc.como),
+    pc.como.slice(0, 120));
+  // O ";charset=utf-8" fica no blob, que precisa dele, e sai do File, que não.
+  t.conferir('o arquivo que vai para o compartilhar sai sem ";charset"',
+    / \(agenda-fazendajs\.ics · text\/calendar · /.test(aceita.diag),
+    aceita.diag.split(' | ')[4]);
+
   // ---------- conta que nunca foi para o calendário ----------
   // Abrir a tela para cancelar um lembrete que não existe seria pedir um toque
   // à toa, toda vez que alguém desse baixa.

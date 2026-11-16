@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 116;
+const VERSAO = 117;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -6397,26 +6397,58 @@ function agendaICS(contas, opc) {
 // de programa não tem, e se um caminho não existir no aparelho ele nem
 // aparece, em vez de falhar calado.
 let saidaURL = null;
+// A linha de diagnóstico que está na tela agora, para o botão de copiar mandar
+// a MESMA, e não uma recalculada sobre outro arquivo.
+let diagAtual = null;
 // O que ESTE aparelho permite. Não é curiosidade técnica: dentro de um
 // aplicativo instalado na tela de início do iPhone, três coisas que funcionam
 // em qualquer navegador simplesmente não funcionam, e nenhuma delas avisa.
 // Sem isto, "não apareceu nada" não distingue uma da outra.
-function diagnostico() {
-  const teste = new File(['x'], 'a.ics', { type: 'text/calendar' });
-  let compArq = false;
-  try { compArq = !!(navigator.canShare && navigator.canShare({ files: [teste] })); } catch (e) {}
+// O diagnóstico tem de falar do arquivo QUE ESTÁ NA TELA, e não de um arquivo
+// de mentira.
+//
+// Ele testava sempre um "a.ics" do tipo text/calendar. Nenhum arquivo que o
+// aplicativo oferece tem esse tipo: a agenda sai como text/calendar;charset=
+// utf-8, o arquivo do contador como text/csv;charset=utf-8 e o backup como
+// application/json;charset=utf-8. O iPhone decide se aceita compartilhar OLHANDO
+// O TIPO, então a resposta podia ser "sim" para um arquivo que não existe e
+// "não" para o que a pessoa está com o dedo em cima.
+//
+// Pior: a linha não dizia QUAL arquivo estava na tela. O dono mandou a linha
+// pedindo ajuda e ela não permitia saber se o problema era na agenda, no
+// relatório ou no backup — nem se o arquivo tinha 2 KB ou 30 MB, que no iPhone
+// é a diferença entre compartilhar e não compartilhar.
+//
+// Agora a linha descreve o arquivo de verdade: nome, tipo, tamanho e se ESTE
+// pode ser compartilhado. Sem arquivo na mão, ela diz que o teste é genérico,
+// em vez de deixar parecer medida.
+function podeCompartilharArquivo(f) {
+  try { return !!(navigator.canShare && navigator.canShare({ files: [f] })); }
+  catch (e) { return false; }
+}
+function diagnostico(arquivo) {
+  const alvo = arquivo || new File(['x'], 'a.ics', { type: 'text/calendar' });
   return {
     versao: VERSAO,
     ios: noIOS(),
     instalado: instalado(),
     temShare: !!navigator.share,
-    compArq,
+    compArq: podeCompartilharArquivo(alvo),
+    real: !!arquivo,
+    nome: alvo.name,
+    tipo: alvo.type || 'sem tipo',
+    tamanho: alvo.size,
     ua: (navigator.userAgent || '').slice(0, 120)
   };
 }
+const kbDiag = n => !Number.isFinite(n) ? '?'
+  : n < 1024 ? n + ' B'
+  : n < 1024 * 1024 ? Math.round(n / 1024) + ' KB'
+  : (n / 1024 / 1024).toFixed(1) + ' MB';
 const diagEmTexto = d => `Fazenda J.S v${d.versao} | iOS ${d.ios ? 'sim' : 'nao'}`
   + ` | instalado ${d.instalado ? 'sim' : 'nao'} | compartilhar ${d.temShare ? 'sim' : 'nao'}`
-  + ` | compartilhar-arquivo ${d.compArq ? 'sim' : 'nao'} | ${d.ua}`;
+  + ` | compartilhar-arquivo ${d.compArq ? 'sim' : 'nao'}`
+  + ` (${d.real ? '' : 'teste '}${d.nome} · ${d.tipo} · ${kbDiag(d.tamanho)}) | ${d.ua}`;
 // A tela que abre sozinha precisa dizer POR QUE abriu. Ela dizia sempre "você
 // acabou de lançar uma conta a prazo" — inclusive quando tinha aberto por uma
 // conta PAGA. Quem acabou de dar baixa lia aquilo, não reconhecia a própria
@@ -6462,14 +6494,60 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico, motivo })
   // iPhone recusa .ics nessa checagem, e era isso que escondia o botão — a
   // pessoa via dois caminhos onde deveria ver três. Recusando de novo na hora
   // do toque, o erro APARECE, em vez de o botão sumir sem explicação.
-  const arquivo = new File([blob], nome, { type: blob.type });
-  const d = diagnostico();
+  // O ARQUIVO QUE VAI PARA O COMPARTILHAR SAI SEM O ";charset=utf-8".
+  //
+  // O blob precisa do charset: é ele que diz ao programa que abrir o arquivo
+  // como ler os acentos. Mas o iPhone decide se ACEITA compartilhar olhando o
+  // tipo, e "text/calendar;charset=utf-8" não é o mesmo texto que
+  // "text/calendar" para essa checagem. O parâmetro não serve para nada dentro
+  // de um File, e podia ser exatamente o que fazia o iPhone recusar.
+  //
+  // Relato do dono, no iPhone 18.7 com o aplicativo instalado: tocava nos
+  // botões da agenda e NADA acontecia. Não dá para reproduzir iOS aqui, então
+  // isto é a hipótese mais forte somada a instrumentação — a linha de
+  // diagnóstico agora diz o tipo real e se ESTE arquivo pode ser compartilhado,
+  // e é ela que vai confirmar ou derrubar a hipótese no aparelho dele.
+  const tipoPuro = String(blob.type || '').split(';')[0] || 'application/octet-stream';
+  const arquivo = new File([blob], nome, { type: tipoPuro });
+  // O diagnóstico olha ESTE arquivo, o que está na tela — não um de mentira.
+  const d = diagnostico(arquivo);
+  diagAtual = d;
   $('ag-share').hidden = !d.temShare;
   $('ag-share-nao').hidden = d.temShare;
   $('ag-share').textContent = ehAgenda
     ? 'Compartilhar → Calendário' : 'Compartilhar / Salvar';
   $('ag-abrir').textContent = !ehAgenda ? 'Abrir o arquivo'
     : motivo === 'baixa' ? 'Atualizar o Calendário' : 'Abrir no Calendário';
+
+  // QUAL CAMINHO VEM PRIMEIRO QUEM DECIDE É O APARELHO, NÃO UMA FRASE.
+  //
+  // A tela dizia, fixo: "No iPhone, é o PRIMEIRO" — e o primeiro era "Abrir o
+  // arquivo". Dentro do aplicativo instalado na tela de início, abrir um
+  // endereço blob: não faz nada: sem arquivo, sem erro, sem aviso. O dono
+  // tocou e não aconteceu nada, exatamente como a frase não previa. Aquilo
+  // tinha sido escrito como certeza e nunca passou por um iPhone.
+  //
+  // Agora, quando o aparelho diz que aceita compartilhar ESTE arquivo, o
+  // Compartilhar vira o primeiro e o principal, e o texto explica que os
+  // outros dois costumam não fazer nada aí dentro — e o que fazer para eles
+  // voltarem a funcionar: abrir o site pelo Safari, fora do aplicativo.
+  const acoes = $('ag-share').parentElement;
+  const promover = d.compArq && d.temShare;
+  if (promover) acoes.prepend($('ag-share'));
+  else acoes.prepend($('ag-abrir'));
+  $('ag-share').classList.toggle('btn-primary', promover);
+  $('ag-share').classList.toggle('btn-secondary', !promover);
+  $('ag-abrir').classList.toggle('btn-primary', !promover);
+  $('ag-abrir').classList.toggle('btn-secondary', promover);
+  $('ag-como').classList.remove('ag-falhou');
+  $('ag-como').textContent = !d.ios || !d.instalado
+    ? 'No computador e no Safari, qualquer um dos caminhos serve.'
+    : promover
+      ? 'Dentro do aplicativo instalado, use o PRIMEIRO — Compartilhar. '
+        + 'Os outros dois costumam não fazer nada aqui dentro; para usá-los, '
+        + 'abra o site pelo Safari, fora do aplicativo.'
+      : 'Este aparelho não aceita compartilhar este arquivo. Se tocar nos botões '
+        + 'e nada acontecer, abra o site pelo Safari, fora do aplicativo instalado.';
   $('ag-share').onclick = async () => {
     try { await navigator.share({ files: [arquivo], title: nome }); }
     catch (e) {
@@ -6479,7 +6557,15 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico, motivo })
       try { await navigator.share({ title: nome, text: cru || '' }); return; }
       catch (e2) {
         if (e2 && e2.name === 'AbortError') return;
-        toast('Este aparelho recusou compartilhar (' + ((e && e.name) || 'erro') + ') — use "Abrir"');
+        // O aviso vai para a TELA, e não só para o toast. O toast some em dois
+        // segundos e meio e pode passar despercebido atrás do modal — e aí
+        // "recusou" fica indistinguível de "não aconteceu nada", que é
+        // exatamente a dúvida que trouxe o dono até aqui.
+        const motivoErro = (e && e.name) || 'erro';
+        $('ag-como').textContent = `Este aparelho recusou compartilhar (${motivoErro}). `
+          + 'Abra o site pelo Safari, fora do aplicativo instalado, e use "Baixar".';
+        $('ag-como').classList.add('ag-falhou');
+        toast('Este aparelho recusou compartilhar (' + motivoErro + ')');
       }
     }
   };
@@ -6493,7 +6579,11 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico, motivo })
   $('modal-agenda-saida').hidden = false;
 }
 $('ag-diag-copiar').addEventListener('click', async () => {
-  const txt = diagEmTexto(diagnostico());
+  // Copia EXATAMENTE a linha que está na tela. Recalculando aqui, o botão
+  // copiava um diagnóstico do arquivo de mentira enquanto a tela mostrava o do
+  // arquivo de verdade — duas linhas diferentes com o mesmo nome, e a que
+  // chegava na conversa era a errada.
+  const txt = diagEmTexto(diagAtual || diagnostico());
   try { await navigator.clipboard.writeText(txt); toast('Copiado — cole na conversa'); }
   catch (e) { $('ag-diag').classList.add('sel'); toast('Não deu para copiar — leia a linha acima'); }
 });
