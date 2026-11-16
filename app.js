@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 117;
+const VERSAO = 118;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -6422,22 +6422,49 @@ let diagAtual = null;
 // Agora a linha descreve o arquivo de verdade: nome, tipo, tamanho e se ESTE
 // pode ser compartilhado. Sem arquivo na mão, ela diz que o teste é genérico,
 // em vez de deixar parecer medida.
+// TRÊS RESPOSTAS, NÃO DUAS: aceita, recusa e NÃO DÁ PARA SABER.
+//
+// Antes isto devolvia false em três situações diferentes: o aparelho respondeu
+// "não"; o aparelho não tem a pergunta (navigator.canShare não existe, caso de
+// navegadores que têm a folha de compartilhar mas não a checagem); e a pergunta
+// deu erro. Só a primeira é uma medida — as outras duas são silêncio.
+//
+// Medido aqui, com canShare removido: a linha de diagnóstico saía afirmando
+// "compartilhar-arquivo nao" sobre um aparelho que nunca foi perguntado, e a
+// tela dizia "este aparelho não aceita compartilhar este arquivo". Declarar
+// base errada é pior do que não declarar: quem lê acredita, e eu mesmo ia
+// acreditar na linha que o dono colasse na conversa.
 function podeCompartilharArquivo(f) {
-  try { return !!(navigator.canShare && navigator.canShare({ files: [f] })); }
-  catch (e) { return false; }
+  if (!f) return null;                   // não há arquivo sobre o que perguntar
+  if (!navigator.canShare) return null;  // este aparelho não responde a pergunta
+  try { return !!navigator.canShare({ files: [f] }); }
+  catch (e) { return null; }             // perguntou e não houve resposta
 }
-function diagnostico(arquivo) {
-  const alvo = arquivo || new File(['x'], 'a.ics', { type: 'text/calendar' });
+// MONTAR O File PODE FALHAR, E FALHAR AQUI DERRUBAVA A TELA INTEIRA.
+//
+// Medido: com o construtor File quebrado, a tela da agenda não abria — nem o
+// Abrir, nem o Baixar, nem o texto de reserva, nem a linha de diagnóstico. O
+// arquivo já estava pronto e a pessoa ficava sem nenhum dos caminhos por causa
+// do caminho que ela nem ia usar. Agora, sem File, perde-se só o Compartilhar.
+function arquivoDe(blob, nome, tipo) {
+  try { return new File([blob], nome, { type: tipo }); }
+  catch (e) { return null; }
+}
+function diagnostico(arquivo, desc) {
+  // `desc` descreve o arquivo que ESTÁ na tela quando não foi possível montar
+  // um File para perguntar sobre ele: o nome e o tamanho continuam valendo.
+  const alvo = arquivo || (desc ? null : arquivoDe(new Blob(['x']), 'a.ics', 'text/calendar'));
+  const fonte = arquivo || alvo || desc || { name: 'a.ics', type: 'text/calendar', size: 1 };
   return {
     versao: VERSAO,
     ios: noIOS(),
     instalado: instalado(),
     temShare: !!navigator.share,
-    compArq: podeCompartilharArquivo(alvo),
-    real: !!arquivo,
-    nome: alvo.name,
-    tipo: alvo.type || 'sem tipo',
-    tamanho: alvo.size,
+    compArq: podeCompartilharArquivo(arquivo || alvo),
+    real: !!(arquivo || desc),
+    nome: fonte.name || fonte.nome,
+    tipo: (fonte.type || fonte.tipo) || 'sem tipo',
+    tamanho: Number.isFinite(fonte.size) ? fonte.size : fonte.tamanho,
     ua: (navigator.userAgent || '').slice(0, 120)
   };
 }
@@ -6447,7 +6474,7 @@ const kbDiag = n => !Number.isFinite(n) ? '?'
   : (n / 1024 / 1024).toFixed(1) + ' MB';
 const diagEmTexto = d => `Fazenda J.S v${d.versao} | iOS ${d.ios ? 'sim' : 'nao'}`
   + ` | instalado ${d.instalado ? 'sim' : 'nao'} | compartilhar ${d.temShare ? 'sim' : 'nao'}`
-  + ` | compartilhar-arquivo ${d.compArq ? 'sim' : 'nao'}`
+  + ` | compartilhar-arquivo ${d.compArq === true ? 'sim' : d.compArq === false ? 'nao' : 'nao sei'}`
   + ` (${d.real ? '' : 'teste '}${d.nome} · ${d.tipo} · ${kbDiag(d.tamanho)}) | ${d.ua}`;
 // A tela que abre sozinha precisa dizer POR QUE abriu. Ela dizia sempre "você
 // acabou de lançar uma conta a prazo" — inclusive quando tinha aberto por uma
@@ -6508,9 +6535,11 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico, motivo })
   // diagnóstico agora diz o tipo real e se ESTE arquivo pode ser compartilhado,
   // e é ela que vai confirmar ou derrubar a hipótese no aparelho dele.
   const tipoPuro = String(blob.type || '').split(';')[0] || 'application/octet-stream';
-  const arquivo = new File([blob], nome, { type: tipoPuro });
+  const arquivo = arquivoDe(blob, nome, tipoPuro);
   // O diagnóstico olha ESTE arquivo, o que está na tela — não um de mentira.
-  const d = diagnostico(arquivo);
+  // Sem File, ele ainda diz nome, tipo e tamanho do que está na tela, e diz
+  // "nao sei" sobre compartilhar, em vez de inventar um "nao".
+  const d = diagnostico(arquivo, { nome, tipo: tipoPuro, tamanho: blob.size });
   diagAtual = d;
   $('ag-share').hidden = !d.temShare;
   $('ag-share-nao').hidden = d.temShare;
@@ -6531,8 +6560,12 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico, motivo })
   // Compartilhar vira o primeiro e o principal, e o texto explica que os
   // outros dois costumam não fazer nada aí dentro — e o que fazer para eles
   // voltarem a funcionar: abrir o site pelo Safari, fora do aplicativo.
+  // Na dúvida, o Compartilhar vem primeiro. Dentro do aplicativo instalado no
+  // iPhone ele é o ÚNICO dos três que pode funcionar, então mandar a pessoa no
+  // Abrir porque o aparelho não soube responder é mandá-la no caminho morto.
+  // "Não sei" promove; só um "não" medido rebaixa.
   const acoes = $('ag-share').parentElement;
-  const promover = d.compArq && d.temShare;
+  const promover = d.compArq !== false && d.temShare;
   if (promover) acoes.prepend($('ag-share'));
   else acoes.prepend($('ag-abrir'));
   $('ag-share').classList.toggle('btn-primary', promover);
@@ -6542,32 +6575,78 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico, motivo })
   $('ag-como').classList.remove('ag-falhou');
   $('ag-como').textContent = !d.ios || !d.instalado
     ? 'No computador e no Safari, qualquer um dos caminhos serve.'
-    : promover
+    : d.compArq === true
       ? 'Dentro do aplicativo instalado, use o PRIMEIRO — Compartilhar. '
         + 'Os outros dois costumam não fazer nada aqui dentro; para usá-los, '
         + 'abra o site pelo Safari, fora do aplicativo.'
-      : 'Este aparelho não aceita compartilhar este arquivo. Se tocar nos botões '
-        + 'e nada acontecer, abra o site pelo Safari, fora do aplicativo instalado.';
+      : d.compArq === null
+        ? 'Comece pelo PRIMEIRO — Compartilhar. Este aparelho não respondeu se '
+          + 'aceita este arquivo, então pode ser que recuse; se recusar, aparece '
+          + 'um aviso aqui e o caminho é abrir o site pelo Safari, fora do aplicativo.'
+        : 'Este aparelho não aceita compartilhar este arquivo. Se tocar nos botões '
+          + 'e nada acontecer, abra o site pelo Safari, fora do aplicativo instalado.';
+  // DOIS TOQUES NO MESMO BOTÃO NÃO SÃO UMA RECUSA DO APARELHO.
+  //
+  // Enquanto a folha de compartilhar está aberta, o iPhone deixa a promessa
+  // pendurada; um segundo toque no botão, por baixo dela, faz a chamada estourar
+  // com InvalidStateError — "já estou compartilhando". Medido: a tela então
+  // acusava, em vermelho, "Este aparelho recusou compartilhar
+  // (InvalidStateError)", com a folha aberta na frente dela.
+  //
+  // E é o toque mais provável que existe aqui: o dono tocou, não aconteceu nada
+  // visível, e tocou de novo — foi assim que este trabalho começou. O aviso que
+  // eu pus para acabar com a dúvida "recusou ou não aconteceu nada?" ia passar a
+  // produzir a resposta errada justamente para quem estava com a dúvida.
+  let compartilhando = false;
+  // AbortError é o usuário fechando a folha; InvalidStateError é uma folha já
+  // aberta. Nenhum dos dois é o aparelho dizendo não.
+  const recusaDeVerdade = e => !!e && e.name !== 'AbortError' && e.name !== 'InvalidStateError';
+  // O aviso vai para a TELA, e não só para o toast. O toast some em dois
+  // segundos e meio e pode passar despercebido atrás do modal — e aí "recusou"
+  // fica indistinguível de "não aconteceu nada", que é exatamente a dúvida que
+  // trouxe o dono até aqui. Todo caminho que termina sem compartilhar passa
+  // obrigatoriamente por aqui: o único desfecho sem aviso é o que deu certo.
+  const avisarRecusa = motivoErro => {
+    $('ag-como').textContent = `Este aparelho recusou compartilhar (${motivoErro}). `
+      + 'Abra o site pelo Safari, fora do aplicativo instalado, e use "Baixar".';
+    $('ag-como').classList.add('ag-falhou');
+    toast('Este aparelho recusou compartilhar (' + motivoErro + ')');
+  };
   $('ag-share').onclick = async () => {
-    try { await navigator.share({ files: [arquivo], title: nome }); }
-    catch (e) {
-      if (e && e.name === 'AbortError') return;
+    if (compartilhando) return;
+    compartilhando = true;
+    // A trava solta no `finally`, e não no fim do `try`: enquanto a folha está
+    // aberta a promessa fica pendurada, então ela segura o segundo toque pelo
+    // tempo certo — nem um instante a mais. Sem o `finally`, uma recusa deixava
+    // o botão morto para sempre, que é trocar um defeito por outro pior.
+    try {
+      let motivoErro = 'SemArquivo';   // nem File este aparelho montou
+      if (arquivo) {
+        try { await navigator.share({ files: [arquivo], title: nome }); return; }
+        catch (e) {
+          if (!recusaDeVerdade(e)) return;
+          motivoErro = (e && e.name) || 'erro';
+        }
+      }
       // Segunda tentativa só com o texto: alguns aparelhos recusam o ARQUIVO e
       // aceitam o conteúdo, e daí dá para salvar nas Notas.
-      try { await navigator.share({ title: nome, text: cru || '' }); return; }
-      catch (e2) {
-        if (e2 && e2.name === 'AbortError') return;
-        // O aviso vai para a TELA, e não só para o toast. O toast some em dois
-        // segundos e meio e pode passar despercebido atrás do modal — e aí
-        // "recusou" fica indistinguível de "não aconteceu nada", que é
-        // exatamente a dúvida que trouxe o dono até aqui.
-        const motivoErro = (e && e.name) || 'erro';
-        $('ag-como').textContent = `Este aparelho recusou compartilhar (${motivoErro}). `
-          + 'Abra o site pelo Safari, fora do aplicativo instalado, e use "Baixar".';
-        $('ag-como').classList.add('ag-falhou');
-        toast('Este aparelho recusou compartilhar (' + motivoErro + ')');
+      //
+      // Só quando HÁ texto. Medido: com o conteúdo vazio, isto chamava
+      // compartilhar com text:"" — o aparelho aceita, a folha abre sem nada
+      // dentro, a função devolve "deu certo" e a tela não diz coisa alguma.
+      // Silêncio depois de um toque é exatamente o que não pode acontecer aqui.
+      //
+      // E o mesmo limite do texto de reserva, pela mesma razão, que já está
+      // escrita lá em cima: o backup completo passa de dezenas de MB com as
+      // notas fiscais dentro, e mandar isso para a folha de compartilhar trava
+      // o aparelho. O limite mora num lugar só — `cabeCopiar` — para as duas
+      // telas não discordarem com o tempo.
+      if (cabeCopiar && cru.trim() !== '') {
+        try { await navigator.share({ title: nome, text: cru }); return; }
+        catch (e2) { if (!recusaDeVerdade(e2)) return; }
       }
-    }
+      avisarRecusa(motivoErro);
+    } finally { compartilhando = false; }
   };
   $('ag-diag').textContent = diagEmTexto(d);
   $('ag-so-agenda').hidden = !ehAgenda;

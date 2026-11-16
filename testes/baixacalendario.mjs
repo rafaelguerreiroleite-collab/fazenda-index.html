@@ -213,6 +213,206 @@ export default async function () {
     / \(agenda-fazendajs\.ics · text\/calendar · /.test(aceita.diag),
     aceita.diag.split(' | ')[4]);
 
+  // ---------- o aparelho que não responde ----------
+  //
+  // Há navegador com a folha de compartilhar e SEM a checagem (navigator.
+  // canShare). Perguntar a ele devolvia "não" — e a tela passava a AFIRMAR
+  // "este aparelho não aceita compartilhar este arquivo", sobre um aparelho que
+  // nunca foi perguntado. A linha de diagnóstico, que é o que chega na conversa
+  // pedindo ajuda, afirmava "compartilhar-arquivo nao" pelo mesmo motivo.
+  //
+  // Declarar base errada é pior do que não declarar: eu mesmo ia ler aquela
+  // linha e procurar defeito no lugar errado. Agora são três respostas — sim,
+  // nao e "nao sei" — e só um "nao" medido rebaixa o Compartilhar.
+  t.secao('aparelho que não responde se aceita o arquivo');
+  const naoSei = await pagina.evaluate(() => {
+    noIOS = () => true; instalado = () => true;
+    Object.defineProperty(navigator, 'share', { configurable: true, value: async () => {} });
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined });
+    mostrarSaida({ nome: 'agenda-fazendajs.ics',
+      blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+      resumo: '2 contas', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    return { como: document.getElementById('ag-como').textContent,
+      diag: document.getElementById('ag-diag').textContent,
+      primeiro: document.getElementById('ag-share').parentElement.children[0].id };
+  });
+  t.conferir('a tela não afirma recusa de um aparelho que não foi perguntado',
+    !/não aceita compartilhar/.test(naoSei.como), naoSei.como.slice(0, 120));
+  t.conferir('ela manda tentar o Compartilhar, que é o único que pode funcionar ali',
+    naoSei.primeiro === 'ag-share' && /Comece pelo PRIMEIRO/.test(naoSei.como),
+    naoSei.primeiro + ' · ' + naoSei.como.slice(0, 90));
+  t.conferir('a linha de diagnóstico diz "nao sei", e não "nao"',
+    / compartilhar-arquivo nao sei /.test(naoSei.diag), naoSei.diag.split(' | ')[4]);
+
+  // ---------- o aparelho sem o construtor File ----------
+  //
+  // Montar o File é o primeiro passo do Compartilhar, e ele acontecia ANTES de
+  // a tela abrir. Medido: com o construtor quebrado, a tela da agenda não abria
+  // — a pessoa perdia o Abrir, o Baixar, o texto de reserva e a própria linha de
+  // diagnóstico por causa do caminho que ela nem ia usar. O arquivo já estava
+  // pronto; faltava só mostrá-lo.
+  t.secao('aparelho sem o construtor File');
+  const semFile = await pagina.evaluate(() => {
+    const orig = window.File;
+    window.File = function () { throw new TypeError('sem File aqui'); };
+    let erro = null;
+    try {
+      mostrarSaida({ nome: 'agenda-fazendajs.ics',
+        blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+        resumo: '2 contas', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    } catch (e) { erro = String(e && e.message || e); }
+    const r = { erro, aberto: !document.getElementById('modal-agenda-saida').hidden,
+      diag: document.getElementById('ag-diag').textContent,
+      temBaixar: !!document.getElementById('ag-baixar').getAttribute('href') };
+    window.File = orig;
+    return r;
+  });
+  t.conferir('a tela abre assim mesmo, com os outros caminhos de pé',
+    semFile.aberto && semFile.temBaixar && !semFile.erro, semFile.erro || 'sem erro');
+  t.conferir('e a linha ainda diz o nome e o tamanho do arquivo que está na tela',
+    /agenda-fazendajs\.ics/.test(semFile.diag) && / compartilhar-arquivo nao sei /.test(semFile.diag),
+    semFile.diag.split(' | ')[4]);
+
+  // ---------- o toque que não dá certo ----------
+  //
+  // O aviso vermelho existe para acabar com a dúvida "recusou ou não aconteceu
+  // nada?", que foi a dúvida do dono. Estas conferências cobram que ele apareça
+  // EXATAMENTE nos casos em que o arquivo não foi — e em nenhum outro, porque
+  // alarme que toca no trabalho normal é alarme que ninguém lê quando é de
+  // verdade.
+  t.secao('o toque que não dá certo');
+
+  // Enquanto a folha está aberta, a promessa fica pendurada; um segundo toque
+  // por baixo dela estoura com InvalidStateError. É o toque mais provável que
+  // existe: tocou, não viu nada acontecer, tocou de novo.
+  const doisToques = await pagina.evaluate(async () => {
+    noIOS = () => true; instalado = () => true;
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => true });
+    let n = 0;
+    Object.defineProperty(navigator, 'share', { configurable: true, value: () => {
+      n++;
+      if (n > 1) { const e = new Error('ja'); e.name = 'InvalidStateError'; return Promise.reject(e); }
+      return new Promise(() => {});   // a folha fica aberta, como no iPhone
+    } });
+    mostrarSaida({ nome: 'agenda-fazendajs.ics',
+      blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+      resumo: '2 contas', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    const b = document.getElementById('ag-share');
+    b.click(); b.click();
+    await new Promise(r => setTimeout(r, 60));
+    const p = document.getElementById('ag-como');
+    return { vermelho: p.classList.contains('ag-falhou'), texto: p.textContent, n };
+  });
+  // Duas defesas, e as duas conferidas: o segundo toque nem chega a mexer na
+  // folha que já está aberta, e se chegasse o erro dela não seria lido como
+  // recusa do aparelho. Conferir só a segunda deixava a primeira sem conferidor
+  // nenhum — descoberto devolvendo a trava ao código e vendo a bateria passar.
+  t.conferir('o segundo toque não chega a mexer na folha já aberta',
+    doisToques.n === 1, 'chamadas ao compartilhar: ' + doisToques.n);
+  t.conferir('e o segundo toque do próprio dedo não vira "o aparelho recusou"',
+    !doisToques.vermelho, doisToques.texto.slice(0, 100));
+
+  // Fechar a folha sem escolher nada também não é recusa.
+  const cancelou = await pagina.evaluate(async () => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: () => {
+      const e = new Error('x'); e.name = 'AbortError'; return Promise.reject(e);
+    } });
+    mostrarSaida({ nome: 'agenda-fazendajs.ics',
+      blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+      resumo: '2 contas', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    document.getElementById('ag-share').click();
+    await new Promise(r => setTimeout(r, 60));
+    const p = document.getElementById('ag-como');
+    return { vermelho: p.classList.contains('ag-falhou'), texto: p.textContent };
+  });
+  t.conferir('fechar a folha sem escolher nada também não é recusa',
+    !cancelou.vermelho, cancelou.texto.slice(0, 100));
+
+  // Recusa de verdade: tem de aparecer, tem de dizer o motivo, tem de sumir na
+  // próxima vez, e o botão tem de continuar vivo — a trava do toque duplo solta
+  // no `finally` justamente para isso.
+  const recusou = await pagina.evaluate(async () => {
+    let n = 0, falhar = true;
+    Object.defineProperty(navigator, 'share', { configurable: true, value: () => {
+      n++;
+      if (!falhar) return Promise.resolve();
+      const e = new Error('x'); e.name = 'NotAllowedError'; return Promise.reject(e);
+    } });
+    mostrarSaida({ nome: 'agenda-fazendajs.ics',
+      blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+      resumo: '2 contas', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    const p = document.getElementById('ag-como');
+    document.getElementById('ag-share').click();
+    await new Promise(r => setTimeout(r, 80));
+    const depois = { vermelho: p.classList.contains('ag-falhou'), texto: p.textContent, n };
+    // o botão continua vivo?
+    falhar = false; const antes = n;
+    document.getElementById('ag-share').click();
+    await new Promise(r => setTimeout(r, 60));
+    const vivo = n > antes;
+    // reabrir limpa o vermelho da vez anterior
+    mostrarSaida({ nome: 'agenda-fazendajs.ics',
+      blob: new Blob(['BEGIN:VCALENDAR'], { type: 'text/calendar;charset=utf-8' }),
+      resumo: '2 contas', cru: 'BEGIN:VCALENDAR', ehAgenda: true });
+    return { depois, vivo, limpou: !p.classList.contains('ag-falhou') };
+  });
+  t.conferir('recusa de verdade aparece na tela, com o motivo escrito',
+    recusou.depois.vermelho && /NotAllowedError/.test(recusou.depois.texto),
+    recusou.depois.texto.slice(0, 100));
+  t.conferir('e tentou as duas vezes antes de desistir — arquivo e texto',
+    recusou.depois.n === 2, 'chamadas: ' + recusou.depois.n);
+  t.conferir('o botão continua funcionando depois de uma recusa',
+    recusou.vivo, 'a trava do toque duplo solta sozinha');
+  t.conferir('reabrir a tela apaga o vermelho da vez anterior', recusou.limpou);
+
+  // Sem texto de reserva não há segunda tentativa — e é aí que o aviso quase
+  // ficou de fora, na primeira versão deste conserto: o caminho simplesmente
+  // terminava calado, que é o defeito que eu estava consertando.
+  const semTexto = await pagina.evaluate(async () => {
+    const mandou = [];
+    Object.defineProperty(navigator, 'share', { configurable: true, value: (d) => {
+      mandou.push(Object.keys(d).sort().join(','));
+      const e = new Error('x'); e.name = 'NotAllowedError'; return Promise.reject(e);
+    } });
+    mostrarSaida({ nome: 'vazio.ics',
+      blob: new Blob([''], { type: 'text/calendar;charset=utf-8' }),
+      resumo: 'nada', cru: '', ehAgenda: true });
+    document.getElementById('ag-share').click();
+    await new Promise(r => setTimeout(r, 80));
+    const p = document.getElementById('ag-como');
+    return { mandou, vermelho: p.classList.contains('ag-falhou') };
+  });
+  t.conferir('não oferece um texto vazio para compartilhar',
+    semTexto.mandou.length === 1 && semTexto.mandou[0] === 'files,title',
+    JSON.stringify(semTexto.mandou));
+  t.conferir('e mesmo sem segunda tentativa o aviso aparece — nenhum toque fica calado',
+    semTexto.vermelho);
+
+  // O backup completo passa de dezenas de MB com as notas fiscais dentro. O
+  // texto de reserva já sai da tela acima do limite, pela mesma razão; a
+  // segunda tentativa do compartilhar não seguia essa regra e mandaria o
+  // arquivo inteiro como TEXTO para a folha do aparelho.
+  const gigante = await pagina.evaluate(async () => {
+    const grande = 'x'.repeat(400000);   // o dobro do limite de cópia
+    const mandou = [];
+    Object.defineProperty(navigator, 'share', { configurable: true, value: (d) => {
+      mandou.push(Object.keys(d).sort().join(',') + ':' + (d.text || '').length);
+      const e = new Error('x'); e.name = 'NotAllowedError'; return Promise.reject(e);
+    } });
+    mostrarSaida({ nome: 'backup-fazendajs.json',
+      blob: new Blob([grande], { type: 'application/json;charset=utf-8' }),
+      resumo: 'backup', cru: grande });
+    document.getElementById('ag-share').click();
+    await new Promise(r => setTimeout(r, 120));
+    return { mandou, vermelho: document.getElementById('ag-como').classList.contains('ag-falhou'),
+      reservaNaTela: !document.getElementById('ag-reserva').hidden };
+  });
+  t.conferir('arquivo grande não é oferecido como texto para a folha do aparelho',
+    gigante.mandou.length === 1, JSON.stringify(gigante.mandou));
+  t.conferir('e o limite é o MESMO do texto de reserva, que também sai da tela',
+    !gigante.reservaNaTela && gigante.vermelho,
+    'reserva na tela: ' + gigante.reservaNaTela + ' · avisou: ' + gigante.vermelho);
+
   // ---------- conta que nunca foi para o calendário ----------
   // Abrir a tela para cancelar um lembrete que não existe seria pedir um toque
   // à toa, toda vez que alguém desse baixa.
