@@ -2,7 +2,7 @@
 // Sobe junto com o número no sw.js e no index.html a cada publicação. Fica
 // visível no menu: quando um recurso novo "não aparece", é este número que
 // diz se o aparelho está atrasado ou se o defeito é do aplicativo.
-const VERSAO = 119;
+const VERSAO = 120;
 const $ = id => document.getElementById(id);
 const LS = {
   g: (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
@@ -6664,12 +6664,18 @@ function mostrarSaida({ nome, blob, resumo, cru, ehAgenda, automatico, motivo })
   // O texto acompanha o caminho que ESTE aparelho aceita: prometer a folha de
   // compartilhar a quem vai abrir o arquivo é o mesmo erro de novo, do outro
   // lado.
+  //
+  // E ele fala do "calendário da fazenda", nunca do nome dele. A captura do
+  // dono mostrou o evento entrando num calendário chamado "Fazenda" — a tela de
+  // explicação SUGERE o nome "Fazenda J.S", e ele escolheu outro, que é direito
+  // dele. O aplicativo não cria esse calendário nem consegue ler o nome:
+  // mandá-lo escolher "Fazenda J.S" é mandá-lo procurar o que não existe ali.
   if (ehAgenda) $('ag-passo').textContent = promover
     ? 'O Compartilhar abre a folha do iPhone — ele não vai direto ao Calendário, '
       + 'e isso é do iPhone, não do aplicativo: escolha o Calendário ali dentro, '
-      + 'e dentro dele o calendário Fazenda J.S, e não o pessoal.'
+      + 'e dentro dele o seu calendário da fazenda, e não o pessoal.'
     : 'Ao abrir o arquivo, o aparelho pergunta em qual calendário entrar: '
-      + 'escolha Fazenda J.S, e não o pessoal.';
+      + 'escolha o seu calendário da fazenda, e não o pessoal.';
   // A tela que apareceu sozinha precisa dizer POR QUE apareceu e como fazer
   // parar: tela que surge sem ser chamada e sem saída vira estorvo.
   $('ag-auto').hidden = !automatico;

@@ -244,8 +244,15 @@ export default async function () {
     /não vai direto ao Calendário/.test(passo.texto), passo.texto.slice(0, 110));
   t.conferir('e diz de quem é a exigência, para não virar desconfiança do aplicativo',
     /é do iPhone, não do aplicativo/.test(passo.texto), passo.texto.slice(0, 140));
-  t.conferir('com o calendário certo a escolher: Fazenda J.S, não o pessoal',
-    /Fazenda J\.S, e não o pessoal/.test(passo.texto));
+  t.conferir('com o calendário certo a escolher: o da fazenda, não o pessoal',
+    /seu calendário da fazenda, e não o pessoal/.test(passo.texto));
+  // A captura do dono mostrou o evento entrando num calendário chamado
+  // "Fazenda": a tela de explicação SUGERE "Fazenda J.S" e ele escolheu outro
+  // nome, que é direito dele. O aplicativo não cria esse calendário nem lê o
+  // nome dele — mandar escolher "Fazenda J.S" é mandar procurar o que não
+  // existe no aparelho. O nome pode ser SUGERIDO; não pode ser AFIRMADO.
+  t.conferir('o passo não manda procurar um calendário com nome que o aplicativo não controla',
+    !/Fazenda J\.S/.test(passo.texto), passo.texto.slice(0, 120));
   t.conferir('o passo fica junto do botão, ANTES do diagnóstico, sem rolar a tela',
     passo.visivel && passo.antesDoDiag && passo.logoAposOsBotoes,
     'visível: ' + passo.visivel + ' · antes do diagnóstico: ' + passo.antesDoDiag);
@@ -259,8 +266,20 @@ export default async function () {
     return document.getElementById('ag-passo').textContent;
   });
   t.conferir('quem vai abrir o arquivo não recebe instrução sobre a folha',
-    !/folha do iPhone/.test(passoAbrir) && /Fazenda J\.S/.test(passoAbrir),
+    !/folha do iPhone/.test(passoAbrir) && /calendário da fazenda/.test(passoAbrir),
     passoAbrir.slice(0, 110));
+
+  // O nome sugerido mora num lugar só — o passo que manda CRIAR o calendário.
+  // Em toda instrução de ESCOLHER, a tela fala do calendário da fazenda.
+  const ondeApareceONome = await pagina.evaluate(() => {
+    const m = document.getElementById('modal-agenda');
+    return [...m.querySelectorAll('li, p')]
+      .map(e => e.textContent.replace(/\s+/g, ' ').trim())
+      .filter(x => x.indexOf('Fazenda J.S') >= 0);
+  });
+  t.conferir('o nome aparece uma vez só, e declarado como sugestão',
+    ondeApareceONome.length === 1 && /sugest/.test(ondeApareceONome[0]),
+    JSON.stringify(ondeApareceONome).slice(0, 180));
 
   // ---------- o aparelho que não responde ----------
   //
