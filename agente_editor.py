@@ -11,7 +11,8 @@ Fluxo:
 Requisitos:
   - Python 3.10+
   - ffmpeg e ffprobe no PATH (com libass, que vem na maioria das builds)
-  - pip install anthropic faster-whisper
+  - pip install anthropic faster-whisper "av<16"
+    (o av 19 quebra o faster-whisper 1.2.1: "unexpected keyword argument metadata_errors")
   - variável de ambiente ANTHROPIC_API_KEY com sua chave da API
 
 Uso:
