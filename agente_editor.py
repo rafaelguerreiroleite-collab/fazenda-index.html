@@ -327,6 +327,9 @@ FERRAMENTAS = [
                           "description": "'cortado': o áudio acompanha cada clipe (vídeo falado). "
                                          "'continuo': a trilha toca do início sem cortes (vídeo só "
                                          "com música). Padrão: cortado se há fala, continuo se não há."},
+                "legendas": {"type": "boolean",
+                             "description": "false = não queimar legendas (use quando o vídeo já tem "
+                                            "texto ou print na parte de baixo da tela). Padrão: true."},
                 "gancho": {"type": "string",
                            "description": "Texto curto (até 6 palavras) no topo nos primeiros 2,5 s. Opcional."},
             },
@@ -351,12 +354,13 @@ def aplicar_timeline(ctx, timeline, saida, previa):
         raise ValueError("Nenhum clipe válido. " + " ".join(avisos))
     gancho = (timeline.get("gancho") or "").strip()
     audio = timeline.get("audio") or ("cortado" if ctx.palavras else "continuo")
-    renderizar(ctx.video, clipes, gerar_ass(clipes, ctx.palavras, gancho), ctx.trabalho, saida, previa,
-               audio_continuo=(audio == "continuo"))
+    legendas = timeline.get("legendas", True) is not False
+    ass = gerar_ass(clipes, ctx.palavras if legendas else [], gancho)
+    renderizar(ctx.video, clipes, ass, ctx.trabalho, saida, previa, audio_continuo=(audio == "continuo"))
     total = sum(c["fim"] - c["inicio"] for c in clipes)
     if ctx.alvo and abs(total - ctx.alvo) / ctx.alvo > 0.2:
         avisos.append(f"Duração {total:.1f}s está fora do alvo de {ctx.alvo}s (±20%).")
-    return {"clipes": clipes, "gancho": gancho, "audio": audio}, total, avisos
+    return {"clipes": clipes, "gancho": gancho, "audio": audio, "legendas": legendas}, total, avisos
 
 
 def executar_ferramenta(nome, entrada, ctx):
@@ -412,6 +416,8 @@ Regras de edição:
 - Nunca corte no meio de uma frase ou de uma ideia.
 - Se houver chamada para ação (link, carrinho, cupom), mantenha no fim.
 - O texto de gancho é opcional e tem no máximo 6 palavras.
+- Se o vídeo já tem texto ou print na parte de baixo, use "legendas": false para não cobrir.
+- Corte telas finais de outros apps (logo do TikTok, @ do perfil) se aparecerem no fim.
 - Trechos só de imagem (produto em close, demonstração sem fala) podem entrar com "visual": true.
 
 Processo: leia a transcrição; use 'palavras' para cortes finos e 'ver_quadros' para saber o que aparece na tela; chame 'propor_timeline'; revise a folha de quadros e os avisos; ajuste se precisar (no máximo {MAX_PREVIAS} prévias); depois chame 'finalizar'."""
