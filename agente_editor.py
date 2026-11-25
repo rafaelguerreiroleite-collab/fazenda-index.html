@@ -81,28 +81,45 @@ def sondar(video):
     return duracao, tem_audio
 
 
-def renderizar(video, clipes, ass_texto, trabalho, saida, previa):
-    """Corta os clipes na ordem da lista, reenquadra para 9:16 e queima as legendas."""
+def renderizar(video, clipes, ass_texto, trabalho, saida, previa, audio_continuo=False):
+    """Corta os clipes na ordem da lista, reenquadra para 9:16 e queima as legendas.
+
+    audio_continuo=True (vídeo só com música): a imagem é cortada, mas a trilha
+    toca do começo sem cortes e termina com fade, para a música não dar saltos.
+    """
     nome_ass = "legendas_previa.ass" if previa else "legendas_final.ass"
     (trabalho / nome_ass).write_text(ass_texto, encoding="utf-8")
     w, h = (540, 960) if previa else (LARGURA, ALTURA)
     # recorte central 9:16, funciona para vídeo deitado ou em pé
     crop = r"crop=min(iw\,ih*9/16):min(ih\,iw*16/9)"
+    total = sum(c["fim"] - c["inicio"] for c in clipes)
 
     cmd = ["ffmpeg", "-y", "-hide_banner"]
     for c in clipes:
         cmd += ["-ss", f"{c['inicio']:.3f}", "-t", f"{c['fim'] - c['inicio']:.3f}", "-i", video]
+    if audio_continuo:
+        cmd += ["-t", f"{total:.3f}", "-i", video]
 
     partes, rotulos = [], ""
     for i, c in enumerate(clipes):
         dur = c["fim"] - c["inicio"]
-        partes.append(f"[{i}:v]setpts=PTS-STARTPTS,{crop},scale={w}:{h},setsar=1,fps=30[v{i}]")
+        partes.append(f"[{i}:v]setpts=PTS-STARTPTS,{crop},scale={w}:{h}:flags=lanczos,"
+                      f"setsar=1,fps=30[v{i}]")
+        if audio_continuo:
+            rotulos += f"[v{i}]"
+            continue
         # fade de 15 ms nas pontas de cada clipe evita o "clique" no corte do áudio
         partes.append(f"[{i}:a]asetpts=PTS-STARTPTS,"
                       f"aformat=sample_rates=48000:channel_layouts=stereo,"
                       f"afade=t=in:d=0.015,afade=t=out:st={max(0.0, dur - 0.015):.3f}:d=0.015[a{i}]")
         rotulos += f"[v{i}][a{i}]"
-    partes.append(f"{rotulos}concat=n={len(clipes)}:v=1:a=1[vc][ac]")
+    if audio_continuo:
+        fade = min(0.8, total / 4)
+        partes.append(f"{rotulos}concat=n={len(clipes)}:v=1:a=0[vc]")
+        partes.append(f"[{len(clipes)}:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+                      f"afade=t=out:st={total - fade:.3f}:d={fade:.3f}[ac]")
+    else:
+        partes.append(f"{rotulos}concat=n={len(clipes)}:v=1:a=1[vc][ac]")
     partes.append(f"[vc]subtitles=filename={nome_ass}[vout]")
 
     cmd += ["-filter_complex", ";".join(partes), "-map", "[vout]", "-map", "[ac]",
@@ -116,6 +133,15 @@ def folha_de_contato(video, destino, duracao, n=8):
     rodar(["ffmpeg", "-y", "-hide_banner", "-i", video,
            "-vf", f"fps={n / max(duracao, 0.1):.5f},scale=270:480,tile=4x2",
            "-frames:v", "1", "-q:v", "4", destino])
+
+
+def folha_original(video, destino, duracao, n=40):
+    """n quadros do original em grade 8 colunas; o quadro k está em k*intervalo segundos."""
+    intervalo = max(duracao, 0.1) / n
+    rodar(["ffmpeg", "-y", "-hide_banner", "-i", video,
+           "-vf", f"fps={1 / intervalo:.5f},scale=120:-2,tile=8x{(n + 7) // 8}",
+           "-frames:v", "1", "-q:v", "4", destino])
+    return intervalo
 
 
 def extrair_quadros(video, tempos, trabalho):
@@ -190,9 +216,9 @@ def ajustar_clipes(clipes, palavras, duracao):
             continue
 
         dentro = [w for w in palavras if w.inicio >= s and w.fim <= e]
-        if not dentro:
+        if not dentro and palavras and not c.get("visual"):
             avisos.append(f"Clipe {i} ({s:.2f}-{e:.2f}) não tem fala.")
-        elif dentro[-1].texto[-1:] not in ".!?…":
+        elif dentro and dentro[-1].texto[-1:] not in ".!?…":
             avisos.append(f"Clipe {i} termina em '{dentro[-1].texto}' sem ponto final: confira se a ideia ficou completa.")
         novo = {"inicio": s, "fim": e}
         if c.get("visual"):
@@ -297,6 +323,10 @@ FERRAMENTAS = [
                                    "visual": {"type": "boolean",
                                               "description": "true = não encaixar nas palavras."}},
                     "required": ["inicio", "fim"]}},
+                "audio": {"type": "string", "enum": ["cortado", "continuo"],
+                          "description": "'cortado': o áudio acompanha cada clipe (vídeo falado). "
+                                         "'continuo': a trilha toca do início sem cortes (vídeo só "
+                                         "com música). Padrão: cortado se há fala, continuo se não há."},
                 "gancho": {"type": "string",
                            "description": "Texto curto (até 6 palavras) no topo nos primeiros 2,5 s. Opcional."},
             },
@@ -320,11 +350,13 @@ def aplicar_timeline(ctx, timeline, saida, previa):
     if not clipes:
         raise ValueError("Nenhum clipe válido. " + " ".join(avisos))
     gancho = (timeline.get("gancho") or "").strip()
-    renderizar(ctx.video, clipes, gerar_ass(clipes, ctx.palavras, gancho), ctx.trabalho, saida, previa)
+    audio = timeline.get("audio") or ("cortado" if ctx.palavras else "continuo")
+    renderizar(ctx.video, clipes, gerar_ass(clipes, ctx.palavras, gancho), ctx.trabalho, saida, previa,
+               audio_continuo=(audio == "continuo"))
     total = sum(c["fim"] - c["inicio"] for c in clipes)
     if ctx.alvo and abs(total - ctx.alvo) / ctx.alvo > 0.2:
         avisos.append(f"Duração {total:.1f}s está fora do alvo de {ctx.alvo}s (±20%).")
-    return {"clipes": clipes, "gancho": gancho}, total, avisos
+    return {"clipes": clipes, "gancho": gancho, "audio": audio}, total, avisos
 
 
 def executar_ferramenta(nome, entrada, ctx):
@@ -392,9 +424,22 @@ def executar_agente(ctx, frases, objetivo, estilo, modelo):
     import anthropic
     cliente = anthropic.Anthropic()
     sistema = montar_sistema(objetivo, ctx.alvo, estilo)
-    transcricao = "\n".join(f"[{s:.2f}-{e:.2f}] {t}" for s, e, t in frases)
-    msgs = [{"role": "user",
-             "content": f"Transcrição do vídeo ({ctx.duracao:.1f}s):\n{transcricao}\n\nEdite este vídeo."}]
+    if frases:
+        transcricao = "\n".join(f"[{s:.2f}-{e:.2f}] {t}" for s, e, t in frases)
+        inicial = f"Transcrição do vídeo ({ctx.duracao:.1f}s):\n{transcricao}\n\nEdite este vídeo."
+    else:
+        folha = ctx.trabalho / "folha_original.jpg"
+        intervalo = folha_original(ctx.video, folha, ctx.duracao)
+        inicial = [
+            {"type": "text", "text":
+                f"Este vídeo ({ctx.duracao:.1f}s) NÃO tem fala: só música/efeitos. Edite pelas imagens. "
+                f"A folha abaixo tem 40 quadros em 8 colunas, lidos da esquerda para a direita e de cima "
+                f"para baixo; o quadro k (começando em 0) está em {intervalo:.2f}*k segundos. "
+                "Corte entre cenas (quando um texto já sumiu), não no meio de uma animação. "
+                "Se o vídeo já tem textos na tela, não use gancho por cima deles. "
+                "Use audio='continuo' para a música não dar saltos. Edite este vídeo."},
+            imagem_b64(folha)]
+    msgs = [{"role": "user", "content": inicial}]
 
     for _ in range(MAX_RODADAS):
         resp = cliente.messages.create(model=modelo, max_tokens=8192, system=sistema,
@@ -451,11 +496,11 @@ def main():
 
     duracao, tem_audio = sondar(video)
     if not tem_audio:
-        sys.exit("O vídeo não tem áudio; este agente edita pela fala.")
+        sys.exit("O vídeo não tem trilha de áudio; este agente precisa de uma.")
 
     palavras, frases = transcrever(video, trabalho, a.whisper, a.idioma)
     if not palavras:
-        sys.exit("Nenhuma fala detectada na transcrição.")
+        print("Nenhuma fala detectada: editando pelas imagens, com a música contínua.")
     ctx = Contexto(video, palavras, duracao, trabalho, saida, a.duracao)
 
     if a.timeline:
