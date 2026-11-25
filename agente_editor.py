@@ -241,7 +241,7 @@ def limpar_ass(texto):
     return texto.replace("\\", "").replace("{", "(").replace("}", ")").replace("\n", " ")
 
 
-def gerar_ass(clipes, palavras, gancho):
+def gerar_ass(clipes, palavras, gancho, cta=""):
     eventos, acc = [], 0.0
     for c in clipes:
         ws = [w for w in palavras if w.inicio >= c["inicio"] - 0.01 and w.fim <= c["fim"] + 0.01]
@@ -282,6 +282,9 @@ def gerar_ass(clipes, palavras, gancho):
     if gancho:
         linhas.append(f"Dialogue: 1,{tempo_ass(0)},{tempo_ass(min(2.5, acc))},Gancho,,0,0,0,,"
                       f"{limpar_ass(gancho.upper())}")
+    if cta:
+        linhas.append(f"Dialogue: 1,{tempo_ass(max(0.0, acc - 3.0))},{tempo_ass(acc)},Gancho,,0,0,0,,"
+                      f"{limpar_ass(cta.upper())}")
     for s, e, txt in eventos:
         linhas.append(f"Dialogue: 0,{tempo_ass(s)},{tempo_ass(e)},Legenda,,0,0,0,,"
                       f"{limpar_ass(txt.upper())}")
@@ -330,6 +333,9 @@ FERRAMENTAS = [
                 "legendas": {"type": "boolean",
                              "description": "false = não queimar legendas (use quando o vídeo já tem "
                                             "texto ou print na parte de baixo da tela). Padrão: true."},
+                "cta": {"type": "string",
+                        "description": "Texto de chamada (ex.: 'Toque no carrinho') no topo nos últimos 3 s. "
+                                       "Use se a fala não termina com um CTA claro. Opcional."},
                 "gancho": {"type": "string",
                            "description": "Texto curto (até 6 palavras) no topo nos primeiros 2,5 s. Opcional."},
             },
@@ -355,12 +361,14 @@ def aplicar_timeline(ctx, timeline, saida, previa):
     gancho = (timeline.get("gancho") or "").strip()
     audio = timeline.get("audio") or ("cortado" if ctx.palavras else "continuo")
     legendas = timeline.get("legendas", True) is not False
-    ass = gerar_ass(clipes, ctx.palavras if legendas else [], gancho)
+    cta = (timeline.get("cta") or "").strip()
+    ass = gerar_ass(clipes, ctx.palavras if legendas else [], gancho, cta)
     renderizar(ctx.video, clipes, ass, ctx.trabalho, saida, previa, audio_continuo=(audio == "continuo"))
     total = sum(c["fim"] - c["inicio"] for c in clipes)
     if ctx.alvo and abs(total - ctx.alvo) / ctx.alvo > 0.2:
         avisos.append(f"Duração {total:.1f}s está fora do alvo de {ctx.alvo}s (±20%).")
-    return {"clipes": clipes, "gancho": gancho, "audio": audio, "legendas": legendas}, total, avisos
+    return {"clipes": clipes, "gancho": gancho, "audio": audio, "legendas": legendas,
+            "cta": cta}, total, avisos
 
 
 def executar_ferramenta(nome, entrada, ctx):
